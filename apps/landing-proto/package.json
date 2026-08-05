@@ -1,0 +1,10 @@
+{
+  "name": "@marginguard/landing-proto",
+  "version": "0.1.0",
+  "private": true,
+  "description": "D · 랜딩 와이어프레임(역산 슬라이더) — 계산은 packages/engine을 직접 import. Phase 1 산출물, C의 apps/web(Next.js)으로 이식 예정",
+  "scripts": {
+    "build": "npx -y esbuild src/main.ts --bundle --outfile=dist/bundle.js",
+    "dev": "npx -y esbuild src/main.ts --bundle --outfile=dist/bundle.js --watch"
+  }
+}
