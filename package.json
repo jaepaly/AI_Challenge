@@ -1,0 +1,13 @@
+{
+  "name": "marginguard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "마진가드(MarginGuard) — 반대매매 한계선 사전 진단. 2026 금융 AI Challenge",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "test": "npm run test -w packages/engine"
+  }
+}
