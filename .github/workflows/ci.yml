@@ -6,8 +6,8 @@ on:
   pull_request:
 
 jobs:
-  engine-golden:
-    name: 엔진 골든 테스트
+  test:
+    name: 테스트 (전 워크스페이스)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,4 +16,19 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # packages/engine 골든 테스트 + apps/web TR_ID 가드 테스트를 모두 돌린다.
+      # 가드 테스트가 통째로 사라지면 vitest가 "no tests found"로 실패하므로,
+      # 가드 제거 자체도 여기서 걸린다.
       - run: npm test
+
+  build:
+    name: 빌드 (전 워크스페이스)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build

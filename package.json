@@ -8,6 +8,7 @@
     "apps/*"
   ],
   "scripts": {
-    "test": "npm run test -w packages/engine"
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
   }
 }
