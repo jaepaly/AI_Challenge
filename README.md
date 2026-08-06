@@ -125,7 +125,7 @@ uvicorn app.main:app --reload --port 8000        # http://localhost:8000/health 
 | Day | 작업 | 상세 |
 |---|---|---|
 | 1 | **Next.js 생성** | repo 루트에서 `npx create-next-app@latest apps/web --ts --app --eslint` (Tailwind는 D와 상의해 선택). 생성 후 루트에서 `npm install`로 워크스페이스 연결 확인 |
-| 1~2 | **TR_ID 가드 (최우선·필수)** | KIS는 도메인만 바꾸면 **실계좌로 주문이 나간다.** 설정 로더에 가드: `KIS_ENV=vps`(모의)일 때 TR_ID가 `V`로 시작하지 않으면 예외를 던지고 호출 자체를 차단. **이 가드는 누구도, 어떤 이유로도 제거 금지.** `apps/web/lib/kis/guard.ts`로 만들고 단위 테스트 1개 붙일 것 |
+| 1~2 | **TR_ID 가드 (최우선·필수)** | KIS는 도메인만 바꾸면 **실계좌로 주문이 나간다.** 단순 `V` prefix 검사가 아니라 **레지스트리 기반 deny-by-default**로 구현한다(이슈 #4에서 정정 — 시세 `FHKST01010100`은 실전·모의 공용이라 V 변형이 없음): ① 우리가 쓰는 TR_ID를 `{용도, 카테고리(transactional\|market_data), 실전ID, 모의ID}` 레지스트리에 등록 — **레지스트리에 없는 TR_ID는 환경 불문 차단** ② `KIS_ENV=vps`: transactional은 모의(V계열)만 허용, market_data는 공용 F계열 허용 ③ `KIS_ENV=prod`: **transactional 전면 차단**(대회 기간 실전 거래는 어떤 경우에도 없다 — 실전 키는 시세 백업 용도뿐), market_data만 허용 ④ 도메인·TR_ID를 `KIS_ENV` 한 곳에서 파생시켜 셋이 어긋날 수 없게. **이 가드는 누구도, 어떤 이유로도 제거 금지.** `apps/web/lib/kis/guard.ts` + 단위 테스트(카테고리별 차단 케이스 포함) |
 | 2~4 | **BFF 프록시** | `/api/kis/*` 라우트로 KIS 4엔드포인트 관통: **토큰 발급 → 국내주식 시세 → 매수가능조회 → 잔고**. 프록시가 필수인 이유: KIS는 CORS preflight에 501을 던져 브라우저 직접 호출이 100% 불가. 구현 요건 — ① 토큰 캐시(24h 유효, 재발급 6h 제한 규칙 준수: 파일/메모리 캐시로 중복 발급 차단) ② **레이트리미터 큐**(모의는 초당 1건 — 화면 하나에서 병렬 호출하는 설계는 즉시 깨진다. 큐 + 100~150ms 텀 + `EGW00201` 백오프) |
 | 4~6 | **배포·CI** | Vercel 프로젝트 연결(apps/web), 프리뷰 URL 발급. CI는 이미 있음(.github/workflows/ci.yml) — apps/web 빌드 잡 추가. **웹소켓은 Phase 2** (KIS는 ws만 지원 → HTTPS 페이지에서 Mixed Content 차단 → 서버 중계 필요하다는 것만 미리 알아둘 것) |
 
