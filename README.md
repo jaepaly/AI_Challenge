@@ -29,7 +29,7 @@
 | 날짜 | 무엇 | 성격 |
 |---|---|---|
 | **8/5(수)~8/10(일)** | **Phase 1** (이 문서의 매뉴얼) — 8/10 저녁 게이트 리뷰 | 팀 내부 |
-| 8/11~8/17 | Phase 2: 조건카드+계기판 결합, **8/17 통합 게이트**(원계획 W2 게이트 + "지목한 약관→60초 카드" 마일스톤) | 팀 내부 |
+| 8/11~8/17 | Phase 2: 조건카드+계기판 결합, **8/17 통합 게이트**(원계획 W2 게이트 + "지목한 약관→60초 카드" 마일스톤 + **B의 첫 API 실행 — 2패스 종단 1회**, §5-B-3) | 팀 내부 |
 | **8/24(월)** | **중단 판정선** — ①코어 3출력 1사 골든 통과 ②역사 재현 데모 동작 ③외부 의존 해소. 미달 시 확장 기능 드롭 (절단 순서: ETF 끌림 → 가상자산 보정 → 스크린샷 인식) | 불변 |
 | **9/7(월) 10:00** | **제출 마감** (기획서+기능명세서 PDF + 배포 URL) | 불변 |
 | 9/7 11:00~9/11 23:59 | **배포 URL 무중단 심사 기간** — 스냅숏 모드 기본값 | 불변 |
@@ -130,13 +130,49 @@ uvicorn app.main:app --reload --port 8000        # http://localhost:8000/health 
 - **`--bare` 모드는 OAuth를 읽지 않는다** → 구독으로 안 되고 `ANTHROPIC_API_KEY`가 필수다. 구독으로 쓰려면 bare 없이 실행할 것. 대신 bare가 아니면 CLAUDE.md·훅·MCP가 로드되어 결과가 환경마다 달라질 수 있으니, **프롬프트 개발용으로만 쓰고 최종 검증은 API 경로로** 한 번 돌린다.
 - **CLI를 서비스 백엔드로 쓰는 것은 금지에 해당한다.** Agent SDK 문서 명문: *"Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products."* 심사위원 요청을 우리 구독으로 처리하는 건 정확히 이 경우다. **배포 백엔드는 API 키만 쓴다.**
 
-#### 5-B-2. 근거 좌표 — citations 기능을 먼저 검토할 것
+#### 5-B-2. 근거 좌표 — citations를 쓴다. 2패스로 확정
 
-document 블록에 `citations: {enabled: true}`를 켜면 응답이 **`cited_text` + `page_location`(시작/끝 페이지)** 를 네이티브로 돌려준다. LLM에게 문자 오프셋을 자가 보고시키는 것보다 신뢰도가 훨씬 높다 — 4중 방어 ①의 근본 해법이다.
+document 블록에 `citations: {enabled: true}`를 켜면 응답이 **`cited_text` + 위치**를 네이티브로 돌려준다. LLM에게 좌표를 자가 보고시키는 것보다 신뢰도가 훨씬 높다 — 4중 방어 ①의 근본 해법이므로 **citations를 쓴다.**
 
-**단 함정 2개:**
-1. **citations는 `output_config.format`(structured outputs)와 병용 불가 — 400이 난다.** 2패스(1패스 citations로 인용·페이지 확보 → 2패스 구조화)로 풀거나, strict tool use로 우회 가능한지 스파이크에서 확인할 것.
-2. citations는 **페이지 단위**라 현재 `EvidenceSpan`의 `start`/`end`(문자 오프셋)를 채우지 못한다. 인용문을 추출 텍스트에서 역탐색해 오프셋을 계산하든, 스키마를 페이지 단위로 완화하든 **B가 정하고 스키마 변경 PR을 올린다**(경계 타입이므로 전원 승인).
+**⚠ 입력 형태가 좌표 형태를 결정한다 — 이게 1~2일차 스파이크의 진짜 쟁점이다.**
+
+| document 블록에 넣는 것 | citations가 주는 위치 | 현재 `EvidenceSpan` |
+|---|---|---|
+| **pypdf로 뽑은 텍스트** (plain text) | **`char_location`** — `start_char_index` / `end_char_index` | **그대로 맞음. 스키마 변경 0** |
+| **PDF 원본** (base64) | `page_location` — `start_page_number` / `end_page_number` (1-indexed) | `start`/`end`를 못 채움 → **스키마 PR 필요** |
+
+즉 파싱 스파이크의 표 재현율 비교는 단순한 품질 비교가 아니라 **스키마가 바뀌느냐 마느냐를 가르는 분기**다.
+- pypdf가 표를 살리면 → 스키마 변경 없음 + citations 그대로 + Phase 1 API 0회, 셋이 한꺼번에 풀린다
+- pypdf가 표에서 깨져 PDF 직접 투입으로 가면 → `EvidenceSpan`에 페이지 필드를 넣고 `start`/`end`를 선택 항목으로 완화하는 **PR 필요**(경계 타입 = 전원 승인). 인용문을 추출 텍스트에서 역탐색해 오프셋을 복원하는 절충도 가능
+
+**파이프라인은 2패스로 확정한다.** citations는 `output_config.format`(structured outputs)와 **병용 불가 — 400이 문서에 명시**돼 있다. 그러므로 ①1패스에서 citations로 인용·좌표 확보 → ②2패스에서 구조화. strict tool use로 1패스가 되는지는 **최적화 항목**이지 블로커가 아니다 — 2패스로 먼저 세우고, 나중에 확인해서 되면 줄인다.
+
+#### 5-B-3. API 첫 실행 시점 — 8/17, 그보다 미루지 말 것
+
+Phase 1은 **API 호출 0회**로 완주한다. 위 두 결정(2패스 / 좌표 형태)이 전부 문서 근거로 나왔으므로 스파이크에 API가 필요 없다.
+
+| 시점 | API 사용 | 비용 |
+|---|---|---|
+| Phase 1 (~8/10) | **0회** — CLI로 프롬프트, 스키마는 문서 근거로 확정 | 0원 |
+| **8/17 통합 게이트** | **첫 실행** — 2패스 종단 1회 확인 | ~2천원 |
+| W3~W4 | 프롬프트 동결 후 카드 사전 계산 배치 | 1회, 수천 원 |
+| W5 (C) | 배포 환경변수 + spend limit + 레이트 리밋 (§8) | — |
+| 9/6 | 잔액 확인·충전 | — |
+
+⚠ **가드레일: 첫 API 실행을 8/17보다 뒤로 미루지 않는다.** 2패스를 한 번도 돌려보지 않고 설계만 해둔 채 9월에 가면 문제가 있어도 고칠 시간이 없다. 2천원짜리 보험이다.
+
+💡 키 발급 시 **콘솔에 무료 크레딧이 붙는지 먼저 확인할 것** — 있으면 8/17 스파이크와 사전 계산 배치까지 덮일 수 있다.
+
+**프로바이더 2개 구조** — 교체를 마지막 이벤트가 아니라 설정 플래그로 만든다:
+
+```
+services/ingest/app/providers/
+  base.py   # ExtractProvider 프로토콜 — extract(doc, prompt) -> raw_json
+  cli.py    # subprocess: claude -p --output-format json --json-schema  (개발 기본값)
+  api.py    # anthropic SDK: document 블록 + citations             (배포)
+```
+
+`INGEST_PROVIDER=cli|api`. CLI는 **프롬프트 문구 반복 전용**이고, 추출 배관·인용 검증은 API 경로에서만 유효하다 — CLI에는 citations가 없다.
 
 ---
 
@@ -186,7 +222,7 @@ document 블록에 `citations: {enabled: true}`를 켜면 응답이 **`cited_tex
 | # | 게이트 | 담당 |
 |---|---|---|
 | 1 | 엔진 골든 green + `replay` 경로 시뮬 + 신선도 게이트 | A 김재현 |
-| 2 | 한투 약관 → ConditionCard(draft, 근거좌표 완비, 스키마 valid) | B 서승기 |
+| 2 | 한투 약관 → ConditionCard(draft, 근거좌표 완비, 스키마 valid) — **CLI 프로바이더로. API 호출 0회** + 파싱 경로 분기 결정(§5-B-2) 보고 | B 서승기 |
 | 3 | 모의 API 4엔드포인트 프록시 관통 + TR_ID 가드 + Vercel 프리뷰 URL | C 이예찬 |
 | 4 | 랜딩·계기판 mock 렌더 + 첨부1 이식 50% + 3사 확정 | D 박재현 |
 

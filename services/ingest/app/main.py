@@ -9,10 +9,12 @@ document 블록으로 전달(base64). 약관의 비율·할인율은 대부분 �
 pypdf는 표에서 깨지므로, 두 경로의 표 재현율을 비교한 뒤 고른다.
 
 4중 방어 — 어느 하나라도 실패하면 카드 전체 거부:
-  1) 근거 좌표: 모든 수치에 EvidenceSpan(페이지+문자 스팬+인용) 필수.
-     ※ document 블록의 citations 기능이 cited_text + page_location을 네이티브로
-       주므로 자가 보고보다 신뢰도가 높다. 단 structured outputs와 병용 불가(400)이고
-       페이지 단위라 문자 오프셋이 없다 — 해소 방식은 README 5-B-2 참조
+  1) 근거 좌표: 모든 수치에 EvidenceSpan(문자 스팬+인용) 필수 — citations로 확보한다.
+     ※ 입력 형태가 좌표 형태를 정한다: 추출 텍스트를 plain-text document로 넣으면
+       char_location(start/end 문자 인덱스, 현 스키마와 일치), PDF 원본을 넣으면
+       page_location(페이지 번호, 스키마 PR 필요). README 5-B-2 참조
+     ※ citations는 structured outputs와 병용 불가(400) → 2패스로 확정:
+       ①citations로 인용·좌표 확보 → ②구조화
   2) 스키마 검증: schemas/condition_card.schema.json (jsonschema) + Pydantic
   3) 수치 범위: r 1.0~2.0, h 0~0.35 — 범위 밖 = 추출 오류
   4) 오염 방어: PDF 본문에 지시문(프롬프트 인젝션)이 있어도 데이터로만 취급.
