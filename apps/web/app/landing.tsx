@@ -8,7 +8,7 @@
  *  - 7월 연쇄는 engine.replay()가 낸 ReplayStep[]을 그대로 렌더한다(집행·원장 갱신 포함).
  *  - 담보비율 3단 규칙(PR #2 합의): 판정=원시값(engine) / 골든 재현=사사오입 / 표시=내림.
  */
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   equalShockLambda,
   liquidationQty,
@@ -18,6 +18,7 @@ import {
   shortfall,
   type ReplayStep,
 } from "@marginguard/engine";
+import { cardH } from "../lib/marginguard/card";
 import {
   ACCOUNT,
   CARDS,
@@ -32,13 +33,6 @@ import {
   roundTick,
   won,
 } from "../lib/marginguard/snapshot";
-
-/** 카드에서 h를 읽는다 — lower_limit는 하한가(−30%) 등가로 처리(엔진 replay와 동일 규약) */
-function cardH(card: (typeof CARDS)[number]["card"]): number {
-  const rule = card.disposal_price_rules[0];
-  if (!rule) return 0;
-  return rule.discount_basis === "lower_limit" ? 0.3 : (rule.discount_rate ?? 0);
-}
 
 /** 임계가 = engine.shortfall이 0이 되는 최소 가격. 엔진을 오라클로 이분 탐색 */
 function thresholdPrice(): number {
@@ -61,16 +55,21 @@ export default function Landing() {
 
   const preset = CARDS.find((c) => c.key === cardKey)!;
   const h = cardH(preset.card);
+  const hUnknown = h === null; // 조건카드 불완전 — 수량을 추정하지 않는다
   const pStar = useMemo(thresholdPrice, []);
+
+  // 언마운트 시 재현 타이머 정리
+  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
 
   /* ── 엔진 산출 ─────────────────────────────────────────────── */
   const V = ACCOUNT.qty * price;
   const D = shortfall(V, ACCOUNT.loan, ACCOUNT.requiredRatio);
   const breached = D > 0;
 
-  const liq = breached
-    ? liquidationQty({ D, prevClose: price, r: ACCOUNT.requiredRatio, h, held: ACCOUNT.qty })
-    : null;
+  const liq =
+    breached && h !== null
+      ? liquidationQty({ D, prevClose: price, r: ACCOUNT.requiredRatio, h, held: ACCOUNT.qty })
+      : null;
   const paths = breached
     ? resolutionPaths({
         D,
@@ -85,23 +84,22 @@ export default function Landing() {
   const shown = displayRatio(V, ACCOUNT.loan); // 표시 = 내림
   const engineRatio = marginRatioPct(V, ACCOUNT.loan); // 골든 재현 = 사사오입
 
-  const compare = CARDS.map((c) => ({
-    key: c.key,
-    label: c.label,
-    qty: breached
-      ? liquidationQty({
-          D,
-          prevClose: price,
-          r: ACCOUNT.requiredRatio,
-          h: cardH(c.card),
-          held: ACCOUNT.qty,
-        })
-      : null,
-  }));
+  const compare = CARDS.map((c) => {
+    const ch = cardH(c.card);
+    return {
+      key: c.key,
+      label: c.label,
+      unknown: ch === null,
+      qty:
+        breached && ch !== null
+          ? liquidationQty({ D, prevClose: price, r: ACCOUNT.requiredRatio, h: ch, held: ACCOUNT.qty })
+          : null,
+    };
+  });
 
   /* ── 7월 연쇄 — engine.replay() ─────────────────────────────── */
   function playJuly() {
-    if (timer.current) return;
+    if (timer.current || hUnknown) return; // hUnknown이면 engine.replay가 throw한다
     const result = replay(positions(PRICE_START), ledger(), JULY_SEQ, preset.card);
     setSteps(result);
     setCursor(0);
@@ -234,6 +232,32 @@ export default function Landing() {
           </div>
         </section>
 
+        {breached && hUnknown && (
+          <section id="liqBox" aria-label="반대매매 산정">
+            <h2>이대로면 — 산정 불가</h2>
+            <span className="mode full">
+              조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다
+            </span>
+            <div className="note">
+              담보부족액 {won(D)}은 확정입니다. 부족액은 유지비율만으로 정해지고, 처분 수량만 회사별
+              산정 기준가에 달려 있습니다. 카드를 검증해 채운 뒤 다시 보세요.
+            </div>
+          </section>
+        )}
+
+        {breached && hUnknown && (
+          <section id="liqBox" aria-label="반대매매 산정">
+            <h2>이대로면 — 산정 불가</h2>
+            <span className="mode full">
+              조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다
+            </span>
+            <div className="note">
+              담보부족액 {won(D)}은 확정입니다. 부족액은 유지비율만으로 정해지고, 처분 수량만 회사별
+              산정 기준가에 달려 있습니다. 카드를 검증해 채운 뒤 다시 보세요.
+            </div>
+          </section>
+        )}
+
         {breached && liq && paths && (
           <section id="liqBox" aria-label="반대매매 산정">
             <h2>이대로면 — 약관 산정 방식의 재현값</h2>
@@ -251,7 +275,15 @@ export default function Landing() {
               {compare.map((c) => (
                 <span key={c.key}>
                   {c.label}{" "}
-                  <b>{c.qty ? (c.qty.mode === "FULL" ? "전량" : `${c.qty.qty.toLocaleString()}주`) : "—"}</b>
+                  <b>
+                    {c.unknown
+                      ? "산정 불가"
+                      : c.qty
+                        ? c.qty.mode === "FULL"
+                          ? "전량"
+                          : `${c.qty.qty.toLocaleString()}주`
+                        : "—"}
+                  </b>
                 </span>
               ))}
               <span style={{ borderStyle: "dashed" }}>같은 부족액, 회사만 다를 때</span>
@@ -293,9 +325,19 @@ export default function Landing() {
             재관통까지 따라갑니다.
           </span>
           <br />
-          <button id="julyBtn" type="button" onClick={playJuly} disabled={timer.current !== null}>
+          <button
+            id="julyBtn"
+            type="button"
+            onClick={playJuly}
+            disabled={timer.current !== null || hUnknown}
+          >
             ▶ 7월 연쇄 재현 (7/7 → 7/29)
           </button>
+          {hUnknown && (
+            <span className="note">
+              이 조건카드는 산정 기준가 규칙이 불완전해 재현할 수 없습니다 — 값을 추정하지 않습니다
+            </span>
+          )}
 
           {steps && (
             <div className="replay">
