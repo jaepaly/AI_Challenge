@@ -108,11 +108,22 @@ describe("입력 오류 — 조용히 강등하지 않고 throw", () => {
     expect(() => assessCardFreshness(makeCard(), new Date("invalid"))).toThrow(TypeError);
   });
 
-  it("verified 카드의 verified_at 파싱 불가 → TypeError", () => {
-    // ※ "심사필-2026" 같은 문자열은 V8 레거시 파서가 연도만 뽑아 파싱해버린다(NaN 아님).
-    //   여기서는 숫자가 전혀 없는 확실한 파싱 불가 케이스를 박제한다.
+  it("verified_at 비ISO 표기 → TypeError ('심사필-2026' 연도 오파싱 함정 포함)", () => {
+    // ※ "심사필-2026"은 V8 레거시 파서가 연도만 뽑아 파싱해버린다(NaN 아님) —
+    //   ISO 날짜(YYYY-MM-DD) 정규식 입구 검증으로 해소됨. 파서에 도달하기 전에 던진다.
+    expect(() =>
+      assessCardFreshness(makeCard({ verified_at: "심사필-2026" }), "2026-08-11"),
+    ).toThrow(TypeError);
     expect(() =>
       assessCardFreshness(makeCard({ verified_at: "검증일-미상" }), "2026-08-11"),
+    ).toThrow(TypeError);
+    // 시간 성분이 붙어도 거부 — verified_at 표기는 날짜만
+    expect(() =>
+      assessCardFreshness(makeCard({ verified_at: "2026-08-01T00:00:00Z" }), "2026-08-11"),
+    ).toThrow(TypeError);
+    // draft라도 비ISO 표기는 입구에서 동일하게 던진다
+    expect(() =>
+      assessCardFreshness(makeCard({ status: "draft", verified_at: "심사필-2026" }), "2026-08-11"),
     ).toThrow(TypeError);
   });
 
