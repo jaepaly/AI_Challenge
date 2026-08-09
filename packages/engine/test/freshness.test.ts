@@ -110,7 +110,8 @@ describe("입력 오류 — 조용히 강등하지 않고 throw", () => {
 
   it("verified_at 비ISO 표기 → TypeError ('심사필-2026' 연도 오파싱 함정 포함)", () => {
     // ※ "심사필-2026"은 V8 레거시 파서가 연도만 뽑아 파싱해버린다(NaN 아님) —
-    //   ISO 날짜(YYYY-MM-DD) 정규식 입구 검증으로 해소됨. 파서에 도달하기 전에 던진다.
+    //   ISO 날짜(YYYY-MM-DD) 정규식 입구 검증으로 해소됨, 커밋 96ffb95.
+    //   파서에 도달하기 전에 던진다.
     expect(() =>
       assessCardFreshness(makeCard({ verified_at: "심사필-2026" }), "2026-08-11"),
     ).toThrow(TypeError);
