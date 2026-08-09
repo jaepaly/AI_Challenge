@@ -137,3 +137,43 @@ export interface RiskResult {
   /** 계산에 사용된 카드의 상태 — draft면 UI는 참고 모드 배너 필수 */
   cardStatus: "verified" | "draft";
 }
+
+/* ── A(엔진) → D(UI) : replay 경로 시뮬 (신규 — 기존 3계약 무변경) ── */
+
+/** 일간 수익률 — 정수 bp(−491 = −4.91%). 부동소수 곱 대신 (10000+bp)/10000 정수 스케일로 쓴다. */
+export interface DailyReturn {
+  /** ISO 날짜 (예: "2026-07-28") */
+  date: string;
+  bp: number;
+}
+
+/**
+ * replay 하루 스텝 — D의 계기판·랜딩 "7월 연쇄"가 소비한다.
+ * 필드명·구성은 렌더 편의에 맞춰 조정 가능(PR 코멘트로).
+ */
+export interface ReplayStep {
+  date: string;
+  /** 이 스텝의 일간 수익률, 정수 bp */
+  dailyReturn: number;
+  /** 이 스텝 종가(수익률 적용 후, 원 단위 내림) — 다음 스텝의 '전일종가' 기준이 된다 */
+  pricePrev: number;
+  /** 종가 평가액 = 보유수량×종가 + 현금성 담보 (집행 반영 후) */
+  V: number;
+  /** 융자 잔액 (집행 반영 후) */
+  L: number;
+  /** 담보비율 원시값(%) — 라운딩 없음. 관통 판정은 이 값이 아니라 shortfall 정수 계산으로 한다. L=0이면 null */
+  ratioRaw: number | null;
+  /** 담보부족액 D (없으면 0) */
+  shortfall: number;
+  /** normal = 평상(관통 발견일 포함 — 통지는 익일) | notified = 통지 상태(D+1) | executed = 집행일(D+2) */
+  phase: "normal" | "notified" | "executed";
+  /** 집행 수량 (집행 없으면 0) */
+  executedQty: number;
+  executedReason: "PARTIAL" | "K_NON_POSITIVE" | "QTY_EXCEEDED" | null;
+  /** 체결가 — 기본 가정: 집행일 가격. 수량 산정에는 미관여(세 가격 분리). 집행 없으면 null */
+  fillPrice: number | null;
+  /** 집행 반영 후 보유 수량 */
+  heldAfter: number;
+  /** 집행 반영 후 원장 */
+  ledgerAfter: CreditLedger;
+}
