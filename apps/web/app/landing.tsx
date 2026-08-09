@@ -1,0 +1,365 @@
+"use client";
+
+/**
+ * 랜딩 — "주가를 이 선까지 끌어내려 보세요" (D)
+ * ---------------------------------------------------------------------------
+ * 원칙: 이 파일에 산식이 없다. 모든 수치는 @marginguard/engine이 낸다.
+ *  - 임계가조차 직접 풀지 않고 engine.shortfall을 오라클로 이분 탐색한다.
+ *  - 7월 연쇄는 engine.replay()가 낸 ReplayStep[]을 그대로 렌더한다(집행·원장 갱신 포함).
+ *  - 담보비율 3단 규칙(PR #2 합의): 판정=원시값(engine) / 골든 재현=사사오입 / 표시=내림.
+ */
+import { useMemo, useRef, useState } from "react";
+import {
+  equalShockLambda,
+  liquidationQty,
+  marginRatioPct,
+  replay,
+  resolutionPaths,
+  shortfall,
+  type ReplayStep,
+} from "@marginguard/engine";
+import {
+  ACCOUNT,
+  CARDS,
+  JULY_SEQ,
+  PRICE_MAX,
+  PRICE_MIN,
+  PRICE_START,
+  TICK,
+  displayRatio,
+  ledger,
+  positions,
+  roundTick,
+  won,
+} from "../lib/marginguard/snapshot";
+
+/** 카드에서 h를 읽는다 — lower_limit는 하한가(−30%) 등가로 처리(엔진 replay와 동일 규약) */
+function cardH(card: (typeof CARDS)[number]["card"]): number {
+  const rule = card.disposal_price_rules[0];
+  if (!rule) return 0;
+  return rule.discount_basis === "lower_limit" ? 0.3 : (rule.discount_rate ?? 0);
+}
+
+/** 임계가 = engine.shortfall이 0이 되는 최소 가격. 엔진을 오라클로 이분 탐색 */
+function thresholdPrice(): number {
+  let lo = Math.floor(PRICE_MIN / TICK);
+  let hi = Math.floor(PRICE_MAX / TICK);
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (shortfall(ACCOUNT.qty * mid * TICK, ACCOUNT.loan, ACCOUNT.requiredRatio) === 0) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo * TICK;
+}
+
+export default function Landing() {
+  const [price, setPrice] = useState(PRICE_START);
+  const [cardKey, setCardKey] = useState(CARDS[0]!.key);
+  const [steps, setSteps] = useState<ReplayStep[] | null>(null);
+  const [cursor, setCursor] = useState(-1);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const preset = CARDS.find((c) => c.key === cardKey)!;
+  const h = cardH(preset.card);
+  const pStar = useMemo(thresholdPrice, []);
+
+  /* ── 엔진 산출 ─────────────────────────────────────────────── */
+  const V = ACCOUNT.qty * price;
+  const D = shortfall(V, ACCOUNT.loan, ACCOUNT.requiredRatio);
+  const breached = D > 0;
+
+  const liq = breached
+    ? liquidationQty({ D, prevClose: price, r: ACCOUNT.requiredRatio, h, held: ACCOUNT.qty })
+    : null;
+  const paths = breached
+    ? resolutionPaths({
+        D,
+        r: ACCOUNT.requiredRatio,
+        prevClose: price,
+        marketPrice: price,
+        f: 0.008,
+      })
+    : null;
+  const lambda = equalShockLambda(V, ACCOUNT.loan, ACCOUNT.requiredRatio, ACCOUNT.cash);
+
+  const shown = displayRatio(V, ACCOUNT.loan); // 표시 = 내림
+  const engineRatio = marginRatioPct(V, ACCOUNT.loan); // 골든 재현 = 사사오입
+
+  const compare = CARDS.map((c) => ({
+    key: c.key,
+    label: c.label,
+    qty: breached
+      ? liquidationQty({
+          D,
+          prevClose: price,
+          r: ACCOUNT.requiredRatio,
+          h: cardH(c.card),
+          held: ACCOUNT.qty,
+        })
+      : null,
+  }));
+
+  /* ── 7월 연쇄 — engine.replay() ─────────────────────────────── */
+  function playJuly() {
+    if (timer.current) return;
+    const result = replay(positions(PRICE_START), ledger(), JULY_SEQ, preset.card);
+    setSteps(result);
+    setCursor(0);
+    let i = 0;
+    timer.current = setInterval(() => {
+      i += 1;
+      if (i >= result.length) {
+        clearInterval(timer.current!);
+        timer.current = null;
+        setCursor(result.length - 1);
+        return;
+      }
+      setCursor(i);
+    }, 900);
+  }
+
+  const cur = steps && cursor >= 0 ? steps[cursor] : null;
+  const executedSteps = steps?.filter((s) => s.executedQty > 0) ?? [];
+
+  /* ── 렌더 ──────────────────────────────────────────────────── */
+  return (
+    <div className="mg" data-state={breached ? "breach" : "safe"}>
+      <div className="snapshot">
+        📌 <b>스냅숏 모드</b> · KIS 미연동 · 가상 계좌(1,000주 · 융자 600만원 · 유지비율 140%) · 모든 수치는 결정론
+        엔진 산출
+      </div>
+
+      <div className="wrap">
+        <header className="hero">
+          <div className="mark">
+            마진가드 <small>MarginGuard — 반대매매 한계선 사전 진단</small>
+          </div>
+          <h1>주가를 이 선까지 끌어내려 보세요</h1>
+          <p className="sub">
+            문자가 오기 전에, 내 계좌의 한계선이 어디인지 — 약관이 정한 그대로 계산해 보여드립니다.
+          </p>
+        </header>
+
+        <section className="sliderCard" aria-label="가격 시나리오 슬라이더">
+          <div className="rail">
+            <div
+              id="priceBubble"
+              className="tnum"
+              style={{ left: `${((price - PRICE_MIN) / (PRICE_MAX - PRICE_MIN)) * 100}%` }}
+            >
+              {won(price)}
+            </div>
+            <input
+              type="range"
+              min={PRICE_MIN}
+              max={PRICE_MAX}
+              step={TICK}
+              value={price}
+              onChange={(e) => setPrice(roundTick(Number(e.target.value)))}
+              aria-label="가격 시나리오"
+            />
+            <div className="railMeta">
+              <span className="tnum">{won(PRICE_MIN)}</span>
+              <span id="thresholdLabel" className="tnum">
+                임계가 {won(pStar)}
+              </span>
+              <span className="tnum">{won(PRICE_MAX)}</span>
+            </div>
+          </div>
+
+          <div className="headline">
+            <div id="headline">
+              {breached ? `담보부족 ${won(D)}` : `임계가까지 여유 ${(((price - pStar) / price) * 100).toFixed(1)}%`}
+            </div>
+            <p id="subline">
+              {breached
+                ? "임계선을 지났습니다 — 아래는 약관 산정 방식의 재현값입니다"
+                : `${won(price - pStar)} 더 하락하면 담보부족 계산이 시작됩니다`}
+            </p>
+          </div>
+
+          <div className="cards" role="group" aria-label="증권사 조건 카드">
+            {CARDS.map((c) => (
+              <button
+                key={c.key}
+                type="button"
+                className={`cardBtn${c.key === cardKey ? " active" : ""}`}
+                onClick={() => {
+                  setCardKey(c.key);
+                  setSteps(null);
+                  setCursor(-1);
+                  if (timer.current) {
+                    clearInterval(timer.current);
+                    timer.current = null;
+                  }
+                }}
+              >
+                {c.label} <span className="h">{c.hLabel}</span>
+              </button>
+            ))}
+          </div>
+          <p id="cardSource">{preset.source}</p>
+          {preset.card.status === "draft" && (
+            <div id="cardBanner">
+              ⚠ 참고 모드 — 검수 전(draft) 조건카드. 정식 한계선 산출에 사용하지 않습니다
+            </div>
+          )}
+        </section>
+
+        <section className="grid" aria-label="계기판">
+          <div className="panel">
+            <div className="lbl">담보비율</div>
+            <div className="val tnum">{shown === null ? "—" : `${shown}%`}</div>
+            <div className="note">
+              {shown === engineRatio
+                ? "표시=내림 · 엔진 재현값 동일"
+                : `표시=내림 · 엔진 재현값 ${engineRatio}%(사사오입) · 판정은 원시값`}
+            </div>
+          </div>
+          <div className="panel">
+            <div className="lbl">전 종목 균등 하락 여유 λ*</div>
+            <div className="val tnum">
+              {lambda === 0 ? "이미 관통" : lambda === Infinity ? "—" : `−${(lambda * 100).toFixed(1)}%`}
+            </div>
+            <div className="note">전 종목이 함께 이만큼 빠지면 임계선</div>
+          </div>
+          <div className="panel">
+            <div className="lbl">조건 카드</div>
+            <div className="val" style={{ fontSize: 17 }}>
+              {preset.card.status === "verified"
+                ? `verified · ${preset.card.verified_at} 검증`
+                : "draft · 미검수"}
+            </div>
+            <div className="note">신선도 게이트: 검증일 기준 30일</div>
+          </div>
+        </section>
+
+        {breached && liq && paths && (
+          <section id="liqBox" aria-label="반대매매 산정">
+            <h2>이대로면 — 약관 산정 방식의 재현값</h2>
+            <span id="liqQty" className="tnum">
+              {liq.mode === "FULL" ? `전량 ${liq.qty.toLocaleString()}주` : `${liq.qty.toLocaleString()}주`}
+            </span>
+            <span className={`mode ${liq.mode === "FULL" ? "full" : "partial"}`}>
+              {liq.mode === "FULL"
+                ? liq.reason === "K_NON_POSITIVE"
+                  ? "전량 — k≤0, 부분 매도로 복원 불가"
+                  : "전량 — 필요 수량이 보유 초과"
+                : `부분 처분 (k=${liq.k.toFixed(2)})`}
+            </span>
+            <div className="cmp" aria-label="회사별 비교">
+              {compare.map((c) => (
+                <span key={c.key}>
+                  {c.label}{" "}
+                  <b>{c.qty ? (c.qty.mode === "FULL" ? "전량" : `${c.qty.qty.toLocaleString()}주`) : "—"}</b>
+                </span>
+              ))}
+              <span style={{ borderStyle: "dashed" }}>같은 부족액, 회사만 다를 때</span>
+            </div>
+            <table className="paths">
+              <tbody>
+                <tr>
+                  <td>
+                    현금 입금 <span className="cap">= D</span>
+                  </td>
+                  <td className="tnum">{won(paths.deposit)}</td>
+                </tr>
+                <tr>
+                  <td>
+                    융자 상환 <span className="cap">= D ÷ 1.4 — 입금보다 28.6% 적음</span>
+                  </td>
+                  <td className="tnum">{won(paths.repay)}</td>
+                </tr>
+                <tr>
+                  <td>
+                    자발적 매도{" "}
+                    <span className="cap">
+                      제비용 0.8% 가정 · 회사별 해소 경로 상이(유진은 D·D+1 일반매매 명시, 타사는 전전일 신청)
+                    </span>
+                  </td>
+                  <td className="tnum">
+                    {paths.voluntarySellQty === null ? "매도로 해소 불가" : `${paths.voluntarySellQty}주`}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        )}
+
+        <section className="july">
+          <h2>2026년 7월, 실제로 있었던 연쇄 하락을 재현해 보세요</h2>
+          <span style={{ fontSize: 12.5, color: "var(--ink3)" }}>
+            상관관계를 추정하지 않습니다 — 그날 실제로 움직인 값을 순서대로 적용하고, 집행이 일어나면 원장을 갱신해
+            재관통까지 따라갑니다.
+          </span>
+          <br />
+          <button id="julyBtn" type="button" onClick={playJuly} disabled={timer.current !== null}>
+            ▶ 7월 연쇄 재현 (7/7 → 7/29)
+          </button>
+
+          {steps && (
+            <div className="replay">
+              <table className="replayTable">
+                <thead>
+                  <tr>
+                    <th>날짜</th>
+                    <th>등락</th>
+                    <th>종가</th>
+                    <th>담보비율</th>
+                    <th>부족액</th>
+                    <th>상태</th>
+                    <th>집행</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {steps.slice(0, cursor + 1).map((s) => (
+                    <tr key={s.date} className={`ph-${s.phase}`}>
+                      <td>{s.date.slice(5)}</td>
+                      <td className="tnum">{(s.dailyReturn / 100).toFixed(2)}%</td>
+                      <td className="tnum">{s.pricePrev.toLocaleString()}</td>
+                      <td className="tnum">
+                        {s.ratioRaw === null ? "완제" : `${Math.floor(s.ratioRaw)}%`}
+                      </td>
+                      <td className="tnum">{s.shortfall > 0 ? won(s.shortfall) : "—"}</td>
+                      <td>
+                        <span className={`phase ${s.phase}`}>
+                          {s.phase === "normal" ? "평상" : s.phase === "notified" ? "통지" : "집행"}
+                        </span>
+                      </td>
+                      <td className="tnum">
+                        {s.executedQty > 0
+                          ? `${s.executedQty.toLocaleString()}주${
+                              s.executedReason && s.executedReason !== "PARTIAL" ? " (전량)" : ""
+                            }`
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {cur && cursor === steps.length - 1 && (
+                <p className="replayNote">
+                  {executedSteps.length > 0
+                    ? `집행 ${executedSteps.length}회 — ${executedSteps
+                        .map((s) => `${s.date.slice(5)} ${s.executedQty.toLocaleString()}주`)
+                        .join(", ")}. ${
+                        cur.shortfall > 0
+                          ? `마지막 스텝에서 부족액 ${won(cur.shortfall)} 재발생 — 연쇄가 끝나지 않았습니다.`
+                          : "연쇄 종료."
+                      }`
+                    : "이 시나리오에서는 집행이 발생하지 않았습니다."}
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+
+        <footer>
+          시연용 가상 계좌입니다. 본 화면의 수량·금액은 증권사 공개 설명서 산정 방식의 재현값이며{" "}
+          <b>매도 권유가 아닙니다</b>. 회사 간 우열을 표시하지 않습니다. 조건 카드가 draft(검수 전)면 참고 모드로만
+          동작합니다. · 담보비율은 판정=원시값 / 재현=사사오입 / 표시=내림 3단 규칙을 따릅니다.
+        </footer>
+      </div>
+    </div>
+  );
+}

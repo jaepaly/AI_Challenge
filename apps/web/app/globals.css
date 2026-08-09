@@ -1,26 +1,105 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ── 마진가드 랜딩 (D) — apps/landing-proto 이식. 계산은 엔진, 여기는 표현만 ── */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root{
+    --ground:#F3F2EF; --surface:#FCFCFA; --surface2:#EAE8E2;
+    --ink:#1C1A16; --ink2:#4E4A42; --ink3:#7E796F;
+    --line:#DDDAD2; --line2:#C9C5BA;
+    --accent:#7A4B1E; --accent2:#96602C; --accent-soft:#F0E7DC; --accent-ink:#FCFCFA;
+    --safe:#2B6A56; --safe-soft:#DEEBE2;
+    --danger:#963E29; --danger-soft:#F4DED6;
+    --warn:#8A5E0C; --warn-soft:#F7EBCF;
+    --serif:'Nanum Myeongjo','Batang',Georgia,serif;
+    --sans:'Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',system-ui,sans-serif;
   }
-}
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#14120F; --surface:#1D1B17; --surface2:#26241E;
+      --ink:#EDEAE3; --ink2:#B0ABA0; --ink3:#847F74;
+      --line:#332F28; --line2:#423D34;
+      --accent:#C99456; --accent2:#DBA968; --accent-soft:#2B2318; --accent-ink:#14120F;
+      --safe:#6CB69E; --safe-soft:#1C2A22;
+      --danger:#D97A5F; --danger-soft:#2E1F19;
+      --warn:#D5A84D; --warn-soft:#2D2615;
+    }
+  }
+  *{box-sizing:border-box} .mg{font-family:var(--sans); background:var(--ground); color:var(--ink); line-height:1.6; min-height:100vh}
+  .tnum{font-variant-numeric:tabular-nums}
+  .wrap{max-width:880px; margin:0 auto; padding:0 20px 64px}
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
+  .snapshot{display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; background:var(--warn-soft); color:var(--warn); font-size:12.5px; padding:7px 14px}
+  .snapshot b{font-weight:700}
+
+  header.hero{padding:40px 0 8px; text-align:center}
+  .mark{font-family:var(--serif); font-size:30px; font-weight:800; color:var(--accent); letter-spacing:.02em}
+  .mark small{font-size:13px; color:var(--ink3); font-weight:400; margin-left:8px}
+  h1{font-family:var(--serif); font-size:26px; font-weight:800; margin:18px 0 4px; text-wrap:balance}
+  .hero p.sub{margin:0; color:var(--ink2); font-size:14.5px}
+
+  /* 슬라이더 */
+  .sliderCard{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:26px 24px 20px; margin:22px 0; box-shadow:0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(0,0,0,.05)}
+  .rail{position:relative; margin:34px 6px 4px}
+  #priceBubble{position:absolute; top:-30px; transform:translateX(-50%); background:var(--ink); color:var(--ground); font-size:12.5px; font-weight:700; padding:3px 9px; border-radius:999px; white-space:nowrap; pointer-events:none}
+  input[type=range]{width:100%; accent-color:var(--accent); height:28px}
+  .mg[data-state=breach] input[type=range]{accent-color:var(--danger)}
+  .railMeta{display:flex; justify-content:space-between; font-size:12px; color:var(--ink3); margin-top:2px}
+  #thresholdLabel{color:var(--danger); font-weight:700}
+
+  .headline{margin-top:18px; text-align:center}
+  #headline{font-family:var(--serif); font-size:30px; font-weight:800; color:var(--safe)}
+  .mg[data-state=breach] #headline{color:var(--danger)}
+  #subline{margin:4px 0 0; font-size:13.5px; color:var(--ink2)}
+
+  /* 카드 선택 */
+  .cards{display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin:18px 0 6px}
+  .cardBtn{font:inherit; font-size:13px; padding:8px 14px; border-radius:999px; border:1px solid var(--line2); background:var(--surface); color:var(--ink2); cursor:pointer}
+  .cardBtn:hover{border-color:var(--accent)}
+  .cardBtn.active{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:700}
+  .cardBtn .h{opacity:.75; font-size:11.5px; margin-left:4px}
+  #cardSource{text-align:center; font-size:11.5px; color:var(--ink3); margin:2px 0 0}
+  #cardBanner{margin:10px auto 0; max-width:520px; background:var(--warn-soft); color:var(--warn); font-size:12.5px; font-weight:600; text-align:center; border-radius:8px; padding:7px 12px}
+
+  /* 계기판 */
+  .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:20px 0}
+  @media (max-width:680px){ .grid{grid-template-columns:1fr} }
+  .panel{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:15px 17px}
+  .panel .lbl{font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink3); font-weight:700}
+  .panel .val{font-family:var(--serif); font-size:25px; font-weight:800; margin-top:3px}
+  .panel .note{font-size:11.5px; color:var(--ink3); margin-top:3px}
+
+  #liqBox{background:var(--danger-soft); border:1px solid var(--danger); border-radius:14px; padding:18px 20px; margin:16px 0}
+  #liqBox h2{margin:0 0 8px; font-family:var(--serif); font-size:17px; color:var(--danger)}
+  #liqQty{font-family:var(--serif); font-size:34px; font-weight:800}
+  .mode{display:inline-block; font-size:12px; font-weight:700; padding:3px 10px; border-radius:999px; margin-left:10px; vertical-align:middle}
+  .mode.partial{background:var(--warn-soft); color:var(--warn)}
+  .mode.full{background:var(--danger); color:#fff}
+  .cmp{display:flex; gap:10px; flex-wrap:wrap; margin:12px 0 2px; font-size:13px}
+  .cmp span{background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:6px 11px}
+  .cmp b{font-family:var(--serif)}
+  .paths{width:100%; border-collapse:collapse; margin-top:12px; font-size:13.5px}
+  .paths td{padding:7px 4px; border-top:1px dashed var(--line2)}
+  .paths td:last-child{text-align:right; font-weight:700; font-variant-numeric:tabular-nums}
+  .paths .cap{font-size:11px; color:var(--ink3); font-weight:400}
+
+  /* 7월 연쇄 */
+  .july{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:16px 0}
+  .july h2{margin:0 0 4px; font-size:15px}
+  #julyBtn{font:inherit; font-size:13.5px; font-weight:700; padding:9px 18px; border-radius:999px; border:none; background:var(--accent); color:var(--accent-ink); cursor:pointer; margin-top:8px}
+  #julyBtn:disabled{opacity:.5}
+  #julyLog{display:block; margin-top:10px; font-size:12.5px; color:var(--ink2); font-variant-numeric:tabular-nums; min-height:1.4em}
+
+  footer{margin-top:26px; border-top:1px solid var(--line); padding-top:14px; font-size:11.5px; color:var(--ink3); line-height:1.7}
+
+  /* ── replay 스텝 테이블 (A의 ReplayStep[] 소비) ── */
+  .replay{margin-top:14px; overflow-x:auto}
+  .replayTable{width:100%; border-collapse:collapse; font-size:13px; min-width:520px}
+  .replayTable th{text-align:left; font-size:11px; letter-spacing:.06em; color:var(--ink3); font-weight:700; padding:6px 8px; border-bottom:1px solid var(--line2)}
+  .replayTable td{padding:7px 8px; border-bottom:1px dashed var(--line)}
+  .replayTable tr.ph-notified td{background:var(--warn-soft)}
+  .replayTable tr.ph-executed td{background:var(--danger-soft)}
+  .phase{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px}
+  .phase.normal{background:var(--surface2); color:var(--ink3)}
+  .phase.notified{background:var(--warn-soft); color:var(--warn)}
+  .phase.executed{background:var(--danger); color:#fff}
+  .replayNote{margin-top:10px; font-size:12.5px; color:var(--ink2); line-height:1.6}
