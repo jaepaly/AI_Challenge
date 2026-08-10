@@ -163,6 +163,30 @@ describe("λ_k — 종목 단독 한계선이 종목마다 다르다", () => {
     expect(s.shortfall).toBeGreaterThan(0);
     expect(s.positions.map((p) => p.singleAssetLambda)).toEqual([0, 0, 0]);
   });
+
+  it("전량 처분된 종목의 λ_k는 null — 0으로 나눠 Infinity가 새지 않는다", () => {
+    // L=9,500,000: D+2 집행에서 000660이 300주 전량, 005930이 481주 처분돼 해소된다.
+    // 이 시점 000660은 보유 0인데 버퍼는 양수라 buffer<=0 가드를 타지 않는다 —
+    // 고치기 전에는 buffer/(0×price) = Infinity가 그대로 경계 타입에 실렸다.
+    const steps = replayPortfolio(positions(), ledger(9_500_000), FLAT, kisCard());
+    const last = steps[2]!;
+    const byS = Object.fromEntries(last.positions.map((p) => [p.symbol, p]));
+
+    expect(last.executedQtyTotal).toBe(781);
+    expect(byS["000660"]!.heldAfter).toBe(0);
+    expect(byS["000660"]!.singleAssetLambda).toBeNull();
+
+    // 보유가 남은 종목은 수치가 그대로 나온다 — null이 전면 차단이 아님을 고정
+    expect(byS["035720"]!.heldAfter).toBe(250);
+    expect(Number.isFinite(byS["035720"]!.singleAssetLambda!)).toBe(true);
+
+    // 전 스텝·전 종목에서 Infinity/NaN이 없다
+    for (const st of steps) {
+      for (const pos of st.positions) {
+        expect(pos.singleAssetLambda === null || Number.isFinite(pos.singleAssetLambda)).toBe(true);
+      }
+    }
+  });
 });
 
 /* ── 단일 종목 일치 ─────────────────────────────────────────────── */
@@ -277,4 +301,5 @@ describe("모델링하지 않은 것은 조용히 계산하지 않고 사유를 
     expect(v.code).toBe("MULTI_POSITION_UNSUPPORTED");
     expect(v.userMessage).toMatch(/replayPortfolio/);
   });
+
 });

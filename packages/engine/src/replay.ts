@@ -387,7 +387,8 @@ export function replayPortfolio(
       dailyReturn: bps[i]!,
       executedQty: executed[i]!,
       heldAfter: b.held,
-      singleAssetLambda: singleAssetLambda(V, loan, r, b.held, b.price),
+      // 보유 0이면 분모가 0이라 Infinity가 된다 — 단독 하락이라는 개념이 없으므로 null
+      singleAssetLambda: b.held === 0 ? null : singleAssetLambda(V, loan, r, b.held, b.price),
     }));
 
     steps.push({

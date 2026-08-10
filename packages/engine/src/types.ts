@@ -207,7 +207,13 @@ export interface PortfolioPositionStep {
    * ※ 가정적 지표다. 이 경로는 종목별로 다른 충격을 이미 적용하고 있으므로,
    *   λ_k는 "다른 종목이 그대로일 때"라는 반사실 가정 위에서만 읽어야 한다.
    */
-  singleAssetLambda: number;
+  /**
+   * ⚠ 보유 0(전량 처분됨)이면 **null**이다. "이 종목 혼자 하락한다"는 가정 자체가
+   *   성립하지 않으므로 수치를 주지 않는다. 캡할 큰 값이 아니라 부재다 —
+   *   0으로 나눠 Infinity가 새면 화면에 그대로 찍힌다(ReplayStep.ratioRaw가 L=0에서
+   *   null인 것과 같은 규약).
+   */
+  singleAssetLambda: number | null;
 }
 
 /** 다종목 경로 시뮬의 하루 스텝. 단일 종목 뷰는 ReplayStep(replay)이 따로 있다. */
