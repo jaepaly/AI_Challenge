@@ -37,9 +37,9 @@ jobs:
     permissions:
       contents: read
     env:
-      # ⚠ VERCEL_ORG_ID를 CLI에 넘기지 않는다. 팀·프로젝트 범위 토큰은 스코프에서
-      #   팀을 스스로 추론하고, teamId를 같이 주면 팀 레벨 조회로 취급돼 거부당한다
-      #   (증상: "Could not retrieve Project Settings"). 진단용으로만 다른 이름으로 둔다.
+      # CLI는 ORG_ID·PROJECT_ID를 **둘 다** 요구한다(하나만 주면 즉시 거부).
+      # 한쪽만 넘겨보는 시도는 실측으로 기각됐다.
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -49,12 +49,12 @@ jobs:
       - name: Secret 유무 판정
         id: pre
         run: |
-          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "### 배포 건너뜀 — Vercel Secret 미설정" >> "$GITHUB_STEP_SUMMARY"
-            echo "VERCEL_TOKEN / VERCEL_PROJECT_ID 를 등록하면 동작합니다." >> "$GITHUB_STEP_SUMMARY"
+            echo "VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID 를 등록하면 동작합니다." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - uses: actions/checkout@v4
@@ -104,6 +104,10 @@ jobs:
             B=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VERCEL_TOKEN"               "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_TEAM_ID" || echo 000)
             echo "- 프로젝트 조회: teamId 없이 \`$A\` / teamId 붙여서 \`$B\`"
             echo "  (앞이 200이고 뒤가 4xx면 teamId를 넘기는 것이 원인이다)"
+            T=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VERCEL_TOKEN"               "https://api.vercel.com/v2/teams/$VERCEL_TEAM_ID" || echo 000)
+            echo "- **팀 레벨 조회: \`$T\`** — CLI는 ORG_ID로 팀을 먼저 해석한다."
+            echo "  4xx면 토큰이 **project 범위**라는 뜻이고, 해결책은 **team 범위 토큰**이다"
+            echo "  (토큰 생성 시 Scope → 팀 선택 → 개별 프로젝트 말고 **All Projects**)."
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: 프로덕션 배포
