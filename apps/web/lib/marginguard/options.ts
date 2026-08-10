@@ -96,7 +96,10 @@ export function buildOptions(
     {
       key: "voluntary",
       label: "자발적 매도",
-      amount: volUsable ? volQty * prevClose : null,
+      // 강제 쪽과 같은 함수를 쓴다 — 같은 곱을 두 방식으로 쓰면 한쪽만 바뀐다(A #24 지적).
+      // ⚠ 단 두 값은 성질이 다르다: 강제는 "팔릴 규모", 여기는 "내가 팔아야 할 금액".
+      //    나중에 강제 쪽이 체결가 기준으로 옮겨가면 이 둘은 **같이 움직여선 안 된다**.
+      amount: volUsable ? disposalAmount(volQty, prevClose) : null,
       qty: volUsable ? volQty : null,
       // f는 약관 근거가 없는 가정치다 — 재현값과 라벨을 공유하지 않는다(규율 ②)
       basis: `제비용 ${assumedFeePct}% 가정 — 약관 근거 없는 가정치이며 실제 매도라 실제 비용이 발생`,
