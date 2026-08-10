@@ -53,10 +53,22 @@ class _HTMLTextParser(HTMLParser):
             self.parts.append(data)
 
 
+def _normalize_html_text(parts: list[str]) -> str:
+    """일반 공백은 접되 표의 행(`\n`)과 셀(`\t`) 경계는 보존한다."""
+
+    lines: list[str] = []
+    for raw_line in "".join(parts).splitlines():
+        cells = [" ".join(cell.split()) for cell in raw_line.split("\t")]
+        non_empty_cells = [cell for cell in cells if cell]
+        if non_empty_cells:
+            lines.append("\t".join(non_empty_cells))
+    return "\n".join(lines)
+
+
 def parse_html(path: Path) -> ParsedDocument:
     parser = _HTMLTextParser()
     parser.feed(path.read_text(encoding="utf-8"))
-    text = " ".join("".join(parser.parts).split())
+    text = _normalize_html_text(parser.parts)
     return ParsedDocument(
         source_type="html",
         units=(ParsedUnit(locator="document", text=text),),
