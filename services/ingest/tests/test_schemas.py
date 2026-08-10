@@ -136,7 +136,7 @@ class EvidenceSpanContractTest(unittest.TestCase):
     def test_numeric_quotes_accept_percent_decimal_and_fullwidth_notation(self) -> None:
         card = make_card(page_evidence())
         card["ratio_rules"][0]["evidence"]["quote"] = "담보유지비율 １４０％"
-        card["execution_schedule"][0]["evidence"]["quote"] = "임계 담보비율 1.40 미만"
+        card["execution_schedule"][0]["evidence"]["quote"] = "임계 담보비율 140.0% 미만"
 
         self.assert_contract_accepts(card)
 
@@ -144,8 +144,8 @@ class EvidenceSpanContractTest(unittest.TestCase):
         cases = [
             (0.15, "반대매매 기준가격: S, A는 85%"),
             (0.20, "반대매매 기준가격: B등급 이하는 80%"),
-            (0.15, "전일종가의 100분의 15 할인"),
-            (0.15, "할인율 0.150 적용"),
+            (0.15, "전일종가의 15% 할인"),
+            (0.15, "할인율 15.0% 적용"),
         ]
         for discount_rate, quote in cases:
             with self.subTest(discount_rate=discount_rate, quote=quote):
@@ -165,6 +165,29 @@ class EvidenceSpanContractTest(unittest.TestCase):
         ratio_card = make_card(page_evidence())
         ratio_card["ratio_rules"][0]["evidence"]["quote"] = "1400주"
         self.assert_pydantic_rejects(ratio_card)
+
+    def test_ratio_fields_reject_numbers_with_non_percent_units(self) -> None:
+        units = ("만원", "원", "일", "명", "주", "건", "포인트")
+
+        for unit in units:
+            with self.subTest(field="ratio", unit=unit):
+                card = make_card(page_evidence())
+                card["ratio_rules"][0]["evidence"]["quote"] = f"추가담보 140{unit}"
+                self.assert_pydantic_rejects(card)
+
+            with self.subTest(field="discount_rate", unit=unit):
+                card = make_card(page_evidence())
+                card["disposal_price_rules"][0]["evidence"]["quote"] = (
+                    f"처분 기준 15{unit}"
+                )
+                self.assert_pydantic_rejects(card)
+
+            with self.subTest(field="threshold_ratio", unit=unit):
+                card = make_card(page_evidence())
+                card["execution_schedule"][0]["evidence"]["quote"] = (
+                    f"실행 기준 140{unit}"
+                )
+                self.assert_pydantic_rejects(card)
 
 
 if __name__ == "__main__":

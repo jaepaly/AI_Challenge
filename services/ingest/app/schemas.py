@@ -58,27 +58,16 @@ def _normalized_quote(quote: str) -> str:
     return re.sub(r"(?<![\d.])\d+\.\d+(?![\d.])", trim_decimal_zeros, normalized)
 
 
-def _contains_bounded_number(quote: str, candidate: str) -> bool:
-    """다른 숫자/소수의 일부이거나 명백한 조문·연도·수량인 매치를 제외한다."""
+def _contains_percent(quote: str, candidate: str) -> bool:
+    """다른 숫자의 일부가 아닌 퍼센트 표기만 수치 근거로 인정한다."""
 
-    pattern = re.compile(rf"(?<![\d.]){re.escape(candidate)}(?![\d.])")
-    for match in pattern.finditer(quote):
-        prefix = quote[: match.start()].rstrip()
-        suffix = quote[match.end() :].lstrip()
-        if prefix.endswith("제") and suffix.startswith("조"):
-            continue
-        if suffix.startswith(("년", "주")):
-            continue
-        return True
-    return False
+    pattern = re.compile(rf"(?<![\d.]){re.escape(candidate)}\s*%")
+    return pattern.search(quote) is not None
 
 
-def _numeric_candidates(value: float, *, include_complement: bool = False) -> set[str]:
+def _percent_candidates(value: float, *, include_complement: bool = False) -> set[str]:
     decimal_value = Decimal(str(value))
-    candidates = {
-        _format_decimal(decimal_value),
-        _format_decimal(decimal_value * 100),
-    }
+    candidates = {_format_decimal(decimal_value * 100)}
     if include_complement:
         candidates.add(_format_decimal((Decimal("1") - decimal_value) * 100))
     return candidates
@@ -92,12 +81,12 @@ def _validate_numeric_quote(
     include_complement: bool = False,
 ) -> None:
     quote = _normalized_quote(evidence.quote)
-    candidates = _numeric_candidates(value, include_complement=include_complement)
-    if not any(_contains_bounded_number(quote, candidate) for candidate in candidates):
-        expected = ", ".join(sorted(candidates))
+    candidates = _percent_candidates(value, include_complement=include_complement)
+    if not any(_contains_percent(quote, candidate) for candidate in candidates):
+        expected = ", ".join(f"{candidate}%" for candidate in sorted(candidates))
         raise ValueError(
-            f"{field_name}의 evidence.quote에 수치 표기({expected})가 "
-            "숫자 경계에 맞게 포함되어야 합니다"
+            f"{field_name}의 evidence.quote에 퍼센트 표기({expected})가 "
+            "숫자 경계와 단위에 맞게 포함되어야 합니다"
         )
 
 
