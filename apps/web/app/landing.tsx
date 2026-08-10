@@ -19,6 +19,7 @@ import {
   type ReplayStep,
 } from "@marginguard/engine";
 import { cardH } from "../lib/marginguard/card";
+import type { BuildInfo } from "../lib/build-info";
 import {
   buildOptions,
   forcedDisposal,
@@ -52,7 +53,7 @@ function thresholdPrice(): number {
   return lo * TICK;
 }
 
-export default function Landing() {
+export default function Landing({ build }: { build: BuildInfo }) {
   const [price, setPrice] = useState(PRICE_START);
   const [cardKey, setCardKey] = useState(CARDS[0]!.key);
   const [steps, setSteps] = useState<ReplayStep[] | null>(null);
@@ -381,6 +382,9 @@ export default function Landing() {
           시연용 가상 계좌입니다. 본 화면의 수량·금액은 증권사 공개 설명서 산정 방식의 재현값이며{" "}
           <b>매도 권유가 아닙니다</b>. 회사 간 우열을 표시하지 않습니다. 조건 카드가 draft(검수 전)면 참고 모드로만
           동작합니다. · 담보비율은 판정=원시값 / 재현=사사오입 / 표시=내림 3단 규칙을 따릅니다.
+          <span className="buildTag tnum">
+            배포 <b>{build.shortSha}</b> · {build.branch}
+          </span>
         </footer>
       </div>
     </div>
