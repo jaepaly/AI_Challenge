@@ -57,6 +57,62 @@ describe("골든 — 한국투자 공식 설명서", () => {
   });
 });
 
+describe("골든 — 삼성 공식 설명서 (다른 계좌 구조 · 정수 스케일 가드)", () => {
+  // 투자원금 450만 · 융자 550만 · 1,000주 @10,000원 · r=1.4, D+1일 종가 6,500원
+  const V = 6_500_000;
+  const L = 5_500_000;
+
+  it("정수 스케일 회귀 가드: 1.4×5,500,000을 float로 곱하면 D가 과소(=낙관) 산정된다", () => {
+    // 기존 골든 6건은 전부 L=6,000,000이고 1.4×6e6은 오차가 0이라 이 경로를 못 잡았다.
+    expect(6_000_000 * 1.4).toBe(8_400_000); // 우연히 정확 — 그래서 무력했다
+    expect(5_500_000 * 1.4).not.toBe(7_700_000); // 7,699,999.999999999
+
+    const naive = Math.max(0, L * 1.4 - V); // 1,199,999.999999999
+    expect(Number.isInteger(naive)).toBe(false);
+    expect(naive).toBeLessThan(1_200_000); // 과소 = 처분 수량 과소 = 낙관 방향
+
+    expect(shortfall(V, L, 1.4)).toBe(1_200_000); // 정수 스케일은 정확
+  });
+
+  it("h=0.15(기준가 5,525원) → 972주 부분 처분 / 처분 661만 / 배수 5.5", () => {
+    const D = shortfall(V, L, 1.4);
+    expect(D).toBe(1_200_000);
+    expect(6_500 * 0.85).toBe(5_525); // 원문의 "반대매매 기준가격"
+
+    const liq = liquidationQty({ D, prevClose: 6_500, r: 1.4, h: 0.15, held: 1_000 });
+    expect(liq.mode).toBe("PARTIAL");
+    expect(liq.qty).toBe(972); // 원문 "972"
+    expect(liq.k).toBe(0.19);
+
+    // 체결가 6,800원은 설명서의 가정치 — 수량 산정엔 미관여
+    const amount = disposalAmount(liq.qty, 6_800);
+    expect(amount).toBe(6_609_600); // 원문 "약 661만원"
+    expect(amount / D).toBeCloseTo(5.508, 3); // 원문 "5.5배"
+  });
+
+  it("h=0.20(기준가 5,200원) → 필요 1,539주 > 보유 → 전량. 같은 계좌에서 h만 바뀌어 체제가 전환된다", () => {
+    const D = shortfall(V, L, 1.4);
+    expect(6_500 * 0.8).toBe(5_200);
+
+    const liq = liquidationQty({ D, prevClose: 6_500, r: 1.4, h: 0.2, held: 1_000 });
+    expect(liq.mode).toBe("FULL"); // 원문 "1,000주 모두 반대매매 필요"
+    expect(liq.reason).toBe("QTY_EXCEEDED");
+    expect(liq.qty).toBe(1_000);
+    expect(liq.rawQty).toBe(1_539); // 원문에 없는 엔진 파생값
+    expect(liq.k).toBe(0.12);
+
+    expect(disposalAmount(1_000, 6_800)).toBe(6_800_000); // 원문 "680만원"
+    // 손실 320만원 = 투자원금 450만 − (처분 680만 − 융자 550만). 원문 "원금의 71%"
+    expect(4_500_000 - (6_800_000 - L)).toBe(3_200_000);
+  });
+
+  it("담보비율 시리즈: 182 / 131 / 118 % (사사오입 계층 — 삼성 p.11은 같은 값을 181%로 내림 표기)", () => {
+    expect([10_000_000, 7_230_000, 6_500_000].map((v) => marginRatioPct(v, L))).toEqual([
+      182, 131, 118,
+    ]);
+  });
+});
+
 describe("교차검증 — 산정 기준가(h)의 회사별 편차", () => {
   it("메리츠형 h=0.20 → k=0.12 → 309주 (같은 계좌가 회사만 다르면 195→309주)", () => {
     const liq = liquidationQty({ D: 300_000, prevClose: 8_100, r: 1.4, h: 0.2, held: 1_000 });
@@ -96,6 +152,81 @@ describe("해소 4경로", () => {
     expect(p.repay).toBe(214_286); // ceil(300,000 / 1.4)
     expect(p.voluntarySellQty).toBe(96); // 강제 195주 대비 절반 — 사전 대응의 가격
     expect(p.collateral).toBeNull(); // α 미지정
+    expect(p.voluntarySellReason).toBeUndefined();
+  });
+
+  it("held를 주면 도달 가능한 구간의 답은 그대로다 (96주 ≤ 보유 1,000주)", () => {
+    const p = resolutionPaths({
+      D: 300_000,
+      r: 1.4,
+      prevClose: 8_100,
+      marketPrice: 8_100,
+      f: 0.008,
+      held: 1_000,
+    });
+    expect(p.voluntarySellQty).toBe(96);
+    expect(p.voluntarySellReason).toBeUndefined();
+  });
+
+  it("전량을 팔아도 해소 안 되는 구간은 캡이 아니라 null — 캡하면 '덜 팔아도 된다'는 낙관이 된다", () => {
+    // 주가 6,000원: D=240만, 필요 1,029주 > 보유 1,000주 (임계 6,048.4원)
+    const D = shortfall(6_000_000, 6_000_000, 1.4);
+    expect(D).toBe(2_400_000);
+
+    const uncapped = resolutionPaths({
+      D,
+      r: 1.4,
+      prevClose: 6_000,
+      marketPrice: 6_000,
+      f: 0.008,
+    });
+    expect(uncapped.voluntarySellQty).toBe(1_029); // held 미지정 = 구 동작
+
+    const p = resolutionPaths({
+      D,
+      r: 1.4,
+      prevClose: 6_000,
+      marketPrice: 6_000,
+      f: 0.008,
+      held: 1_000,
+    });
+    expect(p.voluntarySellQty).toBeNull();
+    expect(p.voluntarySellReason).toBe("QTY_EXCEEDED");
+    // 실제로 전량을 팔아도 부족액이 남는다: 매도대금 1,000×6,000×0.992로 상환해도
+    expect(shortfall(0, residualDebt(6_000_000, Math.floor(1_000 * 6_000 * 0.992)), 1.4)).toBe(
+      67_200,
+    );
+    // 입금·상환은 여전히 유효한 경로다 — 4경로 전부를 죽이지 않는다
+    expect(p.deposit).toBe(2_400_000);
+    expect(p.repay).toBe(1_714_286);
+  });
+
+  it("경계 6,050원은 도달 가능(1,000주), 6,040원은 불가 — 임계 6,048.4원을 박제", () => {
+    const at = (price: number) =>
+      resolutionPaths({
+        D: shortfall(1_000 * price, 6_000_000, 1.4),
+        r: 1.4,
+        prevClose: price,
+        marketPrice: price,
+        f: 0.008,
+        held: 1_000,
+      });
+    expect(at(6_050).voluntarySellQty).toBe(1_000);
+    expect(at(6_040).voluntarySellQty).toBeNull();
+    expect(at(6_040).voluntarySellReason).toBe("QTY_EXCEEDED");
+  });
+
+  it("분모≤0이면 DENOM_NON_POSITIVE — 매도해도 비율이 오르지 않는다", () => {
+    const p = resolutionPaths({
+      D: 300_000,
+      r: 1.0, // r·P_m(1−f) − P_prev = 8,100×0.992 − 8,100 < 0
+      prevClose: 8_100,
+      marketPrice: 8_100,
+      f: 0.008,
+      held: 1_000,
+    });
+    expect(p.voluntarySellQty).toBeNull();
+    expect(p.voluntarySellReason).toBe("DENOM_NON_POSITIVE");
   });
 });
 
