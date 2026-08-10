@@ -116,6 +116,9 @@
   #julyLog{display:block; margin-top:10px; font-size:12.5px; color:var(--ink2); font-variant-numeric:tabular-nums; min-height:1.4em}
 
   footer{margin-top:26px; border-top:1px solid var(--line); padding-top:14px; font-size:11.5px; color:var(--ink3); line-height:1.7}
+  /* 배포 신원 — 눈에 띌 필요는 없고, 찾으면 있어야 한다 */
+  .buildTag{display:block; margin-top:8px; font-size:11px; color:var(--ink3); opacity:.8}
+  .buildTag b{font-weight:700; color:var(--ink2)}
 
   /* ── replay 스텝 테이블 (A의 ReplayStep[] 소비) ── */
   .replay{margin-top:14px; overflow-x:auto}
