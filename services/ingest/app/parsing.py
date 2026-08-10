@@ -5,6 +5,7 @@ EvidenceSpan으로 바꾸는 정책은 HTML 근거 좌표 방식이 합의된 �
 """
 
 from dataclasses import dataclass
+from hashlib import sha256
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Literal
@@ -21,6 +22,7 @@ class ParsedDocument:
     source_type: Literal["html", "pdf"]
     units: tuple[ParsedUnit, ...]
     table_count: int = 0
+    flattened_sha256: str | None = None
 
 
 class _HTMLTextParser(HTMLParser):
@@ -65,6 +67,12 @@ def _normalize_html_text(parts: list[str]) -> str:
     return "\n".join(lines)
 
 
+def flattened_text_sha256(text: str) -> str:
+    """문자 좌표의 기준이 되는 평탄화 텍스트를 UTF-8로 해시한다."""
+
+    return sha256(text.encode("utf-8")).hexdigest()
+
+
 def parse_html(path: Path) -> ParsedDocument:
     parser = _HTMLTextParser()
     parser.feed(path.read_text(encoding="utf-8"))
@@ -73,6 +81,7 @@ def parse_html(path: Path) -> ParsedDocument:
         source_type="html",
         units=(ParsedUnit(locator="document", text=text),),
         table_count=parser.table_count,
+        flattened_sha256=flattened_text_sha256(text),
     )
 
 

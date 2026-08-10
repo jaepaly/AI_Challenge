@@ -1,5 +1,6 @@
-from pathlib import Path
 import unittest
+from hashlib import sha256
+from pathlib import Path
 
 from app.parsing import _HTMLTextParser, _normalize_html_text, parse_document
 
@@ -30,6 +31,11 @@ class HankookHTMLSpikeTest(unittest.TestCase):
 
         self.assertEqual(document.source_type, "html")
         self.assertEqual(document.units[0].locator, "document")
+        self.assertEqual(
+            document.flattened_sha256,
+            sha256(text.encode("utf-8")).hexdigest(),
+        )
+        self.assertEqual(len(document.flattened_sha256 or ""), 64)
         self.assertGreater(document.table_count, 0)
         self.assertIn("\n", text)
         self.assertIn("\t", text)

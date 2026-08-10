@@ -23,7 +23,7 @@
           "product_type": { "type": "string" },
           "collateral_type": { "type": "string" },
           "symbol_group": { "type": "string" },
-          "ratio": { "type": "number", "minimum": 1.0, "maximum": 2.0, "description": "담보유지비율. 실측 편차 105~170% — 범위 밖이면 추출 오류로 간주하고 거부" },
+          "ratio": { "type": "number", "minimum": 1.0, "maximum": 2.0, "description": "담보유지비율. evidence.quote에는 원값 또는 ×100 퍼센트 표기가 숫자 경계에 맞게 포함되어야 하며 Pydantic 최종 검증기가 강제한다." },
           "evidence": { "$ref": "#/definitions/evidence_span" }
         }
       }
@@ -40,7 +40,7 @@
           "trigger": { "type": "string" },
           "symbol_group": { "type": "string" },
           "discount_basis": { "enum": ["prev_close_pct", "lower_limit"] },
-          "discount_rate": { "type": "number", "minimum": 0, "maximum": 0.35, "description": "h. prev_close_pct일 때 필수적으로 채울 것" },
+          "discount_rate": { "type": "number", "minimum": 0, "maximum": 0.35, "description": "h. evidence.quote에는 원값, ×100 할인율 또는 (1-h)×100 잔존 비율 중 하나가 숫자 경계에 맞게 포함되어야 하며 Pydantic 최종 검증기가 강제한다." },
           "source_confidence": { "enum": ["explicit", "inferred_from_formula"] },
           "evidence": { "$ref": "#/definitions/evidence_span" }
         }
@@ -54,7 +54,7 @@
         "additionalProperties": false,
         "required": ["threshold_ratio", "day_counting", "evidence"],
         "properties": {
-          "threshold_ratio": { "type": "number", "minimum": 1.0, "maximum": 2.0 },
+          "threshold_ratio": { "type": "number", "minimum": 1.0, "maximum": 2.0, "description": "evidence.quote에는 원값 또는 ×100 퍼센트 표기가 숫자 경계에 맞게 포함되어야 하며 Pydantic 최종 검증기가 강제한다." },
           "day_counting": { "type": "string" },
           "evidence": { "$ref": "#/definitions/evidence_span" }
         }
@@ -96,11 +96,16 @@
     "character_evidence_span": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source_format", "char_start", "char_end", "quote"],
+      "required": ["source_format", "char_start", "char_end", "flattened_sha256", "quote"],
       "properties": {
         "source_format": { "enum": ["text", "html"] },
         "char_start": { "type": "integer", "minimum": 0 },
         "char_end": { "type": "integer", "minimum": 0 },
+        "flattened_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "char_start/char_end가 가리키는 평탄화 결과물 UTF-8 바이트의 SHA-256"
+        },
         "quote": { "type": "string", "minLength": 1, "description": "평탄화된 텍스트 기준 원문 인용" }
       }
     },

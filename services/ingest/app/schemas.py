@@ -4,6 +4,9 @@
 이 파일과 packages/engine/src/types.ts를 JSON Schema와 동기화하는 책임은 B에게 있다.
 변경은 PR + 팀 전원 승인.
 """
+import re
+import unicodedata
+from decimal import Decimal
 from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -28,6 +31,7 @@ class CharacterEvidenceSpan(BaseModel):
     source_format: Literal["text", "html"]
     char_start: int = Field(ge=0)
     char_end: int = Field(ge=0)
+    flattened_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     quote: str = Field(min_length=1)
 
 
@@ -35,6 +39,66 @@ EvidenceSpan = Annotated[
     Union[PageEvidenceSpan, CharacterEvidenceSpan],
     Field(discriminator="source_format"),
 ]
+
+
+def _format_decimal(value: Decimal) -> str:
+    formatted = format(value.normalize(), "f")
+    return formatted.rstrip("0").rstrip(".") if "." in formatted else formatted
+
+
+def _normalized_quote(quote: str) -> str:
+    """전각 문자를 반각으로 바꾸고 숫자 안의 천 단위 쉼표를 제거한다."""
+
+    normalized = unicodedata.normalize("NFKC", quote)
+    normalized = re.sub(r"(?<=\d),(?=\d)", "", normalized)
+
+    def trim_decimal_zeros(match: re.Match[str]) -> str:
+        return match.group(0).rstrip("0").rstrip(".")
+
+    return re.sub(r"(?<![\d.])\d+\.\d+(?![\d.])", trim_decimal_zeros, normalized)
+
+
+def _contains_bounded_number(quote: str, candidate: str) -> bool:
+    """다른 숫자/소수의 일부이거나 명백한 조문·연도·수량인 매치를 제외한다."""
+
+    pattern = re.compile(rf"(?<![\d.]){re.escape(candidate)}(?![\d.])")
+    for match in pattern.finditer(quote):
+        prefix = quote[: match.start()].rstrip()
+        suffix = quote[match.end() :].lstrip()
+        if prefix.endswith("제") and suffix.startswith("조"):
+            continue
+        if suffix.startswith(("년", "주")):
+            continue
+        return True
+    return False
+
+
+def _numeric_candidates(value: float, *, include_complement: bool = False) -> set[str]:
+    decimal_value = Decimal(str(value))
+    candidates = {
+        _format_decimal(decimal_value),
+        _format_decimal(decimal_value * 100),
+    }
+    if include_complement:
+        candidates.add(_format_decimal((Decimal("1") - decimal_value) * 100))
+    return candidates
+
+
+def _validate_numeric_quote(
+    *,
+    field_name: str,
+    value: float,
+    evidence: EvidenceSpan,
+    include_complement: bool = False,
+) -> None:
+    quote = _normalized_quote(evidence.quote)
+    candidates = _numeric_candidates(value, include_complement=include_complement)
+    if not any(_contains_bounded_number(quote, candidate) for candidate in candidates):
+        expected = ", ".join(sorted(candidates))
+        raise ValueError(
+            f"{field_name}의 evidence.quote에 수치 표기({expected})가 "
+            "숫자 경계에 맞게 포함되어야 합니다"
+        )
 
 
 class RatioRule(BaseModel):
@@ -45,6 +109,11 @@ class RatioRule(BaseModel):
     ratio: float = Field(ge=1.0, le=2.0)
     evidence: EvidenceSpan
 
+    @model_validator(mode="after")
+    def require_ratio_in_quote(self):
+        _validate_numeric_quote(field_name="ratio", value=self.ratio, evidence=self.evidence)
+        return self
+
 
 class DisposalPriceRule(BaseModel):
     trigger: str
@@ -54,11 +123,31 @@ class DisposalPriceRule(BaseModel):
     source_confidence: Literal["explicit", "inferred_from_formula"]
     evidence: EvidenceSpan
 
+    @model_validator(mode="after")
+    def require_discount_rate_in_quote(self):
+        if self.discount_rate is not None:
+            _validate_numeric_quote(
+                field_name="discount_rate",
+                value=self.discount_rate,
+                evidence=self.evidence,
+                include_complement=True,
+            )
+        return self
+
 
 class ExecutionScheduleRule(BaseModel):
     threshold_ratio: float = Field(ge=1.0, le=2.0)
     day_counting: str
     evidence: EvidenceSpan
+
+    @model_validator(mode="after")
+    def require_threshold_ratio_in_quote(self):
+        _validate_numeric_quote(
+            field_name="threshold_ratio",
+            value=self.threshold_ratio,
+            evidence=self.evidence,
+        )
+        return self
 
 
 class DocVersion(BaseModel):
@@ -93,4 +182,14 @@ class ConditionCard(BaseModel):
         }
         if len(coordinate_kinds) != 1:
             raise ValueError("한 ConditionCard 안에서는 근거 좌표 형식을 하나로 통일해야 합니다")
+        if coordinate_kinds == {"character"}:
+            flattened_hashes = {
+                evidence.flattened_sha256
+                for evidence in evidence_spans
+                if isinstance(evidence, CharacterEvidenceSpan)
+            }
+            if len(flattened_hashes) != 1:
+                raise ValueError(
+                    "문자 좌표를 쓰는 한 ConditionCard 안에서는 flattened_sha256이 같아야 합니다"
+                )
         return self
