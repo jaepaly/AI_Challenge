@@ -6,6 +6,7 @@
 import { describe, it, expect } from "vitest";
 import { liquidationQty, resolutionPaths } from "@marginguard/engine";
 import { buildOptions, comparisonVerdict, forcedDisposal } from "./options";
+import { ASSUMED_FEE_RATE, assumedFeePct } from "./snapshot";
 
 /** 한투 골든: V=810만, L=600만, r=1.4, 전일종가 8,100, h=0.15, 보유 1,000주 */
 const D = 300_000;
@@ -166,5 +167,95 @@ describe("#19 회귀 — 보유수량 캡", () => {
     expect(forced.qty).toBe(195);
     expect(rows.find((o) => o.key === "voluntary")!.qty).toBe(96);
     expect(comparisonVerdict(forced, rows, HELD).kind).toBe("ratio");
+  });
+});
+
+/**
+ * #21 결선 — 판정 주체를 엔진으로 옮긴 뒤의 규약.
+ *
+ * 위 "#19 회귀" 블록은 일부러 `held` 없이 호출한다 — 그건 웹 안전망을 시험한다.
+ * 여기서는 **랜딩이 실제로 하는 호출**(held 전달)을 시험한다. 이게 없으면
+ * #21의 엔진 수정이 잠들어 있다는 사실을 아무도 못 잡는다.
+ */
+describe("#21 결선 — held를 넘기면 엔진이 판정한다", () => {
+  const withHeld = (price: number, marketPrice = price) => {
+    const d = R * 6_000_000 - HELD * price;
+    return resolutionPaths({
+      D: d,
+      r: R,
+      prevClose: price,
+      marketPrice,
+      f: ASSUMED_FEE_RATE,
+      held: HELD,
+    });
+  };
+
+  it("6,040원 — 엔진이 QTY_EXCEEDED로 null을 주고, 화면 문구가 그 사유를 따른다", () => {
+    const p = withHeld(6_040);
+    expect(p.voluntarySellQty).toBeNull();
+    expect(p.voluntarySellReason).toBe("QTY_EXCEEDED");
+
+    const v = buildOptions(p, 6_040, HELD).find((o) => o.key === "voluntary")!;
+    expect(v.amount).toBeNull();
+    expect(v.unavailable).toMatch(/전부 팔아도/);
+  });
+
+  it("held 없이 부르면 같은 가격에서 1,005주가 그대로 나온다 — 옵트인이 필요한 이유", () => {
+    const d = R * 6_000_000 - HELD * 6_040;
+    const noHeld = resolutionPaths({
+      D: d,
+      r: R,
+      prevClose: 6_040,
+      marketPrice: 6_040,
+      f: ASSUMED_FEE_RATE,
+    });
+    expect(noHeld.voluntarySellQty).toBe(1_005); // 보유 1,000주를 넘는 불가능한 수량
+    expect(noHeld.voluntarySellReason).toBeUndefined();
+    // 이 경우에도 화면은 막힌다 — 웹 안전망이 남아 있기 때문
+    expect(buildOptions(noHeld, 6_040, HELD).find((o) => o.key === "voluntary")!.amount).toBeNull();
+  });
+
+  it("6,050원은 경계 — 정확히 보유수량이라 아직 가능하다", () => {
+    const p = withHeld(6_050);
+    expect(p.voluntarySellQty).toBe(1_000);
+    expect(p.voluntarySellReason).toBeUndefined();
+    expect(buildOptions(p, 6_050, HELD).find((o) => o.key === "voluntary")!.qty).toBe(1_000);
+  });
+
+  it("분모≤0은 다른 사유이고 다른 문구다 — 두 경우를 섞지 않는다", () => {
+    const p = withHeld(8_100, 5_000);
+    expect(p.voluntarySellReason).toBe("DENOM_NON_POSITIVE");
+    const v = buildOptions(p, 8_100, HELD).find((o) => o.key === "voluntary")!;
+    expect(v.unavailable).toMatch(/매도로 비율을 복원할 수 없습니다/);
+    expect(v.unavailable).not.toMatch(/전부 팔아도/);
+  });
+});
+
+describe("출처 표기 규약", () => {
+  it("제비용은 '가정'이라고 말한다 — 약관 재현값과 라벨을 공유하지 않는다", () => {
+    const v = buildOptions(paths(), PREV, HELD).find((o) => o.key === "voluntary")!;
+    expect(v.basis).toContain(`${assumedFeePct}% 가정`);
+    expect(v.basis).toMatch(/약관 근거 없는/);
+  });
+
+  it("상수와 문구가 갈라지지 않는다 — 퍼센트는 상수에서 뽑는다", () => {
+    expect(assumedFeePct).toBe("0.8");
+    expect(ASSUMED_FEE_RATE).toBe(0.008);
+  });
+
+  /**
+   * 처분금액 정의가 두 개라는 지적(#19 P2-1)에 대한 박제.
+   * 골든은 **체결가** 기준, 화면은 **평가가(전일종가)** 기준이고 이는 의도된 차이다 —
+   * 화면은 미래 체결가를 알 수 없다. 두 값을 섞어 쓰면 여기가 깨진다.
+   */
+  it("화면 처분금액은 평가가 기준이고, 골든의 체결가 기준과 의도적으로 다르다", () => {
+    const liq = liquidationQty({ D, prevClose: PREV, r: R, h: 0.15, held: HELD });
+    const screen = forcedDisposal(liq, PREV);
+
+    expect(screen.qty).toBe(195);
+    expect(screen.amount).toBe(195 * 8_100); // 1,579,500 — 평가가(전일종가)
+    expect(screen.amount).not.toBe(195 * 7_000); // 1,365,000 — 골든의 체결가 기준
+    // 수량은 두 정의에서 같다. 체결가는 수량 산정에 관여하지 않는다(세 가격 분리)
+    expect(liq.qty).toBe(195);
   });
 });

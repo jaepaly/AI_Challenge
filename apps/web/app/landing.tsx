@@ -28,6 +28,7 @@ import {
 import OptionsCompare from "./options-compare";
 import {
   ACCOUNT,
+  ASSUMED_FEE_RATE,
   CARDS,
   JULY_SEQ,
   PRICE_MAX,
@@ -85,7 +86,10 @@ export default function Landing({ build }: { build: BuildInfo }) {
         r: ACCOUNT.requiredRatio,
         prevClose: price,
         marketPrice: price,
-        f: 0.008,
+        f: ASSUMED_FEE_RATE,
+        // held를 넘겨야 엔진이 '전량 팔아도 해소 불가'를 null로 판정한다(#21).
+        // 안 넘기면 1,005·1,029·1,749주 같은 불가능한 수량이 그대로 나온다(#19).
+        held: ACCOUNT.qty,
       })
     : null;
   // 조립은 한 번만 — 이전에는 JSX에서 buildOptions/forcedDisposal을 각각 두 번 불러
