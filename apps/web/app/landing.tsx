@@ -21,8 +21,8 @@ import {
 import { cardH } from "../lib/marginguard/card";
 import {
   buildOptions,
+  comparisonVerdict,
   forcedDisposal,
-  forcedToVoluntaryRatio,
 } from "../lib/marginguard/options";
 import OptionsCompare from "./options-compare";
 import {
@@ -87,6 +87,13 @@ export default function Landing() {
         f: 0.008,
       })
     : null;
+  // 조립은 한 번만 — 이전에는 JSX에서 buildOptions/forcedDisposal을 각각 두 번 불러
+  // 같은 입력으로 두 벌을 만들고 있었다(결론과 카드가 어긋날 수 있는 구조)
+  const optionRows = paths ? buildOptions(paths, price, ACCOUNT.qty) : null;
+  const forcedRow = liq ? forcedDisposal(liq, price) : null;
+  const verdict =
+    optionRows && forcedRow ? comparisonVerdict(forcedRow, optionRows, ACCOUNT.qty) : null;
+
   const lambda = equalShockLambda(V, ACCOUNT.loan, ACCOUNT.requiredRatio, ACCOUNT.cash);
 
   const shown = displayRatio(V, ACCOUNT.loan); // 표시 = 내림
@@ -289,11 +296,11 @@ export default function Landing() {
           </section>
         )}
 
-        {breached && liq && paths && (
+        {breached && optionRows && forcedRow && verdict && (
           <OptionsCompare
-            options={buildOptions(paths, price)}
-            forced={forcedDisposal(liq, price)}
-            ratio={forcedToVoluntaryRatio(forcedDisposal(liq, price), buildOptions(paths, price))}
+            options={optionRows}
+            forced={forcedRow}
+            verdict={verdict}
             shortfallAmount={D}
             cardStatus={preset.card.status}
           />
