@@ -31,12 +31,18 @@ export function restorationCoefficient(r: number, h: number): number {
   return kMicro(r, h) / 1_000_000;
 }
 
-/** k × 10^6 을 정수로 — ceil 경계에서의 부동소수 오차 차단용 내부 표현. */
-function kMicro(r: number, h: number): number {
+/**
+ * k × 10^6 을 정수로 — ceil 경계에서의 부동소수 오차 차단용 표현.
+ * 엔진 내부 계산 전용이다. 수량 산정 루프는 float k를 절대 쓰지 말고 이 값을 써야 한다
+ * (float k를 쓰는 순간 파일 헤더가 경고한 그 오차가 되돌아온다).
+ */
+export function restorationCoefficientMicro(r: number, h: number): number {
   const rS = Math.round(r * 100); // 140
   const hS = Math.round(h * 10000); // 1500 (h=0.15)
   return rS * (10000 - hS) - 1_000_000; // 예: 140×8500 − 1e6 = 190,000 (k=0.19)
 }
+
+const kMicro = restorationCoefficientMicro;
 
 /**
  * 반대매매 수량: n = ceil( D / (P_prev · k) ), n_final = min(n, held).

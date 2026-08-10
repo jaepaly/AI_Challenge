@@ -177,3 +177,55 @@ export interface ReplayStep {
   /** 집행 반영 후 원장 */
   ledgerAfter: CreditLedger;
 }
+
+/* ── A(엔진) → D(UI) : 다종목 경로 시뮬 (신규 — 기존 계약 무변경) ── */
+
+/**
+ * 하루치 종목별 수익률. 키는 Position.symbol이고 **전 종목이 있어야 한다.**
+ * 누락을 0bp로 봐주지 않는 이유: 거래정지일은 실제로 0bp 스텝으로 들어와야 하는데
+ * (거래일이므로 D+2 시계가 계속 간다), 누락과 0을 같게 처리하면 둘을 구분할 수 없다.
+ * 반면 휴장일은 거래일이 아니므로 애초에 스텝이 없는 게 맞다.
+ */
+export interface DailyPortfolioReturn {
+  date: string;
+  bySymbol: Record<string, number>;
+}
+
+/** 다종목 스텝의 종목별 상태 */
+export interface PortfolioPositionStep {
+  symbol: string;
+  /** 이 스텝 종가(수익률 적용 후, 원 단위 내림) */
+  pricePrev: number;
+  /** 이 종목의 일간 수익률, 정수 bp */
+  dailyReturn: number;
+  /** 이 스텝에서 처분된 수량 */
+  executedQty: number;
+  /** 집행 반영 후 보유 */
+  heldAfter: number;
+  /**
+   * 이 종목 단독 하락 한계선 λ_k — "이 종목 혼자 몇 % 더 빠지면 관통하는가".
+   * ※ 가정적 지표다. 이 경로는 종목별로 다른 충격을 이미 적용하고 있으므로,
+   *   λ_k는 "다른 종목이 그대로일 때"라는 반사실 가정 위에서만 읽어야 한다.
+   */
+  singleAssetLambda: number;
+}
+
+/** 다종목 경로 시뮬의 하루 스텝. 단일 종목 뷰는 ReplayStep(replay)이 따로 있다. */
+export interface PortfolioReplayStep {
+  date: string;
+  /** 주식 평가액 합계 기준 등락률(정수 bp, 사사오입) — 표시용 파생값. 재생 입력이 아니다 */
+  portfolioReturn: number;
+  /** 종가 평가액 = Σ(보유×종가) + 현금성 담보 (집행 반영 후) */
+  V: number;
+  L: number;
+  /** 담보비율 원시값(%) — 라운딩 없음. L=0이면 null */
+  ratioRaw: number | null;
+  shortfall: number;
+  phase: "normal" | "notified" | "executed";
+  /** 이 스텝 집행 총 수량 (종목별은 positions[]) */
+  executedQtyTotal: number;
+  executedReason: "PARTIAL" | "K_NON_POSITIVE" | "QTY_EXCEEDED" | null;
+  /** 종목번호 오름차순 — 처분 순서와 같다 */
+  positions: PortfolioPositionStep[];
+  ledgerAfter: CreditLedger;
+}
