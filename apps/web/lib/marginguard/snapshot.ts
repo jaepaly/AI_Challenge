@@ -137,3 +137,17 @@ export const JULY_SEQ: DailyReturn[] = [
 export const displayRatio = (V: number, L: number) => (L <= 0 ? null : Math.floor((V * 100) / L));
 
 export const won = (n: number) => n.toLocaleString("ko-KR") + "원";
+
+/**
+ * 자발적 매도 제비용률 — **가정치다. 약관 원문 근거가 없다.**
+ *
+ * 조건카드에서 나오는 r·h와 성질이 완전히 다르다. r·h는 약관 조항에 명문으로
+ * 있고 근거 좌표가 붙지만, 이 값은 위탁수수료·거래세·유관기관수수료를 합친
+ * 업계 통상치를 우리가 고른 것이다. 그래서 화면에서 "산정 방식 재현값" 라벨을
+ * 공유하지 않고 **"가정"이라고 명시**해야 한다(규율 ② 출처 없는 수치).
+ *
+ * 표시 문구를 만들 때 이 상수에서 퍼센트를 뽑아 쓴다 — 코드와 화면이 갈라지면
+ * 그게 곧 "화면이 근거를 잘못 말하는" 상태다.
+ */
+export const ASSUMED_FEE_RATE = 0.008;
+export const assumedFeePct = (ASSUMED_FEE_RATE * 100).toFixed(1); // "0.8"

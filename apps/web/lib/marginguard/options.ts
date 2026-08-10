@@ -11,7 +11,9 @@
  *  3. **근거 없는 값을 만들지 않는다.** 대용증권 인정비율(α)이 카드에 없으면
  *     추정하지 않고 사유를 그대로 표시한다.
  */
+import { disposalAmount } from "@marginguard/engine";
 import type { LiquidationResult, ResolutionPaths } from "@marginguard/engine";
+import { assumedFeePct } from "./snapshot";
 
 export type OptionKey = "deposit" | "repay" | "collateral" | "voluntary";
 
@@ -30,7 +32,15 @@ export interface OptionRow {
 
 export interface ForcedRow {
   qty: number;
-  /** 평가액 기준 처분 규모 = 수량 × 전일종가 */
+  /**
+   * 처분 규모 = engine.disposalAmount(수량, **전일종가**).
+   *
+   * ⚠ 골든의 `disposalAmount`는 **체결가** 기준이다(한투 195×7,000=1,365,000 /
+   * 삼성 972×6,800=6,609,600). 화면은 체결가를 알 수 없다 — 미래 가격이다.
+   * 그래서 여기만 평가가(전일종가) 기준이고, 두 정의는 **의도적으로 다르다**.
+   * 4경로도 전부 전일종가 기준이라 비교 단위가 일치하는 쪽을 골랐다.
+   * 이 차이는 test/options.test.ts가 박제한다 — 골든 값과 섞어 쓰면 안 된다.
+   */
   amount: number;
   mode: LiquidationResult["mode"];
   reason: LiquidationResult["reason"];
@@ -48,11 +58,15 @@ export function buildOptions(
   /** 보유수량 — 자발적 매도가 물리적으로 가능한지 판정하는 데만 쓴다 */
   held: number,
 ): OptionRow[] {
-  // engine.resolutionPaths가 held를 받지 않아 보유수량을 넘는 매도 수량을 낸다(이슈 #19).
-  // 엔진 수정 전까지의 임시 방어 — 산식이 아니라 비교 한 번이다.
-  // 엔진이 null을 돌려주게 되면 이 가드는 중복이 되지만 그대로 둔다(이중 방어).
+  // 판정은 엔진이 한다(#21이 held를 받아 QTY_EXCEEDED로 null을 준다).
+  // 아래 overHeld는 그 판정을 베끼는 게 아니라, held를 넘기지 않은 호출부가
+  // 생겼을 때만 켜지는 안전망이다 — 정상 경로에서는 항상 false다.
+  // 사유 문구는 엔진 코드에서 갈라 쓰고, 우리가 다시 분류하지 않는다.
   const volQty = paths.voluntarySellQty;
-  const volOverHeld = volQty !== null && volQty > held;
+  const overHeld = volQty !== null && volQty > held;
+  const reason: ResolutionPaths["voluntarySellReason"] =
+    paths.voluntarySellReason ?? (overHeld ? "QTY_EXCEEDED" : undefined);
+  const volUsable = volQty !== null && !overHeld;
 
   return [
     {
@@ -82,15 +96,19 @@ export function buildOptions(
     {
       key: "voluntary",
       label: "자발적 매도",
-      amount: volQty === null || volOverHeld ? null : volQty * prevClose,
-      qty: volQty === null || volOverHeld ? null : volQty,
-      basis: "제비용 반영 — 실제 매도라 실제 비용이 발생",
-      ...(volQty === null
-        ? { unavailable: "이 가격에서는 매도로 비율을 복원할 수 없습니다" }
-        : volOverHeld
-          ? {
-              unavailable: `보유 ${held.toLocaleString()}주를 전부 팔아도 부족액이 남습니다 — 매도만으로는 해소되지 않습니다`,
-            }
+      // 강제 쪽과 같은 함수를 쓴다 — 같은 곱을 두 방식으로 쓰면 한쪽만 바뀐다(A #24 지적).
+      // ⚠ 단 두 값은 성질이 다르다: 강제는 "팔릴 규모", 여기는 "내가 팔아야 할 금액".
+      //    나중에 강제 쪽이 체결가 기준으로 옮겨가면 이 둘은 **같이 움직여선 안 된다**.
+      amount: volUsable ? disposalAmount(volQty, prevClose) : null,
+      qty: volUsable ? volQty : null,
+      // f는 약관 근거가 없는 가정치다 — 재현값과 라벨을 공유하지 않는다(규율 ②)
+      basis: `제비용 ${assumedFeePct}% 가정 — 약관 근거 없는 가정치이며 실제 매도라 실제 비용이 발생`,
+      ...(reason === "QTY_EXCEEDED"
+        ? {
+            unavailable: `보유 ${held.toLocaleString()}주를 전부 팔아도 부족액이 남습니다 — 매도만으로는 해소되지 않습니다`,
+          }
+        : reason === "DENOM_NON_POSITIVE"
+          ? { unavailable: "이 가격에서는 매도로 비율을 복원할 수 없습니다" }
           : {}),
     },
   ];
@@ -100,7 +118,7 @@ export function buildOptions(
 export function forcedDisposal(liq: LiquidationResult, prevClose: number): ForcedRow {
   return {
     qty: liq.qty,
-    amount: liq.qty * prevClose,
+    amount: disposalAmount(liq.qty, prevClose),
     mode: liq.mode,
     reason: liq.reason,
     rawQty: liq.rawQty,
