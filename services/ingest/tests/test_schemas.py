@@ -140,10 +140,18 @@ class EvidenceSpanContractTest(unittest.TestCase):
 
         self.assert_contract_accepts(card)
 
-    def test_discount_quote_accepts_samsung_complement(self) -> None:
+    def test_discount_quote_accepts_samsung_complement_with_disposal_context(self) -> None:
         cases = [
-            (0.15, "반대매매 기준가격: S, A는 85%"),
-            (0.20, "반대매매 기준가격: B등급 이하는 80%"),
+            (
+                0.15,
+                "※ 반대매매 기준가격 : 전일 종가 기준 종목등급 S, A는 85%, "
+                "B등급 이하는 80%로 합니다.",
+            ),
+            (
+                0.20,
+                "※ 반대매매 기준가격 : 전일 종가 기준 종목등급 S, A는 85%, "
+                "B등급 이하는 80%로 합니다.",
+            ),
             (0.15, "전일종가의 15% 할인"),
             (0.15, "할인율 15.0% 적용"),
         ]
@@ -153,6 +161,17 @@ class EvidenceSpanContractTest(unittest.TestCase):
                 card["disposal_price_rules"][0]["discount_rate"] = discount_rate
                 card["disposal_price_rules"][0]["evidence"]["quote"] = quote
                 self.assert_contract_accepts(card)
+
+    def test_discount_complement_rejects_unrelated_percentage_contexts(self) -> None:
+        invalid_quotes = [
+            "담보평가비율 85% 이상 종목만 신용거래 가능",
+            "대용가격은 기준시세의 85%",
+        ]
+        for quote in invalid_quotes:
+            with self.subTest(quote=quote):
+                card = make_card(page_evidence())
+                card["disposal_price_rules"][0]["evidence"]["quote"] = quote
+                self.assert_pydantic_rejects(card)
 
     def test_numeric_quotes_reject_wrong_or_embedded_numbers(self) -> None:
         invalid_quotes = ["150%", "2015년", "제15조", "1,500주"]

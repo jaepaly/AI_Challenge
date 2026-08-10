@@ -40,6 +40,8 @@ EvidenceSpan = Annotated[
     Field(discriminator="source_format"),
 ]
 
+_DISPOSAL_CONTEXT_TERMS = ("처분", "반대매매", "기준가", "하락", "할인")
+
 
 def _format_decimal(value: Decimal) -> str:
     formatted = format(value.normalize(), "f")
@@ -73,6 +75,10 @@ def _percent_candidates(value: float, *, include_complement: bool = False) -> se
     return candidates
 
 
+def _has_disposal_context(quote: str) -> bool:
+    return any(term in quote for term in _DISPOSAL_CONTEXT_TERMS)
+
+
 def _validate_numeric_quote(
     *,
     field_name: str,
@@ -81,13 +87,28 @@ def _validate_numeric_quote(
     include_complement: bool = False,
 ) -> None:
     quote = _normalized_quote(evidence.quote)
+    direct_candidate = _format_decimal(Decimal(str(value)) * 100)
+    if _contains_percent(quote, direct_candidate):
+        return
+
     candidates = _percent_candidates(value, include_complement=include_complement)
-    if not any(_contains_percent(quote, candidate) for candidate in candidates):
-        expected = ", ".join(f"{candidate}%" for candidate in sorted(candidates))
-        raise ValueError(
-            f"{field_name}의 evidence.quote에 퍼센트 표기({expected})가 "
-            "숫자 경계와 단위에 맞게 포함되어야 합니다"
-        )
+    complement_candidates = candidates - {direct_candidate}
+    has_contextual_complement = include_complement and _has_disposal_context(quote) and any(
+        _contains_percent(quote, candidate) for candidate in complement_candidates
+    )
+    if has_contextual_complement:
+        return
+
+    expected = ", ".join(f"{candidate}%" for candidate in sorted(candidates))
+    context_requirement = (
+        "; 여집합 후보는 처분 문맥어가 함께 있어야 합니다"
+        if include_complement
+        else ""
+    )
+    raise ValueError(
+        f"{field_name}의 evidence.quote에 퍼센트 표기({expected})가 "
+        f"숫자 경계와 단위에 맞게 포함되어야 합니다{context_requirement}"
+    )
 
 
 class RatioRule(BaseModel):
