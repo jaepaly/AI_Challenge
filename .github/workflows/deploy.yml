@@ -1,0 +1,152 @@
+## 배포 — Vercel CLI를 GitHub Actions에서 돌린다 (C·D)
+##
+## 왜 Git 연동이 아니라 이 경로인가
+##   Vercel의 "비공개 저장소는 커밋 작성자가 팀 멤버여야 배포된다"는 규칙은
+##   **Git 연동 경로에만** 걸린다. 그 규칙 때문에 팀원 커밋이 두 번 막혔고,
+##   좌석을 사면 1인당 월 $20다(팀 방침: 추가 비용 0).
+##   CLI 토큰 배포는 Vercel이 GitHub을 거치지 않으므로 작성자 검사가 없다.
+##   → Hobby(무료)에서도 동작하고, 누가 커밋했든 배포된다.
+##
+## 필요한 Secret 3개 (Settings → Secrets and variables → Actions)
+##   VERCEL_TOKEN       Vercel → Account Settings → Tokens
+##   VERCEL_ORG_ID      apps/web/.vercel/project.json 의 orgId      (비밀 아님, 식별자)
+##   VERCEL_PROJECT_ID  apps/web/.vercel/project.json 의 projectId  (기존 marginguard-web
+##                      프로젝트여야 URL이 유지된다 — 새로 만들면 제출 URL이 바뀐다)
+##
+## Secret이 아직 없으면 조용히 건너뛴다. 배포 설정 전에 머지해도 CI가 빨개지지 않는다.
+##
+## ⚠ Git 연동과 이 워크플로를 **동시에 켜두지 말 것.** 같은 커밋을 두 번 배포한다.
+##   전환 순서: 이 워크플로로 배포 1회 성공 확인 → Git 연동 해제 → 그다음 Pro 해지.
+name: 배포
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # 배포는 중간에 끊지 않는다 — 반쯤 올라간 상태가 제일 나쁘다
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Vercel 배포
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      # CLI는 ORG_ID·PROJECT_ID를 **둘 다** 요구한다(하나만 주면 즉시 거부).
+      # 한쪽만 넘겨보는 시도는 실측으로 기각됐다.
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      PROD_URL: https://marginguard-web.vercel.app
+    steps:
+      # secrets 컨텍스트는 job 레벨 if에서 못 읽는다. 스텝에서 판정해 내려보낸다.
+      - name: Secret 유무 판정
+        id: pre
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "### 배포 건너뜀 — Vercel Secret 미설정" >> "$GITHUB_STEP_SUMMARY"
+            echo "VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID 를 등록하면 동작합니다." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.pre.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.pre.outputs.ready == 'true'
+        with:
+          node-version: 20
+          cache: npm
+
+      # Git 연동 경로가 아니므로 Vercel이 VERCEL_GIT_* 를 자동 주입하지 않는다.
+      # 넣지 않으면 푸터·/api/build 가 "local"로 뜬다(배포 신원을 잃는다).
+      - name: 빌드 신원 주입
+        if: steps.pre.outputs.ready == 'true'
+        run: |
+          echo "VERCEL_GIT_COMMIT_SHA=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          echo "VERCEL_GIT_COMMIT_REF=${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}" >> "$GITHUB_ENV"
+
+      - name: Vercel CLI 설치
+        if: steps.pre.outputs.ready == 'true'
+        run: npm i -g vercel@latest
+
+      # 토큰이 실제로 무엇을 볼 수 있는지 남긴다. "Could not retrieve Project Settings"는
+      # 원인이 여럿이라(토큰 범위 / ORG_ID·PROJECT_ID 불일치 / 만료) 출력 없이는 추측만 하게 된다.
+      #
+      # ⚠ whoami·teams ls로 진단하지 말 것. Vercel 토큰은 Full Account / Team / Project
+      #   세 범위가 있고 **project 범위는 user·team 레벨 요청을 거부한다**. 정상 토큰인데도
+      #   whoami가 "User not found"를 뱉어서, 실제로 이걸 무효로 오진한 적이 있다.
+      #   /v9/projects는 세 범위 모두에서 동작한다(project 범위면 그 하나만 돌아온다).
+      - name: Vercel 연결 진단
+        if: steps.pre.outputs.ready == 'true'
+        run: |
+          CODE=$(curl -s -o /tmp/p.json -w '%{http_code}' \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v9/projects?limit=20" || echo 000)
+          {
+            echo "## Vercel 연결 진단"
+            echo "- HTTP \`$CODE\` (401/403이면 토큰 무효·만료, 200이면 유효)"
+            if [ "$CODE" = "200" ]; then
+              echo "- 토큰이 보는 프로젝트: \`$(jq -r '[.projects[].name]|join(", ")' /tmp/p.json)\`"
+              echo "- 기대 프로젝트 \`marginguard-web\` 포함 여부: **$(jq -r 'if any(.projects[]; .name=="marginguard-web") then "예" else "아니오 — 토큰 범위가 다른 프로젝트/팀이다" end' /tmp/p.json)**"
+            else
+              echo '```'; jq -r '.error.message // .' /tmp/p.json 2>/dev/null || cat /tmp/p.json; echo '```'
+            fi
+            A=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VERCEL_TOKEN"               "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID" || echo 000)
+            B=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VERCEL_TOKEN"               "https://api.vercel.com/v9/projects/$VERCEL_PROJECT_ID?teamId=$VERCEL_TEAM_ID" || echo 000)
+            echo "- 프로젝트 조회: teamId 없이 \`$A\` / teamId 붙여서 \`$B\`"
+            echo "  (앞이 200이고 뒤가 4xx면 teamId를 넘기는 것이 원인이다)"
+            T=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VERCEL_TOKEN"               "https://api.vercel.com/v2/teams/$VERCEL_TEAM_ID" || echo 000)
+            echo "- **팀 레벨 조회: \`$T\`** — CLI는 ORG_ID로 팀을 먼저 해석한다."
+            echo "  4xx면 토큰이 **project 범위**라는 뜻이고, 해결책은 **team 범위 토큰**이다"
+            echo "  (토큰 생성 시 Scope → 팀 선택 → 개별 프로젝트 말고 **All Projects**)."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: 프로덕션 배포
+        id: prod
+        if: steps.pre.outputs.ready == 'true' && github.ref == 'refs/heads/main'
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+      - name: 프리뷰 배포
+        id: preview
+        if: steps.pre.outputs.ready == 'true' && github.ref != 'refs/heads/main'
+        run: |
+          vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
+          vercel build --token="$VERCEL_TOKEN"
+          URL=$(vercel deploy --prebuilt --token="$VERCEL_TOKEN")
+          echo "### 프리뷰 배포" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
+
+      # 배포했다고 끝이 아니다. #14 때는 배포는 됐는데 URL이 옛 커밋을 서빙했다.
+      # 상태코드는 그때도 200이었다 — 살아 있는 것과 올바른 것은 다르다.
+      - name: 신선도 검증 (프로덕션)
+        if: steps.pre.outputs.ready == 'true' && github.ref == 'refs/heads/main'
+        run: |
+          sleep 15
+          CODE=$(curl -s -o /tmp/b.json -w '%{http_code}' "$PROD_URL/api/build" || echo 000)
+          if [ "$CODE" = "404" ]; then
+            echo "::notice::/api/build 없음 — PR #18 미머지 상태로 보인다. 검증을 건너뛴다."
+            exit 0
+          fi
+          if [ "$CODE" != "200" ]; then
+            echo "::error::/api/build 응답 $CODE — 배포 URL이 정상이 아니다"
+            exit 1
+          fi
+          GOT=$(jq -r .sha /tmp/b.json)
+          echo "배포된 SHA=$GOT / 기대=$GITHUB_SHA"
+          if [ "$GOT" != "$GITHUB_SHA" ]; then
+            echo "::error::URL이 아직 옛 커밋을 서빙한다(alias 미승격 의심)"
+            exit 1
+          fi
+          echo "### 배포 확인 — \`${GITHUB_SHA:0:7}\`" >> "$GITHUB_STEP_SUMMARY"
