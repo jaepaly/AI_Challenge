@@ -22,7 +22,8 @@ class PathComparisonTest(unittest.TestCase):
         self.assertEqual(result["total"], 6)
         self.assertEqual(result["rate"], 1.0)
         self.assertEqual(result["missing_fact_ids"], ())
-        self.assertGreater(result["delimiter_rows"], 0)
+        self.assertEqual(result["delimiter_count"], 263)
+        self.assertEqual(result["delimiter_rows"], 115)
 
     def test_benchmark_records_the_measured_environment(self) -> None:
         environment = self.comparison["environment"]
@@ -38,6 +39,7 @@ class PathComparisonTest(unittest.TestCase):
         self.assertEqual(result["total"], 13)
         self.assertEqual(result["rate"], 1.0)
         self.assertEqual(result["missing_fact_ids"], ())
+        self.assertEqual(result["delimiter_count"], 0)
         self.assertEqual(result["delimiter_rows"], 0)
 
     def test_raw_pdf_path_is_explicitly_not_claimed(self) -> None:

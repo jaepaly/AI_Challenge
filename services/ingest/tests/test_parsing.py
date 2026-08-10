@@ -20,8 +20,14 @@ class HankookHTMLSpikeTest(unittest.TestCase):
         html = """
         <p>문장   공백</p>
         <table>
-          <tr><th>항목</th><th>값</th></tr>
-          <tr><td>담보 유지</td><td>140%</td></tr>
+          <tr>
+            <th><p>항목</p></th>
+            <th><p>값</p></th>
+          </tr>
+          <tr>
+            <td><p>담보 <strong>유지</strong></p></td>
+            <td><p>140%</p></td>
+          </tr>
         </table>
         """
 
@@ -48,6 +54,20 @@ class HankookHTMLSpikeTest(unittest.TestCase):
         self.assertIn("최저담보유지비율 140%", text)
         self.assertIn("전일종가(8,100원) 대비 15% 하락한 가격(6,890원)", text)
         self.assertIn("195주 반대매매 필요", text)
+        self.assertIn(
+            "날짜\t주식가격\t계좌평가금액\t담보평가비율\t비고",
+            text,
+        )
+        self.assertIn(
+            "D일 장중\t10,000원\t10,000,000원\t167%",
+            text,
+        )
+        self.assertIn(
+            "D+2일\t6,150원\t6,150,000원\t103%\t추가담보 미납(225만원 담보부족)",
+            text,
+        )
+        self.assertEqual(text.count("\t"), 228)
+        self.assertEqual(sum("\t" in line for line in text.splitlines()), 108)
 
     def test_key_terms_survive_pypdf_text_parsing(self) -> None:
         document = parse_pdf_text(MERITZ_TERMS)

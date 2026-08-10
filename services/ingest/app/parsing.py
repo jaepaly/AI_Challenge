@@ -8,9 +8,15 @@ from dataclasses import dataclass
 from hashlib import sha256
 from html.parser import HTMLParser
 from pathlib import Path
+import re
 from typing import Literal
 
 from pypdf import PdfReader
+
+
+_HTML_ROW_BOUNDARY = "\x1e"
+_HTML_CELL_BOUNDARY = "\x1f"
+_HTML_PARAGRAPH_BOUNDARY = "\x1d"
 
 
 @dataclass(frozen=True)
@@ -35,6 +41,7 @@ class _HTMLTextParser(HTMLParser):
         self.parts: list[str] = []
         self.table_count = 0
         self._ignored_depth = 0
+        self._table_cell_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
@@ -43,14 +50,21 @@ class _HTMLTextParser(HTMLParser):
         elif self._ignored_depth == 0:
             if tag == "table":
                 self.table_count += 1
-            if tag in {"p", "br", "tr", "li", "h1", "h2", "h3"}:
-                self.parts.append("\n")
+            if tag == "tr":
+                self.parts.append(_HTML_ROW_BOUNDARY)
             elif tag in {"th", "td"}:
-                self.parts.append("\t")
+                self.parts.append(_HTML_CELL_BOUNDARY)
+                self._table_cell_depth += 1
+            elif tag in {"p", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6"}:
+                boundary = " " if self._table_cell_depth else _HTML_PARAGRAPH_BOUNDARY
+                self.parts.append(boundary)
 
     def handle_endtag(self, tag: str) -> None:
-        if tag.lower() in {"script", "style"}:
+        tag = tag.lower()
+        if tag in {"script", "style"}:
             self._ignored_depth = max(0, self._ignored_depth - 1)
+        elif self._ignored_depth == 0 and tag in {"th", "td"}:
+            self._table_cell_depth = max(0, self._table_cell_depth - 1)
 
     def handle_data(self, data: str) -> None:
         if self._ignored_depth == 0:
@@ -58,11 +72,29 @@ class _HTMLTextParser(HTMLParser):
 
 
 def _normalize_html_text(parts: list[str]) -> str:
-    """일반 공백은 접되 표의 행(`\n`)과 셀(`\t`) 경계는 보존한다."""
+    """소스 서식 공백은 접고 HTML 구조에서 나온 행·셀 경계만 보존한다."""
+
+    sentinels = {
+        _HTML_ROW_BOUNDARY,
+        _HTML_CELL_BOUNDARY,
+        _HTML_PARAGRAPH_BOUNDARY,
+    }
+    structural_parts = re.split(
+        f"([{''.join(sentinels)}])",
+        "".join(parts),
+    )
+    normalized_parts = [
+        part if part in sentinels else " ".join(part.split())
+        for part in structural_parts
+    ]
+    structured_text = "".join(normalized_parts)
+    structured_text = structured_text.replace(_HTML_PARAGRAPH_BOUNDARY, "\n")
+    structured_text = structured_text.replace(_HTML_ROW_BOUNDARY, "\n")
+    structured_text = structured_text.replace(_HTML_CELL_BOUNDARY, "\t")
 
     lines: list[str] = []
-    for raw_line in "".join(parts).splitlines():
-        cells = [" ".join(cell.split()) for cell in raw_line.split("\t")]
+    for raw_line in structured_text.splitlines():
+        cells = [cell.strip() for cell in raw_line.split("\t")]
         non_empty_cells = [cell for cell in cells if cell]
         if non_empty_cells:
             lines.append("\t".join(non_empty_cells))

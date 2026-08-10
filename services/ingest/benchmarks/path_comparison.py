@@ -34,6 +34,7 @@ class PathResult:
     total: int
     rate: float
     missing_fact_ids: tuple[str, ...]
+    delimiter_count: int
     delimiter_rows: int
     note: str
 
@@ -169,6 +170,9 @@ def _score_documents(
         for line in document.units[0].text.splitlines()
         if "\t" in line
     )
+    delimiter_count = sum(
+        document.units[0].text.count("\t") for document in documents.values()
+    )
     recovered = len(facts) - len(missing)
     return PathResult(
         path=path_name,
@@ -178,6 +182,7 @@ def _score_documents(
         total=len(facts),
         rate=recovered / len(facts),
         missing_fact_ids=missing,
+        delimiter_count=delimiter_count,
         delimiter_rows=delimiter_rows,
         note=note,
     )
