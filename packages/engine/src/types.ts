@@ -37,6 +37,7 @@ export interface CreditLedger {
 
 /** 근거 좌표 — 인제스트 출력의 필수 필드. 좌표를 못 찾으면 출력을 거부한다. */
 export interface EvidenceSpan {
+  source_format: "pdf" | "text" | "html";
   page: number;
   start: number;
   end: number;

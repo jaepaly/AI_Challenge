@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 class EvidenceSpan(BaseModel):
     """근거 좌표 — 없으면 카드 전체를 거부한다. 근거 없는 수치 금지."""
 
+    source_format: Literal["pdf", "text", "html"]
     page: int = Field(ge=1)
     start: int = Field(ge=0)
     end: int = Field(ge=0)

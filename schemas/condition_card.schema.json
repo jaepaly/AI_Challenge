@@ -75,8 +75,9 @@
     "evidence_span": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["page", "start", "end", "quote"],
+      "required": ["source_format", "page", "start", "end", "quote"],
       "properties": {
+        "source_format": { "enum": ["pdf", "text", "html"] },
         "page": { "type": "integer", "minimum": 1 },
         "start": { "type": "integer", "minimum": 0 },
         "end": { "type": "integer", "minimum": 0 },
