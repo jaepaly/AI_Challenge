@@ -82,6 +82,32 @@
   .paths td:last-child{text-align:right; font-weight:700; font-variant-numeric:tabular-nums}
   .paths .cap{font-size:11px; color:var(--ink3); font-weight:400}
 
+  /* ── 선택지 비교 (해소 4경로 + 강제 처분 대조) ── */
+  .opt{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin:16px 0}
+  .opt h2{margin:0 0 4px; font-family:var(--serif); font-size:17px}
+  .optLead{margin:0 0 14px; font-size:12.5px; color:var(--ink2)}
+  .draftTag{display:inline-block; vertical-align:middle; margin-left:10px; background:var(--warn-soft); color:var(--warn); font-family:var(--sans); font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px}
+  .optGrid{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
+  @media (max-width:760px){ .optGrid{grid-template-columns:repeat(2,1fr)} }
+  @media (max-width:420px){ .optGrid{grid-template-columns:1fr} }
+  .optCard{background:var(--ground); border:1px solid var(--line); border-radius:10px; padding:12px 13px}
+  .optCard.na{border-style:dashed; opacity:.85}
+  .optLbl{font-size:11.5px; letter-spacing:.06em; color:var(--ink3); font-weight:700}
+  .optAmt{font-family:var(--serif); font-size:21px; font-weight:800; margin-top:4px; line-height:1.25}
+  .optQty{font-size:12px; color:var(--ink2); margin-top:2px}
+  .repro{font-size:10.5px; color:var(--ink3); border:1px solid var(--line2); border-radius:999px; padding:1px 6px; margin-left:4px; white-space:nowrap}
+  .optBasis{font-size:11px; color:var(--ink3); margin-top:6px; line-height:1.5}
+  .optNa{font-family:var(--serif); font-size:17px; font-weight:700; color:var(--ink3); margin-top:4px}
+  .optWhy{font-size:11px; color:var(--warn); margin-top:4px; line-height:1.5}
+
+  .optForced{margin-top:14px; background:var(--danger-soft); border:1px solid var(--danger); border-radius:10px; padding:13px 15px}
+  .optForcedHead{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+  .optForcedHead .optLbl{color:var(--danger)}
+  .optForcedBody .optAmt{color:var(--danger)}
+  .optPunch{margin:12px 0 0; font-size:14px; color:var(--ink); text-align:center}
+  .optPunch b{font-family:var(--serif); font-size:19px; color:var(--danger)}
+  .optFoot{margin:12px 0 0; font-size:11px; color:var(--ink3); line-height:1.7; border-top:1px solid var(--line); padding-top:10px}
+
   /* 7월 연쇄 */
   .july{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:16px 0}
   .july h2{margin:0 0 4px; font-size:15px}

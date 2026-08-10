@@ -20,6 +20,12 @@ import {
 } from "@marginguard/engine";
 import { cardH } from "../lib/marginguard/card";
 import {
+  buildOptions,
+  forcedDisposal,
+  forcedToVoluntaryRatio,
+} from "../lib/marginguard/options";
+import OptionsCompare from "./options-compare";
+import {
   ACCOUNT,
   CARDS,
   JULY_SEQ,
@@ -52,11 +58,13 @@ export default function Landing() {
   const [steps, setSteps] = useState<ReplayStep[] | null>(null);
   const [cursor, setCursor] = useState(-1);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** 재생 중 여부는 state로 둔다 — ref를 렌더에서 읽으면 버튼 disabled가 갱신되지 않는다 */
+  const [playing, setPlaying] = useState(false);
 
   const preset = CARDS.find((c) => c.key === cardKey)!;
   const h = cardH(preset.card);
   const hUnknown = h === null; // 조건카드 불완전 — 수량을 추정하지 않는다
-  const pStar = useMemo(thresholdPrice, []);
+  const pStar = useMemo(() => thresholdPrice(), []);
 
   // 언마운트 시 재현 타이머 정리
   useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
@@ -103,6 +111,7 @@ export default function Landing() {
     const result = replay(positions(PRICE_START), ledger(), JULY_SEQ, preset.card);
     setSteps(result);
     setCursor(0);
+    setPlaying(true);
     let i = 0;
     timer.current = setInterval(() => {
       i += 1;
@@ -110,6 +119,7 @@ export default function Landing() {
         clearInterval(timer.current!);
         timer.current = null;
         setCursor(result.length - 1);
+        setPlaying(false);
         return;
       }
       setCursor(i);
@@ -190,6 +200,7 @@ export default function Landing() {
                     clearInterval(timer.current);
                     timer.current = null;
                   }
+                  setPlaying(false);
                 }}
               >
                 {c.label} <span className="h">{c.hLabel}</span>
@@ -245,19 +256,6 @@ export default function Landing() {
           </section>
         )}
 
-        {breached && hUnknown && (
-          <section id="liqBox" aria-label="반대매매 산정">
-            <h2>이대로면 — 산정 불가</h2>
-            <span className="mode full">
-              조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다
-            </span>
-            <div className="note">
-              담보부족액 {won(D)}은 확정입니다. 부족액은 유지비율만으로 정해지고, 처분 수량만 회사별
-              산정 기준가에 달려 있습니다. 카드를 검증해 채운 뒤 다시 보세요.
-            </div>
-          </section>
-        )}
-
         {breached && liq && paths && (
           <section id="liqBox" aria-label="반대매매 산정">
             <h2>이대로면 — 약관 산정 방식의 재현값</h2>
@@ -288,34 +286,17 @@ export default function Landing() {
               ))}
               <span style={{ borderStyle: "dashed" }}>같은 부족액, 회사만 다를 때</span>
             </div>
-            <table className="paths">
-              <tbody>
-                <tr>
-                  <td>
-                    현금 입금 <span className="cap">= D</span>
-                  </td>
-                  <td className="tnum">{won(paths.deposit)}</td>
-                </tr>
-                <tr>
-                  <td>
-                    융자 상환 <span className="cap">= D ÷ 1.4 — 입금보다 28.6% 적음</span>
-                  </td>
-                  <td className="tnum">{won(paths.repay)}</td>
-                </tr>
-                <tr>
-                  <td>
-                    자발적 매도{" "}
-                    <span className="cap">
-                      제비용 0.8% 가정 · 회사별 해소 경로 상이(유진은 D·D+1 일반매매 명시, 타사는 전전일 신청)
-                    </span>
-                  </td>
-                  <td className="tnum">
-                    {paths.voluntarySellQty === null ? "매도로 해소 불가" : `${paths.voluntarySellQty}주`}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
           </section>
+        )}
+
+        {breached && liq && paths && (
+          <OptionsCompare
+            options={buildOptions(paths, price)}
+            forced={forcedDisposal(liq, price)}
+            ratio={forcedToVoluntaryRatio(forcedDisposal(liq, price), buildOptions(paths, price))}
+            shortfallAmount={D}
+            cardStatus={preset.card.status}
+          />
         )}
 
         <section className="july">
@@ -329,7 +310,7 @@ export default function Landing() {
             id="julyBtn"
             type="button"
             onClick={playJuly}
-            disabled={timer.current !== null || hUnknown}
+            disabled={playing || hUnknown}
           >
             ▶ 7월 연쇄 재현 (7/7 → 7/29)
           </button>

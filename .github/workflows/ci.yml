@@ -32,3 +32,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+
+  lint:
+    name: 린트 (전 워크스페이스)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # 테스트가 못 잡는 종류를 잡는다. 실제로 react-hooks/refs 규칙이
+      # "재생 중에도 7월 재현 버튼이 활성으로 보이던" 동작 버그를 찾아냈다
+      # (ref를 렌더에서 읽어 disabled가 갱신되지 않던 문제, PR #14에서 수정).
+      - run: npm run lint
