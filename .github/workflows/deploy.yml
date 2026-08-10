@@ -75,6 +75,20 @@ jobs:
         if: steps.pre.outputs.ready == 'true'
         run: npm i -g vercel@latest
 
+      # 토큰이 어떤 계정·팀·프로젝트를 볼 수 있는지 남긴다.
+      # "Could not retrieve Project Settings"는 원인이 여럿이라(토큰 스코프가
+      # 개인 계정 / 팀이 사라짐 / ORG_ID·PROJECT_ID 불일치) 이 출력이 없으면 추측만 하게 된다.
+      # 계정명·프로젝트명은 비밀이 아니다.
+      - name: Vercel 연결 진단
+        if: steps.pre.outputs.ready == 'true'
+        run: |
+          echo "## Vercel 연결 진단" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          { vercel whoami --token="$VERCEL_TOKEN" 2>&1 || true; } | tee -a "$GITHUB_STEP_SUMMARY"
+          { vercel teams ls --token="$VERCEL_TOKEN" 2>&1 || true; } | tee -a "$GITHUB_STEP_SUMMARY"
+          { vercel project ls --token="$VERCEL_TOKEN" 2>&1 || true; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
       - name: 프로덕션 배포
         id: prod
         if: steps.pre.outputs.ready == 'true' && github.ref == 'refs/heads/main'
