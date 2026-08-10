@@ -97,7 +97,7 @@ jobs:
             else
               echo '```'; jq -r '.error.message // .' /tmp/p.json 2>/dev/null || cat /tmp/p.json; echo '```'
             fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: 프로덕션 배포
         id: prod
