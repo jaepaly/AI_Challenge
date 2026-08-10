@@ -4,19 +4,37 @@
 이 파일과 packages/engine/src/types.ts를 JSON Schema와 동기화하는 책임은 B에게 있다.
 변경은 PR + 팀 전원 승인.
 """
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class EvidenceSpan(BaseModel):
-    """근거 좌표 — 없으면 카드 전체를 거부한다. 근거 없는 수치 금지."""
+class PageEvidenceSpan(BaseModel):
+    """PDF 원본 citations의 1-indexed 페이지 좌표."""
 
-    source_format: Literal["pdf", "text", "html"]
+    model_config = ConfigDict(extra="forbid")
+
+    source_format: Literal["pdf"]
     page: int = Field(ge=1)
-    start: int = Field(ge=0)
-    end: int = Field(ge=0)
+    end_page: Optional[int] = Field(default=None, ge=1)
     quote: str = Field(min_length=1)
+
+
+class CharacterEvidenceSpan(BaseModel):
+    """평탄화된 text/html citations의 문자 오프셋 좌표."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_format: Literal["text", "html"]
+    char_start: int = Field(ge=0)
+    char_end: int = Field(ge=0)
+    quote: str = Field(min_length=1)
+
+
+EvidenceSpan = Annotated[
+    Union[PageEvidenceSpan, CharacterEvidenceSpan],
+    Field(discriminator="source_format"),
+]
 
 
 class RatioRule(BaseModel):
@@ -61,3 +79,18 @@ class ConditionCard(BaseModel):
     # 인제스트 직후는 반드시 draft. verified 승격은 사람 검수를 거친 뒤에만.
     status: Literal["verified", "draft"] = "draft"
     verified_at: Optional[str] = None  # 신선도 게이트(30일) 기준일 = 검증일
+
+    @model_validator(mode="after")
+    def require_one_coordinate_kind(self):
+        evidence_spans = [
+            *(rule.evidence for rule in self.ratio_rules),
+            *(rule.evidence for rule in self.disposal_price_rules),
+            *(rule.evidence for rule in self.execution_schedule),
+        ]
+        coordinate_kinds = {
+            "page" if isinstance(evidence, PageEvidenceSpan) else "character"
+            for evidence in evidence_spans
+        }
+        if len(coordinate_kinds) != 1:
+            raise ValueError("한 ConditionCard 안에서는 근거 좌표 형식을 하나로 통일해야 합니다")
+        return self

@@ -6,6 +6,10 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["broker", "ratio_rules", "account_aggregation", "disposal_price_rules", "execution_schedule", "ratio_source", "doc_version", "status"],
+  "oneOf": [
+    { "$ref": "#/definitions/page_evidence_card" },
+    { "$ref": "#/definitions/character_evidence_card" }
+  ],
   "properties": {
     "broker": { "type": "string", "minLength": 1 },
     "ratio_rules": {
@@ -73,15 +77,59 @@
   },
   "definitions": {
     "evidence_span": {
+      "anyOf": [
+        { "$ref": "#/definitions/page_evidence_span" },
+        { "$ref": "#/definitions/character_evidence_span" }
+      ]
+    },
+    "page_evidence_span": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source_format", "page", "start", "end", "quote"],
+      "required": ["source_format", "page", "quote"],
       "properties": {
-        "source_format": { "enum": ["pdf", "text", "html"] },
+        "source_format": { "const": "pdf" },
         "page": { "type": "integer", "minimum": 1 },
-        "start": { "type": "integer", "minimum": 0 },
-        "end": { "type": "integer", "minimum": 0 },
+        "end_page": { "type": "integer", "minimum": 1 },
         "quote": { "type": "string", "minLength": 1, "description": "원문 인용. 좌표를 못 찾으면 카드 전체를 거부한다 — 근거 없는 수치 금지" }
+      }
+    },
+    "character_evidence_span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_format", "char_start", "char_end", "quote"],
+      "properties": {
+        "source_format": { "enum": ["text", "html"] },
+        "char_start": { "type": "integer", "minimum": 0 },
+        "char_end": { "type": "integer", "minimum": 0 },
+        "quote": { "type": "string", "minLength": 1, "description": "평탄화된 텍스트 기준 원문 인용" }
+      }
+    },
+    "page_evidence_card": {
+      "type": "object",
+      "properties": {
+        "ratio_rules": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/page_evidence_span" } } }
+        },
+        "disposal_price_rules": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/page_evidence_span" } } }
+        },
+        "execution_schedule": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/page_evidence_span" } } }
+        }
+      }
+    },
+    "character_evidence_card": {
+      "type": "object",
+      "properties": {
+        "ratio_rules": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/character_evidence_span" } } }
+        },
+        "disposal_price_rules": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/character_evidence_span" } } }
+        },
+        "execution_schedule": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/character_evidence_span" } } }
+        }
       }
     }
   }
