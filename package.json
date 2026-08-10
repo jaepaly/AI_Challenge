@@ -7,6 +7,11 @@
     "packages/*",
     "apps/*"
   ],
+  "//engines": "락파일 왕복(#11)의 원인은 npm 메이저 버전뿐이다 — npm 11이 도입한 libc 필드를 npm 10이 install마다 떨어뜨린다. 그래서 npm은 메이저만 고정하고 node는 넓게 둔다. node 20/22/24 어디서 돌려도 락파일 결과는 같다(실측). 마이너까지 좁히면(예: ^10.9) node 20이 싣는 npm 10.8.x가 걸려 CI에서 경고가 난다.",
+  "engines": {
+    "node": ">=20",
+    "npm": "^10"
+  },
   "scripts": {
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present"
