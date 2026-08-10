@@ -111,7 +111,7 @@ uvicorn app.main:app --reload --port 8000        # http://localhost:8000/health 
 | Day | 작업 | 상세 |
 |---|---|---|
 | 1 | **환경** | `services/ingest` 기동(위 빠른 시작), `/health` 200 확인. **프롬프트 개발은 Claude Code CLI로 — API 키 없이 시작한다**(§5-B-1) |
-| 1~2 | **파싱 스파이크 (두 경로 비교)** | ⓐ pypdf 텍스트 추출 ⓑ **PDF를 그대로 API document 블록으로 전달**(base64, 32MB·600p 한도). 약관의 담보유지비율·할인율은 **대부분 표 안에 있고 pypdf는 표에서 깨지는 것이 알려진 문제**다. 두 경로의 표 재현율을 같은 페이지로 비교하고 결과를 기록할 것 — 이 선택이 파이프라인의 바닥을 정한다 |
+| 1~2 | **파싱 스파이크 (세 경로 비교)** | 수집물이 **HTML 2건 + PDF 5건**이다. ⓐ HTML 평탄화 ⓑ pypdf 텍스트 추출 ⓒ **PDF를 그대로 document 블록으로 전달**(base64, 32MB·600p). 약관의 담보유지비율·할인율은 **대부분 표 안에 있고 pypdf는 표에서 깨지는 것이 알려진 문제**다. 세 경로의 표 재현율을 비교하고 결과를 기록할 것 — 이 선택이 파이프라인의 바닥과 좌표계를 동시에 정한다(§5-B-2) |
 | 2~5 | **구조화 추출 v0** | Claude(**claude-opus-5** 권장 — 근거 좌표 정확도가 이 팀의 생사라 여기서 모델을 아끼지 않는다)로 8항목 추출 → `/ingest` 구현. **4중 방어 순서대로**: ① 모든 수치에 근거 좌표(페이지+스팬+인용) — 좌표를 못 찾으면 **카드 전체 거부** ② `schemas/condition_card.schema.json` 검증(jsonschema) + Pydantic ③ 수치 범위(r 1.0~2.0, h 0~0.35) ④ 출력에 산식·계산이 섞이면 거부 — **LLM은 읽고 인용만 한다. 계산은 엔진만 한다** |
 | 5~6 | **채점 대조** | 출력 카드를 `data/golden/golden_cases.json` 및 A의 수작업 값과 대조. 불일치는 전부 기록(프롬프트 개선의 원료). 인제스트 출력의 `status`는 **무조건 draft** — verified 승격은 사람 검수 후 |
 
@@ -138,14 +138,25 @@ document 블록에 `citations: {enabled: true}`를 켜면 응답이 **`cited_tex
 
 **⚠ 입력 형태가 좌표 형태를 결정한다 — 이게 1~2일차 스파이크의 진짜 쟁점이다.**
 
-| document 블록에 넣는 것 | citations가 주는 위치 | 현재 `EvidenceSpan` |
-|---|---|---|
-| **pypdf로 뽑은 텍스트** (plain text) | **`char_location`** — `start_char_index` / `end_char_index` | **그대로 맞음. 스키마 변경 0** |
-| **PDF 원본** (base64) | `page_location` — `start_page_number` / `end_page_number` (1-indexed) | `start`/`end`를 못 채움 → **스키마 PR 필요** |
+수집물은 **HTML 2건(한투·유진) + PDF 5건**이다. 따라서 입력 형태는 세 갈래다.
+*(초판에서 pypdf/PDF 두 갈래로만 적었던 것을 정정 — 한투 원문이 `.htm`이라 어느 쪽에도 해당하지 않았다. 이슈 #7 참조)*
 
-즉 파싱 스파이크의 표 재현율 비교는 단순한 품질 비교가 아니라 **스키마가 바뀌느냐 마느냐를 가르는 분기**다.
-- pypdf가 표를 살리면 → 스키마 변경 없음 + citations 그대로 + Phase 1 API 0회, 셋이 한꺼번에 풀린다
-- pypdf가 표에서 깨져 PDF 직접 투입으로 가면 → `EvidenceSpan`에 페이지 필드를 넣고 `start`/`end`를 선택 항목으로 완화하는 **PR 필요**(경계 타입 = 전원 승인). 인용문을 추출 텍스트에서 역탐색해 오프셋을 복원하는 절충도 가능
+| document 블록에 넣는 것 | citations가 주는 위치 | 현행 `EvidenceSpan` |
+|---|---|---|
+| **HTML 평탄화 텍스트** (한투·유진) | **`char_location`** — `start_char_index` / `end_char_index` | **`page`(필수, ≥1)를 채울 값이 없다** → 스키마 PR 필요 |
+| **pypdf 추출 텍스트** (PDF 5사) | **`char_location`** | `start`/`end`는 맞으나 `page`는 pypdf가 별도로 알려줘야 함 |
+| **PDF 원본** (base64) | `page_location` — `start_page_number` / `end_page_number` (1-indexed) | `start`/`end`를 못 채움 → 스키마 PR 필요 |
+
+즉 파싱 스파이크는 품질 비교가 아니라 **어느 좌표계로 통일할지를 정하는 작업**이다. HTML이 이미 섞여 있으므로 **`page` 필수 제약은 어느 경로를 골라도 완화가 필요하다.**
+
+**스키마 방향 (A 선승인 + D 조정, 이슈 #7):**
+- `quote` + `source_format`(`"pdf" | "text" | "html"`) **필수**
+- 위치는 **anyOf** — 페이지형(`page`/`end_page`) 또는 문자형(`char_start`/`char_end`)
+- **카드 하나 안에서는 한 형태로 통일** (섞이면 UI 하이라이팅이 두 경로를 다뤄야 함)
+
+> anyOf로 두는 이유: A의 원안(`char_start`/`char_end` 공통 필수)은 텍스트 정규화 경로에선 더 엄격해서 좋지만, **PDF 원본 경로는 char 오프셋이 아예 없어 그 경로를 막는다.** 스파이크 결과 텍스트 정규화로 통일되면 그때 문자형만 남기고 조여도 된다 — 지금 조이면 아직 열려 있는 선택지를 닫는다.
+
+스키마 변경은 경계 타입이므로 **PR + 전원 승인**이고, 세 미러(`types.ts` / `condition_card.schema.json` / `schemas.py`)를 함께 고친다.
 
 **파이프라인은 2패스로 확정한다.** citations는 `output_config.format`(structured outputs)와 **병용 불가 — 400이 문서에 명시**돼 있다. 그러므로 ①1패스에서 citations로 인용·좌표 확보 → ②2패스에서 구조화. strict tool use로 1패스가 되는지는 **최적화 항목**이지 블로커가 아니다 — 2패스로 먼저 세우고, 나중에 확인해서 되면 줄인다.
 
