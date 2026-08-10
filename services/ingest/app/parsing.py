@@ -10,6 +10,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Literal
 
+from pypdf import PdfReader
+
 
 @dataclass(frozen=True)
 class ParsedUnit:
@@ -19,7 +21,7 @@ class ParsedUnit:
 
 @dataclass(frozen=True)
 class ParsedDocument:
-    source_type: Literal["html", "pdf"]
+    source_type: Literal["html", "text", "pdf"]
     units: tuple[ParsedUnit, ...]
     table_count: int = 0
     flattened_sha256: str | None = None
@@ -73,6 +75,13 @@ def flattened_text_sha256(text: str) -> str:
     return sha256(text.encode("utf-8")).hexdigest()
 
 
+def _normalize_pdf_text(text: str) -> str:
+    """pypdf 페이지 텍스트의 행은 유지하면서 행 내부 공백만 접는다."""
+
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    return "\n".join(line for line in lines if line)
+
+
 def parse_html(path: Path) -> ParsedDocument:
     parser = _HTMLTextParser()
     parser.feed(path.read_text(encoding="utf-8"))
@@ -85,9 +94,21 @@ def parse_html(path: Path) -> ParsedDocument:
     )
 
 
+def parse_pdf_text(path: Path) -> ParsedDocument:
+    """PDF를 pypdf 텍스트로 평탄화해 char_location 입력을 만든다."""
+
+    pages = [_normalize_pdf_text(page.extract_text() or "") for page in PdfReader(path).pages]
+    text = "\n\f\n".join(pages)
+    return ParsedDocument(
+        source_type="text",
+        units=(ParsedUnit(locator="document", text=text),),
+        flattened_sha256=flattened_text_sha256(text),
+    )
+
+
 def parse_document(path: Path) -> ParsedDocument:
     if path.suffix.lower() in {".htm", ".html"}:
         return parse_html(path)
     if path.suffix.lower() == ".pdf":
-        raise NotImplementedError("PDF 페이지 추출은 다음 파싱 스파이크에서 추가")
+        return parse_pdf_text(path)
     raise ValueError(f"지원하지 않는 문서 형식: {path.suffix}")
