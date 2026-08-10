@@ -10,6 +10,7 @@
  *  - 종목 선택 UI 없음 · 주문 경로 없음
  */
 import type { OptionRow, ForcedRow, ComparisonVerdict } from "../lib/marginguard/options";
+import { fullDisposalKind, fullDisposalLabel } from "../lib/marginguard/options";
 
 const won = (n: number) => n.toLocaleString("ko-KR") + "원";
 
@@ -71,7 +72,7 @@ export default function OptionsCompare({
             {forced.mode === "FULL"
               ? forced.reason === "K_NON_POSITIVE"
                 ? "전량 · k≤0로 부분 매도 복원 불가"
-                : "전량 · 필요 수량이 보유 초과"
+                : (fullDisposalLabel(forced)?.replace("전량 — ", "전량 · ") ?? "전량")
               : "부분 처분"}
           </span>
         </div>
@@ -80,7 +81,13 @@ export default function OptionsCompare({
           <div className="optQty tnum">
             {forced.qty.toLocaleString()}주 <span className="repro">산정 방식 재현값</span>
             {forced.mode === "FULL" && forced.rawQty !== null && (
-              <> · 필요 수량 {forced.rawQty.toLocaleString()}주 — 보유 전량으로도 모자랍니다</>
+              <>
+                {" "}
+                · 필요 수량 {forced.rawQty.toLocaleString()}주
+                {fullDisposalKind(forced) === "exceeded"
+                  ? " — 보유 전량으로도 모자랍니다"
+                  : " — 보유 전량과 정확히 같습니다"}
+              </>
             )}
           </div>
           <div className="optBasis">
