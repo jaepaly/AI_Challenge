@@ -5,7 +5,13 @@
  */
 import { describe, it, expect } from "vitest";
 import { liquidationQty, resolutionPaths } from "@marginguard/engine";
-import { buildOptions, comparisonVerdict, forcedDisposal } from "./options";
+import {
+  buildOptions,
+  comparisonVerdict,
+  forcedDisposal,
+  fullDisposalKind,
+  fullDisposalLabel,
+} from "./options";
 import { ASSUMED_FEE_RATE, assumedFeePct } from "./snapshot";
 
 /** 한투 골든: V=810만, L=600만, r=1.4, 전일종가 8,100, h=0.15, 보유 1,000주 */
@@ -257,5 +263,80 @@ describe("출처 표기 규약", () => {
     expect(screen.amount).not.toBe(195 * 7_000); // 1,365,000 — 골든의 체결가 기준
     // 수량은 두 정의에서 같다. 체결가는 수량 산정에 관여하지 않는다(세 가격 분리)
     expect(liq.qty).toBe(195);
+  });
+});
+
+/**
+ * 등호 경계 — `rawQty === held`.
+ *
+ * 엔진은 `rawQty >= held`에서 QTY_EXCEEDED를 내므로 **정확히 같은 경우가 그 안에 섞인다.**
+ * 화면이 QTY_EXCEEDED만 보고 문구를 고르면 등호에서 세 문장이 동시에 거짓이 된다 —
+ * "필요 수량이 보유 초과" / "보유 전량으로도 모자랍니다" / "전량 처분하고도 부족액이 남습니다".
+ * 전량을 팔면 정확히 해소되기 때문이다.
+ *
+ * 스냅숏에서 도달한다: 메리츠 카드(h=0.20) · 7,500원.
+ * 슬라이더 전 구간(5,000~12,000, 10원 단위)을 훑어 이 가격 하나만 등호다.
+ */
+describe("등호 경계 — 필요 수량이 보유와 정확히 같을 때", () => {
+  const P = 7_500;
+  const Dm = R * 6_000_000 - HELD * P; // 900,000
+  const liqM = () => liquidationQty({ D: Dm, prevClose: P, r: R, h: 0.2, held: HELD });
+
+  it("엔진이 등호에서도 QTY_EXCEEDED를 내고 rawQty가 보유와 같다", () => {
+    const l = liqM();
+    expect(l.mode).toBe("FULL");
+    expect(l.reason).toBe("QTY_EXCEEDED");
+    expect(l.rawQty).toBe(HELD); // 초과가 아니라 등호
+    expect(l.qty).toBe(HELD);
+  });
+
+  it("전량 처분은 세 갈래로 갈린다 — 등호는 'exact'다", () => {
+    expect(fullDisposalKind(forcedDisposal(liqM(), P))).toBe("exact");
+    expect(fullDisposalLabel(forcedDisposal(liqM(), P))).toBe("전량 — 보유 전량이 정확히 필요");
+
+    // 초과 케이스와 k≤0 케이스는 다른 갈래로 남는다
+    // 6,100원의 실제 부족액은 230만원이다 — D를 상수로 넣으면 PARTIAL이 나온다
+    const dOver = R * 6_000_000 - HELD * 6_100;
+    const over = liquidationQty({ D: dOver, prevClose: 6_100, r: R, h: 0.15, held: HELD });
+    expect(fullDisposalKind(forcedDisposal(over, 6_100))).toBe("exceeded");
+    const kzero = liquidationQty({ D: 300_000, prevClose: 8_100, r: R, h: 0.3, held: HELD });
+    expect(fullDisposalKind(forcedDisposal(kzero, 8_100))).toBe("k_non_positive");
+  });
+
+  it("등호에서는 배수를 숨기지 않는다 — 분자가 잘리지 않았으므로 유효하다", () => {
+    const p = resolutionPaths({
+      D: Dm,
+      r: R,
+      prevClose: P,
+      marketPrice: P,
+      f: ASSUMED_FEE_RATE,
+      held: HELD,
+    });
+    const rows = buildOptions(p, P, HELD);
+    expect(rows.find((o) => o.key === "voluntary")!.qty).toBe(309);
+
+    const v = comparisonVerdict(forcedDisposal(liqM(), P), rows, HELD);
+    expect(v.kind).toBe("ratio"); // 옛 코드는 forced_capped로 배수를 죽였다
+    if (v.kind !== "ratio") return;
+    expect(v.ratio).toBeCloseTo((HELD * P) / (309 * P), 10); // 약 3.24배
+    expect(v.ratio).toBeGreaterThan(3);
+  });
+
+  it("실제로 잘린 경우(6,100원)는 여전히 배수를 죽인다 — 회귀 방지", () => {
+    const d = R * 6_000_000 - HELD * 6_100;
+    const p = resolutionPaths({
+      D: d,
+      r: R,
+      prevClose: 6_100,
+      marketPrice: 6_100,
+      f: ASSUMED_FEE_RATE,
+      held: HELD,
+    });
+    const forced = forcedDisposal(
+      liquidationQty({ D: d, prevClose: 6_100, r: R, h: 0.15, held: HELD }),
+      6_100,
+    );
+    expect(forced.rawQty).toBe(1_985); // 보유보다 크다 — 진짜 캡
+    expect(comparisonVerdict(forced, buildOptions(p, 6_100, HELD), HELD).kind).toBe("forced_capped");
   });
 });
