@@ -122,8 +122,14 @@ export interface ResolutionPaths {
   repay: number;
   /** 대용증권 추가 = ceil(D / α). α 미지정이면 null */
   collateral: number | null;
-  /** 자발적 매도 수량 = ceil(D / (r·P_m·(1−f) − P_prev)). 분모≤0이면 null(매도로 해소 불가) */
+  /** 자발적 매도 수량 = ceil(D / (r·P_m·(1−f) − P_prev)). 매도로 해소 불가하면 null */
   voluntarySellQty: number | null;
+  /**
+   * voluntarySellQty가 null인 사유. 값이 있으면 이 필드는 없다.
+   *  DENOM_NON_POSITIVE = 매도해도 비율이 안 오름(분모≤0)
+   *  QTY_EXCEEDED       = 필요 수량 > 보유 — 전량을 팔아도 해소되지 않는다
+   */
+  voluntarySellReason?: "DENOM_NON_POSITIVE" | "QTY_EXCEEDED";
 }
 
 /** 엔진 종합 판정 — D의 계기판이 이 타입만 소비한다. */

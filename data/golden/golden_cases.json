@@ -33,6 +33,22 @@
       "expected": { "k": -0.02, "mode": "FULL", "reason": "K_NON_POSITIVE" }
     },
     {
+      "id": "samsung-h15-partial",
+      "source": "삼성증권 신용거래 핵심설명서(심의필 2024-08-22) p.2 예시 — 투자원금 450만·융자 550만·1,000주 @10,000원, 담보유지비율 140%",
+      "note": "L=5,500,000은 1.4×L이 부동소수에서 7,699,999.999999999로 떨어지는 첫 골든 케이스 — shortfall 정수 스케일의 회귀 가드. 기존 6건은 전부 L=6,000,000이고 1.4×6e6은 오차가 0이라 이 경로가 검증된 적이 없었다",
+      "inputs": { "V": 6500000, "L": 5500000, "r": 1.4, "prevClose": 6500, "h": 0.15, "held": 1000, "assumedFill": 6800 },
+      "expected": { "D": 1200000, "k": 0.19, "qty": 972, "mode": "PARTIAL", "disposalAmount": 6609600, "multiple": 5.508 },
+      "derived_not_in_source": ["multiple"]
+    },
+    {
+      "id": "samsung-h20-full",
+      "source": "삼성증권 신용거래 핵심설명서(심의필 2024-08-22) p.2 예시 — 같은 계좌, 기준가 −20%(종목등급 B 이하). 원문 \"1,000주 모두 반대매매 필요\"",
+      "note": "같은 계좌에서 h만 바뀌어 PARTIAL(972주) → FULL(전량)로 넘어가는 첫 케이스. 기존 FULL 2건은 D가 크거나(case1) k≤0(하한가형)이라 원인이 다르다",
+      "inputs": { "V": 6500000, "L": 5500000, "r": 1.4, "prevClose": 6500, "h": 0.2, "held": 1000, "assumedFill": 6800 },
+      "expected": { "D": 1200000, "k": 0.12, "rawQty": 1539, "mode": "FULL", "reason": "QTY_EXCEEDED", "qty": 1000, "disposalAmount": 6800000 },
+      "derived_not_in_source": ["rawQty"]
+    },
+    {
       "id": "voluntary-sale-96",
       "source": "자발적 매도 산식 ceil(D / (r·P_m·(1−f) − P_prev)) — f는 이 식과 미수 산식에만 속함",
       "inputs": { "D": 300000, "r": 1.4, "prevClose": 8100, "marketPrice": 8100, "f": 0.008 },

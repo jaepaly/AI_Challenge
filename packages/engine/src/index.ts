@@ -5,9 +5,14 @@
  *           메리츠(h=0.20 → 309주) 교차검증. 전 함수는 test/golden.test.ts로 고정.
  * 골든 테스트를 깨는 커밋은 merge 금지다.
  *
- * 부동소수 주의: 1.4 × 6,000,000 ≠ 8,400,000 (IEEE754). 그래서 비율은
+ * 부동소수 주의: 1.4 × 5,500,000 = 7,699,999.999999999 (IEEE754). 그래서 비율은
  * 정수 스케일(r×100, h×10000)로 환산해 계산한다. 원 단위 금액이 어긋나면
  * "소수점까지 재현"이라는 이 제품의 정체성이 깨진다 — 스케일 계산을 풀지 말 것.
+ *
+ * ※ 이 주석은 원래 1.4 × 6,000,000을 예로 들었으나 그 곱은 오차가 0이다.
+ *   골든 6건이 전부 L=6,000,000이었던 탓에 정수 스케일은 한 번도 검증되지
+ *   않았다 — naive float로 바꿔도 값이 같았다. 삼성 케이스(L=5,500,000)가
+ *   그 첫 회귀 가드다. 오차 방향이 D 과소 = 수량 과소 = 낙관이라 특히 위험하다.
  */
 
 export * from "./types";
@@ -17,14 +22,18 @@ import type { LiquidationResult, ResolutionPaths } from "./types";
 
 /** 담보부족액 D = max(0, r·L − V). V = 총담보 평가액(주식은 전일종가 평가 + 현금성). */
 export function shortfall(V: number, L: number, r: number): number {
-  const rS = Math.round(r * 100); // 140 — 1.4*6e6=8399999.999… 오차 제거
+  const rS = Math.round(r * 100); // 140 — 1.4*5.5e6=7699999.999… 오차 제거
   return Math.max(0, (L * rS) / 100 - V);
 }
 
 /**
  * 복원 계수 k = r(1−h) − 1.
- * ※ 제비용 f는 이 식에 들어가지 않는다 — f는 미수 산식(금액÷단가)과
- *   자발적 매도 산식 전용이다. 섞으면 골든 195주가 206주로 깨진다.
+ * ※ 한투·삼성 원문 산식에는 제비용 f가 없다(원문 2건 확인). 섞으면 한투 골든
+ *   195주가 206주로 깨지고, 회귀 테스트가 그 값을 고정한다.
+ *   단 이건 회사별로 다르다 — 미래에셋은 매도대금에 98.5% 상환금액 보정율을
+ *   건다(신용거래설명서 p.3 각주). 그 회사를 골든에 넣을 때는 k를 건드리지 말고
+ *   회사 파라미터로 분리할 것. 우리 f는 여전히 미수 산식(금액÷단가)과
+ *   자발적 매도 산식 전용이다.
  * k ≤ 0 (예: 하한가 기준 h=0.30 → k=−0.02)이면 부분 매도로 비율 복원이 불가능하다.
  */
 export function restorationCoefficient(r: number, h: number): number {
@@ -85,7 +94,15 @@ export function marginRatioPct(V: number, L: number): number {
   return Math.round((V * 100) / L);
 }
 
-/** 담보부족 해소 4경로 필요액. 자발적 매도에만 제비용 f가 들어간다(실제 매도라 실제 비용 발생). */
+/**
+ * 담보부족 해소 4경로 필요액. 자발적 매도에만 제비용 f가 들어간다(실제 매도라 실제 비용 발생).
+ *
+ * held를 주면 매도로 **도달 불가한** 경우를 걸러낸다. n주를 팔면
+ *   D' = D − n·(r·P_m(1−f) − P_prev)
+ * 이므로 필요 수량이 보유를 넘으면 전량을 팔아도 D'>0 — 매도는 선택지가 아니다.
+ * 이때 수량을 보유로 캡해서 돌려주면 "덜 팔아도 해소된다"는 낙관 오차가 된다.
+ * 그래서 캡이 아니라 null이다(liquidationQty의 K_NON_POSITIVE와 같은 성격).
+ */
 export function resolutionPaths(p: {
   D: number;
   r: number;
@@ -95,14 +112,23 @@ export function resolutionPaths(p: {
   f: number;
   /** 대용증권 인정비율 α — 회사·종목별, 미지정 시 collateral은 null */
   substituteRatio?: number;
+  /** 보유 수량. 미지정이면 상한 없이 산정한다(기존 호출부 호환) */
+  held?: number;
 }): ResolutionPaths {
-  const denom = p.r * p.marketPrice * (1 - p.f) - p.prevClose;
-  return {
+  const base = {
     deposit: Math.ceil(p.D),
     repay: Math.ceil(p.D / p.r),
     collateral: p.substituteRatio ? Math.ceil(p.D / p.substituteRatio) : null,
-    voluntarySellQty: denom > 0 ? Math.ceil(p.D / denom) : null,
   };
+  const denom = p.r * p.marketPrice * (1 - p.f) - p.prevClose;
+  if (denom <= 0) {
+    return { ...base, voluntarySellQty: null, voluntarySellReason: "DENOM_NON_POSITIVE" };
+  }
+  const need = Math.ceil(p.D / denom);
+  if (p.held !== undefined && need > p.held) {
+    return { ...base, voluntarySellQty: null, voluntarySellReason: "QTY_EXCEEDED" };
+  }
+  return { ...base, voluntarySellQty: need };
 }
 
 /**
