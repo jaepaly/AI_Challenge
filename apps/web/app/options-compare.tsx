@@ -9,21 +9,21 @@
  *  - **근거 없는 값을 만들지 않는다.** 산정 불가는 빈칸이 아니라 사유를 적는다
  *  - 종목 선택 UI 없음 · 주문 경로 없음
  */
-import type { OptionRow, ForcedRow } from "../lib/marginguard/options";
+import type { OptionRow, ForcedRow, ComparisonVerdict } from "../lib/marginguard/options";
 
 const won = (n: number) => n.toLocaleString("ko-KR") + "원";
 
 export default function OptionsCompare({
   options,
   forced,
-  ratio,
+  verdict,
   shortfallAmount,
   cardStatus,
 }: {
   options: OptionRow[];
   forced: ForcedRow;
-  /** 강제 처분 ÷ 자발적 매도. 산정 불가면 null */
-  ratio: number | null;
+  /** 결론 한 줄. 배수가 성립하는 경우와 아닌 경우가 나뉜다 — options.ts 참조 */
+  verdict: ComparisonVerdict;
   shortfallAmount: number;
   /** draft면 이 섹션에도 참고 모드를 표시한다 — 배너가 화면 위쪽에만 있으면
    *  여기까지 스크롤한 사람은 미검수 카드인 줄 모른 채 숫자만 본다 */
@@ -79,6 +79,9 @@ export default function OptionsCompare({
           <div className="optAmt tnum">{won(forced.amount)}</div>
           <div className="optQty tnum">
             {forced.qty.toLocaleString()}주 <span className="repro">산정 방식 재현값</span>
+            {forced.mode === "FULL" && forced.rawQty !== null && (
+              <> · 필요 수량 {forced.rawQty.toLocaleString()}주 — 보유 전량으로도 모자랍니다</>
+            )}
           </div>
           <div className="optBasis">
             할인된 산정 기준가로 수량을 정하기 때문에 같은 부족액에도 규모가 커집니다 · 평가액(전일종가)
@@ -87,9 +90,21 @@ export default function OptionsCompare({
         </div>
       </div>
 
-      {ratio !== null && (
+      {verdict.kind === "ratio" && (
         <p className="optPunch">
-          미리 알고 자발적으로 매도할 때보다 <b>{ratio.toFixed(1)}배</b> 규모가 처분됩니다.
+          미리 알고 자발적으로 매도할 때보다 <b>{verdict.ratio.toFixed(1)}배</b> 규모가 처분됩니다.
+        </p>
+      )}
+      {verdict.kind === "forced_capped" && (
+        <p className="optPunch">
+          지금 스스로 팔면 <b>{verdict.voluntaryQty.toLocaleString()}주</b>로 끝납니다. 강제 반대매매는
+          보유 {verdict.held.toLocaleString()}주를 <b>전량</b> 처분하고도 부족액이 남습니다.
+        </p>
+      )}
+      {verdict.kind === "unresolvable" && (
+        <p className="optPunch">
+          이 가격에서는 <b>전량을 팔아도 해소되지 않습니다</b> — 남는 것은 잔여채무입니다. 입금·상환만이
+          경로입니다.
         </p>
       )}
 
