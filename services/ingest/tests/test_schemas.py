@@ -133,6 +133,40 @@ class EvidenceSpanContractTest(unittest.TestCase):
 
         self.assert_contract_rejects(mixed_card)
 
+    def test_pydantic_rejects_reversed_or_empty_evidence_ranges(self) -> None:
+        page_card = make_card(page_evidence())
+        page_card["ratio_rules"][0]["evidence"]["page"] = 3
+        page_card["ratio_rules"][0]["evidence"]["end_page"] = 2
+        self.assertEqual(list(self.validator.iter_errors(page_card)), [])
+        self.assert_pydantic_rejects(page_card)
+
+        for char_start, char_end in ((10, 10), (10, 3)):
+            with self.subTest(char_start=char_start, char_end=char_end):
+                character_card = make_card(character_evidence())
+                character_card["ratio_rules"][0]["evidence"]["char_start"] = char_start
+                character_card["ratio_rules"][0]["evidence"]["char_end"] = char_end
+                self.assertEqual(list(self.validator.iter_errors(character_card)), [])
+                self.assert_pydantic_rejects(character_card)
+
+    def test_prev_close_pct_requires_discount_rate_in_both_contracts(self) -> None:
+        card = make_card(page_evidence())
+        del card["disposal_price_rules"][0]["discount_rate"]
+
+        self.assert_contract_rejects(card)
+
+    def test_lower_limit_allows_missing_discount_rate(self) -> None:
+        card = make_card(page_evidence())
+        card["disposal_price_rules"][0]["discount_basis"] = "lower_limit"
+        del card["disposal_price_rules"][0]["discount_rate"]
+
+        self.assert_contract_accepts(card)
+
+    def test_doc_version_requires_review_number_or_content_hash(self) -> None:
+        card = make_card(page_evidence())
+        card["doc_version"] = {}
+
+        self.assert_contract_rejects(card)
+
     def test_numeric_quotes_accept_percent_decimal_and_fullwidth_notation(self) -> None:
         card = make_card(page_evidence())
         card["ratio_rules"][0]["evidence"]["quote"] = "담보유지비율 １４０％"

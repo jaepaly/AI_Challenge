@@ -22,6 +22,12 @@ class PageEvidenceSpan(BaseModel):
     end_page: Optional[int] = Field(default=None, ge=1)
     quote: str = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def require_ordered_pages(self):
+        if self.end_page is not None and self.end_page < self.page:
+            raise ValueError("end_page는 page보다 작을 수 없습니다")
+        return self
+
 
 class CharacterEvidenceSpan(BaseModel):
     """평탄화된 text/html citations의 문자 오프셋 좌표."""
@@ -33,6 +39,12 @@ class CharacterEvidenceSpan(BaseModel):
     char_end: int = Field(ge=0)
     flattened_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     quote: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def require_non_empty_ordered_span(self):
+        if self.char_end <= self.char_start:
+            raise ValueError("char_end는 char_start보다 커야 합니다")
+        return self
 
 
 EvidenceSpan = Annotated[
@@ -135,6 +147,8 @@ class DisposalPriceRule(BaseModel):
 
     @model_validator(mode="after")
     def require_discount_rate_in_quote(self):
+        if self.discount_basis == "prev_close_pct" and self.discount_rate is None:
+            raise ValueError("prev_close_pct 기준에는 discount_rate가 필수입니다")
         if self.discount_rate is not None:
             _validate_numeric_quote(
                 field_name="discount_rate",
@@ -164,6 +178,12 @@ class DocVersion(BaseModel):
     review_no: Optional[str] = None  # 심사필 번호 (우선)
     content_sha256: Optional[str] = None  # 번호 없는 회사(미래에셋·유진)의 폴백
     revised_at: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_document_identifier(self):
+        if not self.review_no and not self.content_sha256:
+            raise ValueError("review_no 또는 content_sha256 중 하나는 필수입니다")
+        return self
 
 
 class ConditionCard(BaseModel):
