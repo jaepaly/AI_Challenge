@@ -108,7 +108,7 @@ class RawPdfComparisonTest(unittest.TestCase):
         self.assertEqual(len(client.messages.calls), 5)
         self.assertEqual(result["usage"]["cache_creation_input_tokens"], 100)
         for call in client.messages.calls:
-            self.assertEqual(call["temperature"], 0)
+            self.assertNotIn("temperature", call)
             self.assertEqual(call["timeout"], 120.0)
 
     def test_non_page_citation_is_rejected(self) -> None:

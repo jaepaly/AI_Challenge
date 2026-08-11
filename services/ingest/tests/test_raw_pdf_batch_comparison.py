@@ -105,6 +105,7 @@ class RawPdfBatchComparisonTest(unittest.TestCase):
         self.assertEqual(len(requests), 5)
         self.assertEqual(len(mapping), 5)
         for request in requests:
+            self.assertNotIn("temperature", request["params"])
             document = request["params"]["messages"][0]["content"][0]
             self.assertEqual(document["citations"], {"enabled": True})
             self.assertNotIn("cache_control", document)

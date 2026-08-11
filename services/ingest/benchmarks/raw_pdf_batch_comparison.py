@@ -97,7 +97,6 @@ def build_batch_requests(
                 "params": {
                     "model": model,
                     "max_tokens": max_tokens,
-                    "temperature": 0,
                     "messages": [
                         {
                             "role": "user",
@@ -385,7 +384,7 @@ def main() -> None:
                 client=client,
                 submission=submission,
             )
-            if result["status"] in {"completed", "failed"}:
+            if result["status"] == "completed":
                 output = args.output or (results_dir / "raw_pdf_document.json")
                 _write_json(output, result)
     except anthropic.AnthropicError as error:

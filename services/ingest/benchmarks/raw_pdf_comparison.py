@@ -229,7 +229,6 @@ def run_comparison(
         response = client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            temperature=0,
             messages=[
                 {
                     "role": "user",
