@@ -84,8 +84,13 @@ export default function Landing({ build }: { build: BuildInfo }) {
 
   /** 신선도 게이트 — 판정은 엔진, 화면 규약은 lib/marginguard/freshness-view */
   const fresh = asOf ? freshnessView(preset.card, asOf) : null;
-  /** 수량·배수를 낼 수 있는가. 카드가 불완전하거나 신선하지 않으면 내지 않는다 */
-  const quantOk = !hUnknown && fresh?.quantitative !== false;
+  /**
+   * 수량·배수를 낼 수 있는가.
+   * draft는 **낸다**(참고 모드 라벨만) — 인제스트 출력이 무조건 draft이므로
+   * 여기서 막으면 라이브 데모의 출력 화면이 "산정 불가"가 된다(#30 리뷰).
+   * 막는 것은 blocked(STALE·NO_VERIFIED_AT)와 h 부재뿐이다.
+   */
+  const quantOk = !hUnknown && fresh?.mode !== "blocked";
   const pStar = useMemo(() => thresholdPrice(), []);
 
   // 언마운트 시 재현 타이머 정리
@@ -128,7 +133,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
   // 남기면, 같은 카드가 한 화면에서 "산정 불가"와 "전량"을 동시에 말하게 된다
   const compare = CARDS.map((c) => {
     const ch = cardH(c.card);
-    const ok = ch !== null && (asOf === null || freshnessView(c.card, asOf).quantitative);
+    const ok = ch !== null && (asOf === null || freshnessView(c.card, asOf).mode !== "blocked");
     return {
       key: c.key,
       label: c.label,
@@ -280,7 +285,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
             <span className="mode full">
               {hUnknown
                 ? "조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다"
-                : "이 조건카드는 참고 모드입니다 — 처분 수량을 정식 산출로 내지 않습니다"}
+                : "이 카드는 재검증이 필요합니다 — 낡은 값을 정식 산출로 내지 않습니다"}
             </span>
             <div className="note">
               담보부족액 {won(D)}은 확정입니다. 부족액은 유지비율만으로 정해지고, 처분 수량만 회사별
@@ -321,7 +326,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
           </section>
         )}
 
-        {breached && optionRows && forcedRow && verdict && (
+        {breached && quantOk && optionRows && forcedRow && verdict && (
           <OptionsCompare
             options={optionRows}
             forced={forcedRow}
@@ -350,7 +355,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
             <span className="note">
               {hUnknown
                 ? "이 조건카드는 산정 기준가 규칙이 불완전해 재현할 수 없습니다 — 값을 추정하지 않습니다"
-                : "이 조건카드는 참고 모드라 재현하지 않습니다 — 재검증 후 다시 보세요"}
+                : "이 카드는 재검증이 필요해 재현하지 않습니다"}
             </span>
           )}
 

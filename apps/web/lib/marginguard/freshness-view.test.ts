@@ -16,7 +16,7 @@ describe("신선도 게이트 — 화면 규약", () => {
   it("검증일 당일은 계산 모드 — 배너 없음", () => {
     const v = freshnessView(hantoo, "2026-08-09");
     expect(v.verdict.reason).toBe("FRESH");
-    expect(v.quantitative).toBe(true);
+    expect(v.mode).toBe("calculated");
     expect(v.banner).toBeNull();
   });
 
@@ -28,31 +28,47 @@ describe("신선도 게이트 — 화면 규약", () => {
   it("심사 2일차(9/8, 30일째)는 아직 계산 모드", () => {
     const v = freshnessView(hantoo, "2026-09-08");
     expect(v.verdict.ageDays).toBe(30);
-    expect(v.quantitative).toBe(true);
+    expect(v.mode).toBe("calculated");
   });
 
   it("심사 3일차(9/9, 31일째)부터 강등 — 경과 일수를 문장에 싣는다", () => {
     const v = freshnessView(hantoo, "2026-09-09");
     expect(v.verdict.reason).toBe("STALE");
     expect(v.verdict.ageDays).toBe(31);
-    expect(v.quantitative).toBe(false);
+    expect(v.mode).toBe("blocked");
     expect(v.banner).toContain("31일 경과");
     expect(v.banner).toContain("재검증");
   });
 
-  it("draft 카드는 신선도와 무관하게 강등되고 사유가 다르다", () => {
+  /**
+   * DRAFT는 blocked가 아니다 — #30 리뷰에서 갈라진 지점.
+   * ① types.ts:143이 RiskResult.cardStatus에 "draft면 배너 필수"를 적어뒀다.
+   *    draft가 값을 못 낸다면 엔진 출력 타입이 그 필드를 가질 이유가 없다
+   * ② 인제스트 출력의 status는 무조건 draft다(README §5-B) — 여기서 수량을 막으면
+   *    라이브 인제스트 데모의 출력 화면이 "산정 불가"가 된다
+   */
+  it("draft는 차단이 아니라 참고 표시 — 값은 내고 배너를 붙인다", () => {
     const v = freshnessView(lower, "2026-08-09");
     expect(v.verdict.reason).toBe("DRAFT");
-    expect(v.quantitative).toBe(false);
+    expect(v.verdict.calculable).toBe(false); // 엔진 판정은 그대로
+    expect(v.mode).toBe("reference"); // 화면은 값을 낸다
     expect(v.banner).toContain("검수 전(draft)");
     expect(v.banner).not.toContain("경과");
+  });
+
+  it("blocked와 reference를 섞지 않는다 — 배너 문구가 사유를 구분한다", () => {
+    const draft = freshnessView(lower, "2026-08-09");
+    const stale = freshnessView(hantoo, "2026-09-09");
+    expect([draft.mode, stale.mode]).toEqual(["reference", "blocked"]);
+    expect(draft.banner).not.toContain("재검증");
+    expect(stale.banner).toContain("재검증");
   });
 
   it("verified인데 검증일을 모르면 강등 — 모르는 것을 신선하다고 보지 않는다", () => {
     const noDate = { ...hantoo, verified_at: undefined };
     const v = freshnessView(noDate, "2026-08-09");
     expect(v.verdict.reason).toBe("NO_VERIFIED_AT");
-    expect(v.quantitative).toBe(false);
+    expect(v.mode).toBe("blocked");
     expect(v.banner).toContain("검증일");
   });
 
