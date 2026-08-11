@@ -114,6 +114,35 @@ export function buildOptions(
   ];
 }
 
+/**
+ * 전량 처분의 성질 — 세 갈래다. `mode === "FULL"`만 보고 한 문구를 쓰면 등호 경계에서 거짓이 된다.
+ *
+ * 엔진은 `rawQty >= held`에서 QTY_EXCEEDED를 내므로 **정확히 같은 경우도 포함**된다.
+ * 그때는 보유 전량이 딱 맞게 필요한 것이지 초과도, 모자람도 아니다.
+ * 스냅숏에서도 도달한다 — 메리츠 카드(h=0.20) 7,500원에서 필요 1,000주 = 보유 1,000주다.
+ */
+export type FullDisposalKind = "k_non_positive" | "exact" | "exceeded";
+
+export function fullDisposalKind(forced: ForcedRow): FullDisposalKind | null {
+  if (forced.mode !== "FULL") return null;
+  if (forced.reason === "K_NON_POSITIVE") return "k_non_positive";
+  return forced.rawQty !== null && forced.rawQty > forced.qty ? "exceeded" : "exact";
+}
+
+/** 화면 문구 — 세 갈래를 한 곳에서 만든다(랜딩·비교표가 같은 말을 하도록) */
+export function fullDisposalLabel(forced: ForcedRow): string | null {
+  switch (fullDisposalKind(forced)) {
+    case "k_non_positive":
+      return "전량 — k≤0, 부분 매도로 복원 불가";
+    case "exact":
+      return "전량 — 보유 전량이 정확히 필요";
+    case "exceeded":
+      return "전량 — 필요 수량이 보유 초과";
+    default:
+      return null;
+  }
+}
+
 /** 강제 반대매매 — 대조군. 4경로와 같은 단위(금액)로 놓아야 대비가 보인다. */
 export function forcedDisposal(liq: LiquidationResult, prevClose: number): ForcedRow {
   return {
@@ -158,7 +187,10 @@ export function comparisonVerdict(
   const voluntaryOk = !!v && v.amount !== null && v.amount > 0 && v.qty !== null;
 
   if (!voluntaryOk) return { kind: "unresolvable", held };
-  if (forced.reason === "QTY_EXCEEDED") {
+  // 배수를 죽이는 조건은 QTY_EXCEEDED가 아니라 **실제로 잘렸는가**다.
+  // rawQty === qty(등호)면 분자가 잘리지 않았으므로 배수가 그대로 유효하다 —
+  // 메리츠 7,500원에서 3.2배라는 사실을 숨기고 "부족액이 남습니다"라는 거짓을 말하고 있었다.
+  if (fullDisposalKind(forced) === "exceeded") {
     return { kind: "forced_capped", voluntaryQty: v.qty!, held };
   }
   return { kind: "ratio", ratio: forced.amount / v.amount! };

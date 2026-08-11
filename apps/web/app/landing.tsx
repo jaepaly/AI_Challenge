@@ -24,6 +24,7 @@ import {
   buildOptions,
   comparisonVerdict,
   forcedDisposal,
+  fullDisposalLabel,
 } from "../lib/marginguard/options";
 import OptionsCompare from "./options-compare";
 import {
@@ -275,10 +276,9 @@ export default function Landing({ build }: { build: BuildInfo }) {
               {liq.mode === "FULL" ? `전량 ${liq.qty.toLocaleString()}주` : `${liq.qty.toLocaleString()}주`}
             </span>
             <span className={`mode ${liq.mode === "FULL" ? "full" : "partial"}`}>
-              {liq.mode === "FULL"
-                ? liq.reason === "K_NON_POSITIVE"
-                  ? "전량 — k≤0, 부분 매도로 복원 불가"
-                  : "전량 — 필요 수량이 보유 초과"
+              {/* 전량은 세 갈래다 — k≤0 / 정확히 보유 전량 / 초과. 문구는 options.ts가 만든다 */}
+              {forcedRow
+                ? (fullDisposalLabel(forcedRow) ?? `부분 처분 (k=${liq.k.toFixed(2)})`)
                 : `부분 처분 (k=${liq.k.toFixed(2)})`}
             </span>
             <div className="cmp" aria-label="회사별 비교">
