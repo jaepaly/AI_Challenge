@@ -34,6 +34,9 @@ class PathResult:
     total: int
     rate: float
     missing_fact_ids: tuple[str, ...]
+    verbatim_recovered: int
+    verbatim_rate: float
+    verbatim_missing_fact_ids: tuple[str, ...]
     delimiter_count: int
     delimiter_rows: int
     note: str
@@ -164,6 +167,11 @@ def _score_documents(
         if _normalize_for_match(fact.expected_text)
         not in normalized_documents[fact.source_file]
     )
+    verbatim_missing = tuple(
+        fact.fact_id
+        for fact in facts
+        if fact.expected_text not in documents[fact.source_file].units[0].text
+    )
     delimiter_rows = sum(
         1
         for document in documents.values()
@@ -174,6 +182,7 @@ def _score_documents(
         document.units[0].text.count("\t") for document in documents.values()
     )
     recovered = len(facts) - len(missing)
+    verbatim_recovered = len(facts) - len(verbatim_missing)
     return PathResult(
         path=path_name,
         coordinate_kind=coordinate_kind,
@@ -182,6 +191,9 @@ def _score_documents(
         total=len(facts),
         rate=recovered / len(facts),
         missing_fact_ids=missing,
+        verbatim_recovered=verbatim_recovered,
+        verbatim_rate=verbatim_recovered / len(facts),
+        verbatim_missing_fact_ids=verbatim_missing,
         delimiter_count=delimiter_count,
         delimiter_rows=delimiter_rows,
         note=note,
@@ -209,7 +221,7 @@ def compare_local_paths(repo_root: Path) -> dict[str, object]:
         "char_location",
         pdf_documents,
         PDF_TEXT_FACTS,
-        "핵심 사실은 측정하되 pypdf 출력에는 명시적인 셀 탭 경계가 없다.",
+        "공백 정규화 재현과 축자 재현을 구분해 측정하며 pypdf 출력에는 명시적인 셀 탭 경계가 없다.",
     )
 
     return {

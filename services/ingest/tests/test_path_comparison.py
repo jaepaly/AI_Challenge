@@ -22,6 +22,9 @@ class PathComparisonTest(unittest.TestCase):
         self.assertEqual(result["total"], 6)
         self.assertEqual(result["rate"], 1.0)
         self.assertEqual(result["missing_fact_ids"], ())
+        self.assertEqual(result["verbatim_recovered"], 6)
+        self.assertEqual(result["verbatim_rate"], 1.0)
+        self.assertEqual(result["verbatim_missing_fact_ids"], ())
         self.assertEqual(result["delimiter_count"], 263)
         self.assertEqual(result["delimiter_rows"], 115)
 
@@ -39,6 +42,9 @@ class PathComparisonTest(unittest.TestCase):
         self.assertEqual(result["total"], 13)
         self.assertEqual(result["rate"], 1.0)
         self.assertEqual(result["missing_fact_ids"], ())
+        self.assertEqual(result["verbatim_recovered"], 11)
+        self.assertAlmostEqual(result["verbatim_rate"], 11 / 13)
+        self.assertEqual(len(result["verbatim_missing_fact_ids"]), 2)
         self.assertEqual(result["delimiter_count"], 0)
         self.assertEqual(result["delimiter_rows"], 0)
 
