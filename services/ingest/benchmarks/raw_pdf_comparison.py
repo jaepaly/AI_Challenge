@@ -78,20 +78,24 @@ def estimate_max_cost_krw(
     return round((input_usd + output_usd) * krw_per_usd, 2)
 
 
-def build_document_message(pdf_path: Path) -> list[dict[str, Any]]:
+def build_document_message(
+    pdf_path: Path, *, use_cache_control: bool = True
+) -> list[dict[str, Any]]:
     encoded = base64.standard_b64encode(pdf_path.read_bytes()).decode("ascii")
-    return [
-        {
-            "type": "document",
-            "source": {
-                "type": "base64",
-                "media_type": "application/pdf",
-                "data": encoded,
-            },
-            "title": pdf_path.name,
-            "citations": {"enabled": True},
-            "cache_control": {"type": "ephemeral"},
+    document: dict[str, Any] = {
+        "type": "document",
+        "source": {
+            "type": "base64",
+            "media_type": "application/pdf",
+            "data": encoded,
         },
+        "title": pdf_path.name,
+        "citations": {"enabled": True},
+    }
+    if use_cache_control:
+        document["cache_control"] = {"type": "ephemeral"}
+    return [
+        document,
         {"type": "text", "text": EXTRACTION_PROMPT},
     ]
 
@@ -106,7 +110,8 @@ def _to_mapping(value: Any) -> Mapping[str, Any]:
 
 def extract_page_citations(message: Any) -> list[dict[str, Any]]:
     citations: list[dict[str, Any]] = []
-    for block_value in getattr(message, "content", []):
+    content = message.get("content", []) if isinstance(message, Mapping) else getattr(message, "content", [])
+    for block_value in content:
         block = _to_mapping(block_value)
         if block.get("type") != "text":
             continue
@@ -127,7 +132,7 @@ def extract_page_citations(message: Any) -> list[dict[str, Any]]:
 
 
 def _usage_dict(message: Any) -> dict[str, int]:
-    usage_value = getattr(message, "usage", {})
+    usage_value = message.get("usage", {}) if isinstance(message, Mapping) else getattr(message, "usage", {})
     usage = _to_mapping(usage_value) if usage_value else {}
     keys = (
         "input_tokens",
