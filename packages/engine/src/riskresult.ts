@@ -50,6 +50,9 @@ export function assembleRiskResult(p: {
   /**
    * 신선도 판정 기준일(ISO YYYY-MM-DD). 주면 STALE·NO_VERIFIED_AT에서
    * liquidation을 내지 않는다. 미지정 시 신선도 게이트를 건너뛴다(테스트·재현용).
+   * ⚠ 프로덕션 호출부는 반드시 넘긴다 — 잊으면 게이트가 조용히 안 돈다(#21의
+   *   held와 같은 옵트인 함정). liquidationSkipped에 CARD_NOT_FRESH가 아예
+   *   나올 수 없다는 것으로 누락이 관측 가능하다.
    */
   asOf?: string;
   /** 자발적 매도 체결 가정가 — 미지정 시 전일종가 */
@@ -80,6 +83,17 @@ export function assembleRiskResult(p: {
       ? liquidationQty({ D, prevClose: pos.prevClose, r, h, held: pos.qty })
       : null;
 
+  // null 사유 — 화면이 문구를 고를 수 있게 셋을 접지 않는다 (#33 리뷰).
+  // 신선하지 않고 h도 없으면 CARD_NOT_FRESH 우선: 재검증이 선행 조치다.
+  const liquidationSkipped =
+    liquidation !== null
+      ? undefined
+      : D <= 0
+        ? ("NO_SHORTFALL" as const)
+        : !quantOk
+          ? ("CARD_NOT_FRESH" as const)
+          : ("NO_DISCOUNT_RATE" as const);
+
   // 해소 4경로는 카드 파라미터와 무관(원장 r·가격·f) — 신선도·h 부재에도 유효하다
   const paths =
     D > 0
@@ -101,5 +115,6 @@ export function assembleRiskResult(p: {
     paths,
     equalShockLambda: lambda,
     cardStatus: p.card.status,
+    ...(liquidationSkipped !== undefined ? { liquidationSkipped } : {}),
   };
 }

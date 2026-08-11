@@ -157,6 +157,16 @@ export interface RiskResult {
   equalShockLambda: number;
   /** 계산에 사용된 카드의 상태 — draft면 UI는 참고 모드 배너 필수 */
   cardStatus: "verified" | "draft";
+  /**
+   * liquidation이 null인 사유. 값이 있으면 이 필드는 없다
+   * (ResolutionPaths.voluntarySellReason과 같은 규약 — 화면이 판정을 재현하지 않는다).
+   *  NO_SHORTFALL     = 관통하지 않음 — 산정할 것이 없다
+   *  CARD_NOT_FRESH   = STALE·NO_VERIFIED_AT — 재검증 전에는 정식 산출을 내지 않는다
+   *  NO_DISCOUNT_RATE = 카드에 산정 기준가 규칙(h)이 없다
+   * 우선순위: NO_SHORTFALL > CARD_NOT_FRESH > NO_DISCOUNT_RATE
+   * (신선하지 않고 h도 없으면 재검증이 선행 조치라 CARD_NOT_FRESH를 먼저 말한다)
+   */
+  liquidationSkipped?: "NO_SHORTFALL" | "CARD_NOT_FRESH" | "NO_DISCOUNT_RATE";
 }
 
 /* ── A(엔진) → D(UI) : replay 경로 시뮬 (신규 — 기존 3계약 무변경) ── */

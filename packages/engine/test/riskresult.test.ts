@@ -63,6 +63,7 @@ describe("조립 — 한투 골든 계좌 한 번 호출로 계기판 입력 전
     });
     expect(r.equalShockLambda).toBe(0); // 이미 관통
     expect(r.cardStatus).toBe("verified");
+    expect(r.liquidationSkipped).toBeUndefined(); // 값이 있으면 사유는 없다
   });
 
   it("10,000원 안전: D 0 → liquidation·paths null, λ* 0.16, 비율 167", () => {
@@ -74,6 +75,7 @@ describe("조립 — 한투 골든 계좌 한 번 호출로 계기판 입력 전
     });
     expect(r.shortfall).toBe(0);
     expect(r.liquidation).toBeNull();
+    expect(r.liquidationSkipped).toBe("NO_SHORTFALL");
     expect(r.paths).toBeNull();
     expect(r.marginRatioPct).toBe(167);
     expect(r.equalShockLambda).toBeCloseTo(0.16, 10);
@@ -113,6 +115,7 @@ describe("신선도 게이트 — #10 시한폭탄 박제 (verified_at=2026-08-0
       asOf: "2026-09-09",
     });
     expect(r.liquidation).toBeNull(); // README 5-A "계산 차단"
+    expect(r.liquidationSkipped).toBe("CARD_NOT_FRESH"); // 화면 문구: 재검증 요구
     expect(r.shortfall).toBe(300_000); // 원장 유지비율만으로 정해지는 값 — 유지
     expect(r.marginRatioPct).toBe(135);
     expect(r.paths?.deposit).toBe(300_000); // 4경로는 카드 파라미터 무관 — 유지
@@ -152,6 +155,7 @@ describe("신선도 게이트 — #10 시한폭탄 박제 (verified_at=2026-08-0
       asOf: "2026-09-08",
     });
     expect(r.liquidation).toBeNull();
+    expect(r.liquidationSkipped).toBe("CARD_NOT_FRESH");
     expect(r.shortfall).toBe(300_000);
   });
 
@@ -177,6 +181,7 @@ describe("h를 못 뽑는 카드 — 수량만 내리지 않는다", () => {
       f: ASSUMED_F,
     });
     expect(r.liquidation).toBeNull();
+    expect(r.liquidationSkipped).toBe("NO_DISCOUNT_RATE");
     expect(r.shortfall).toBe(300_000);
     expect(r.paths?.voluntarySellQty).toBe(96); // 자발 매도는 카드 무관(원장 r·f·가격)
   });
@@ -212,6 +217,31 @@ describe("h를 못 뽑는 카드 — 수량만 내리지 않는다", () => {
         }),
       ),
     ).toBeNull(); // rate 없는 prev_close_pct — 추정하지 않는다
+  });
+});
+
+describe("liquidationSkipped 우선순위", () => {
+  it("신선하지 않고 h도 없으면 CARD_NOT_FRESH — 재검증이 선행 조치다", () => {
+    const r = assembleRiskResult({
+      positions: positions(8_100),
+      ledger: ledger(),
+      card: makeCard({ rules: [], verified_at: "2026-08-09" }),
+      f: ASSUMED_F,
+      asOf: "2026-09-09", // STALE + h 부재 동시
+    });
+    expect(r.liquidationSkipped).toBe("CARD_NOT_FRESH");
+  });
+
+  it("draft + h 있음 → 산출되므로 사유 없음 (참고 모드는 배너로)", () => {
+    const r = assembleRiskResult({
+      positions: positions(8_100),
+      ledger: ledger(),
+      card: makeCard({ status: "draft" }),
+      f: ASSUMED_F,
+      asOf: "2026-09-09",
+    });
+    expect(r.liquidation).not.toBeNull();
+    expect(r.liquidationSkipped).toBeUndefined();
   });
 });
 
