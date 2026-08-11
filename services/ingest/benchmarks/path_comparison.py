@@ -18,6 +18,11 @@ from pypdf import __version__ as pypdf_version
 from app.parsing import ParsedDocument, parse_html, parse_pdf_text
 
 
+RAW_PDF_RESULT_PATH = (
+    Path(__file__).resolve().parent / "results" / "raw_pdf_document.json"
+)
+
+
 @dataclass(frozen=True)
 class ReproductionFact:
     fact_id: str
@@ -200,6 +205,43 @@ def _score_documents(
     )
 
 
+def _load_raw_pdf_result() -> dict[str, object]:
+    if not RAW_PDF_RESULT_PATH.exists():
+        return {
+            "status": "not_run",
+            "coordinate_kind": "page_location",
+            "reason": (
+                "비교 실행기는 구현됐지만 저장소 루트 .env에 개인용 Anthropic API 키가 "
+                "설정되지 않아 유료 호출을 실행하지 않음"
+            ),
+            "dry_run_command": "python -m benchmarks.raw_pdf_comparison",
+        }
+    result = json.loads(RAW_PDF_RESULT_PATH.read_text(encoding="utf-8"))
+    if result.get("status") != "completed":
+        raise ValueError("raw_pdf_document.json은 completed 결과만 허용됩니다")
+    return result
+
+
+def _pdf_branch_decision(
+    pdf_text_result: PathResult, raw_pdf_result: dict[str, object]
+) -> str:
+    if raw_pdf_result.get("status") != "completed":
+        return "pending: raw PDF document 실제 결과 생성 전에는 pypdf와 최종 비교 불가"
+    raw_recovered = int(raw_pdf_result["recovered"])
+    raw_verbatim = int(raw_pdf_result["verbatim_recovered"])
+    if (raw_recovered, raw_verbatim) > (
+        pdf_text_result.recovered,
+        pdf_text_result.verbatim_recovered,
+    ):
+        return "raw_pdf_document + page_location 권고"
+    if (raw_recovered, raw_verbatim) < (
+        pdf_text_result.recovered,
+        pdf_text_result.verbatim_recovered,
+    ):
+        return "pypdf_text + char_location + flattened_sha256 권고"
+    return "재현율 동률: 표 구조와 근거 좌표 품질을 사람이 최종 확인"
+
+
 def compare_local_paths(repo_root: Path) -> dict[str, object]:
     terms_dir = repo_root / "data" / "terms"
     html_files = sorted({fact.source_file for fact in HTML_FACTS})
@@ -223,6 +265,7 @@ def compare_local_paths(repo_root: Path) -> dict[str, object]:
         PDF_TEXT_FACTS,
         "공백 정규화 재현과 축자 재현을 구분해 측정하며 pypdf 출력에는 명시적인 셀 탭 경계가 없다.",
     )
+    raw_pdf_result = _load_raw_pdf_result()
 
     return {
         "environment": {
@@ -231,14 +274,10 @@ def compare_local_paths(repo_root: Path) -> dict[str, object]:
             "pypdf_version": pypdf_version,
         },
         "results": [asdict(html_result), asdict(pdf_text_result)],
-        "raw_pdf_document": {
-            "status": "not_run",
-            "coordinate_kind": "page_location",
-            "reason": "Claude Code 구독 중단 상태이며 유료 Anthropic API는 사용하지 않음",
-        },
+        "raw_pdf_document": raw_pdf_result,
         "branch_decision": {
             "html": "html_flatten + char_location + flattened_sha256",
-            "pdf": "pending: raw PDF document 경로 실행 전에는 pypdf와 최종 비교 불가",
+            "pdf": _pdf_branch_decision(pdf_text_result, raw_pdf_result),
         },
     }
 
