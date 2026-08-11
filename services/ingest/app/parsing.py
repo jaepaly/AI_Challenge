@@ -17,6 +17,11 @@ from pypdf import PdfReader
 _HTML_ROW_BOUNDARY = "\x1e"
 _HTML_CELL_BOUNDARY = "\x1f"
 _HTML_PARAGRAPH_BOUNDARY = "\x1d"
+_HTML_STRUCTURAL_SENTINELS = {
+    _HTML_ROW_BOUNDARY,
+    _HTML_CELL_BOUNDARY,
+    _HTML_PARAGRAPH_BOUNDARY,
+}
 
 
 @dataclass(frozen=True)
@@ -68,17 +73,15 @@ class _HTMLTextParser(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if self._ignored_depth == 0:
+            if any(sentinel in data for sentinel in _HTML_STRUCTURAL_SENTINELS):
+                raise ValueError("HTML 원문에 예약된 구조 센티널 문자가 포함되어 있습니다")
             self.parts.append(data)
 
 
 def _normalize_html_text(parts: list[str]) -> str:
     """소스 서식 공백은 접고 HTML 구조에서 나온 행·셀 경계만 보존한다."""
 
-    sentinels = {
-        _HTML_ROW_BOUNDARY,
-        _HTML_CELL_BOUNDARY,
-        _HTML_PARAGRAPH_BOUNDARY,
-    }
+    sentinels = _HTML_STRUCTURAL_SENTINELS
     structural_parts = re.split(
         f"([{''.join(sentinels)}])",
         "".join(parts),

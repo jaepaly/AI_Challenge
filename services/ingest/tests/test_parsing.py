@@ -37,6 +37,20 @@ class HankookHTMLSpikeTest(unittest.TestCase):
 
         self.assertEqual(text, "문장 공백\n항목\t값\n담보 유지\t140%")
 
+    def test_html_rejects_reserved_structural_sentinels(self) -> None:
+        for injected in ("\x1d", "\x1e", "\x1f"):
+            with self.subTest(injected=repr(injected)):
+                parser = _HTMLTextParser()
+                with self.assertRaisesRegex(ValueError, "구조 센티널"):
+                    parser.feed(f"<p>정상{injected}가짜 셀</p>")
+
+    def test_numeric_control_reference_cannot_create_structural_boundary(self) -> None:
+        parser = _HTMLTextParser()
+        parser.feed("<p>정상&#30;가짜 셀</p>")
+
+        self.assertNotIn("\x1e", "".join(parser.parts))
+        self.assertEqual(_normalize_html_text(parser.parts), "정상가짜 셀")
+
     def test_key_terms_survive_html_parsing(self) -> None:
         document = parse_document(HANKOOK_TERMS)
         text = document.units[0].text

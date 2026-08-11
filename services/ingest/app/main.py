@@ -43,5 +43,9 @@ async def ingest(file: UploadFile) -> dict:
       1일차: pypdf로 한투 약관 텍스트 추출 스파이크 (표 깨짐 여부를 기록으로 남길 것)
       2~5일차: Claude 구조화 추출 + 4중 방어
       5~6일차: 출력 vs data/golden/golden_cases.json 대조 (수작업 표 = AI의 채점 기준)
+
+    파이프라인 불변 규약:
+      JSON Schema 통과만으로는 수치 quote·좌표 순서·카드 내 해시 단일성을 보장할 수 없다.
+      응답을 반환하거나 저장하기 전에 반드시 ConditionCard.model_validate를 거친다.
     """
     raise HTTPException(status_code=501, detail="Phase 1 구현 대상 — README의 B 매뉴얼 참조")

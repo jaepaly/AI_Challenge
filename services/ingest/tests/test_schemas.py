@@ -174,6 +174,13 @@ class EvidenceSpanContractTest(unittest.TestCase):
 
         self.assert_contract_accepts(card)
 
+    def test_circled_list_marker_cannot_merge_into_percentage(self) -> None:
+        card = make_card(page_evidence())
+        card["ratio_rules"][0]["evidence"]["quote"] = "①40% 담보평가비율"
+
+        self.assertEqual(list(self.validator.iter_errors(card)), [])
+        self.assert_pydantic_rejects(card)
+
     def test_discount_quote_accepts_samsung_complement_with_disposal_context(self) -> None:
         cases = [
             (

@@ -5,7 +5,6 @@
 변경은 PR + 팀 전원 승인.
 """
 import re
-import unicodedata
 from decimal import Decimal
 from typing import Annotated, Literal, Optional, Union
 
@@ -53,6 +52,9 @@ EvidenceSpan = Annotated[
 ]
 
 _DISPOSAL_CONTEXT_TERMS = ("처분", "반대매매", "기준가", "하락", "할인")
+_FULLWIDTH_ASCII_TRANSLATION = str.maketrans(
+    {chr(codepoint): chr(codepoint - 0xFEE0) for codepoint in range(0xFF01, 0xFF5F)}
+)
 
 
 def _format_decimal(value: Decimal) -> str:
@@ -61,9 +63,10 @@ def _format_decimal(value: Decimal) -> str:
 
 
 def _normalized_quote(quote: str) -> str:
-    """전각 문자를 반각으로 바꾸고 숫자 안의 천 단위 쉼표를 제거한다."""
+    """전각 ASCII만 반각화하고 숫자 안의 천 단위 쉼표를 제거한다."""
 
-    normalized = unicodedata.normalize("NFKC", quote)
+    # NFKC는 목록 마커 ①과 뒤따르는 40%를 140%로 합쳐 거짓 근거를 만든다.
+    normalized = quote.translate(_FULLWIDTH_ASCII_TRANSLATION).replace("\u3000", " ")
     normalized = re.sub(r"(?<=\d),(?=\d)", "", normalized)
 
     def trim_decimal_zeros(match: re.Match[str]) -> str:
