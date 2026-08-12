@@ -4,18 +4,126 @@
 이 파일과 packages/engine/src/types.ts를 JSON Schema와 동기화하는 책임은 B에게 있다.
 변경은 PR + 팀 전원 승인.
 """
-from typing import Literal, Optional
+import re
+from decimal import Decimal
+from typing import Annotated, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
-class EvidenceSpan(BaseModel):
-    """근거 좌표 — 없으면 카드 전체를 거부한다. 근거 없는 수치 금지."""
+class PageEvidenceSpan(BaseModel):
+    """PDF 원본 citations의 1-indexed 페이지 좌표."""
 
+    model_config = ConfigDict(extra="forbid")
+
+    source_format: Literal["pdf"]
     page: int = Field(ge=1)
-    start: int = Field(ge=0)
-    end: int = Field(ge=0)
+    end_page: Optional[int] = Field(default=None, ge=1)
     quote: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def require_ordered_pages(self):
+        if self.end_page is not None and self.end_page < self.page:
+            raise ValueError("end_page는 page보다 작을 수 없습니다")
+        return self
+
+
+class CharacterEvidenceSpan(BaseModel):
+    """평탄화된 text/html citations의 문자 오프셋 좌표."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_format: Literal["text", "html"]
+    char_start: int = Field(ge=0)
+    char_end: int = Field(ge=0)
+    flattened_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    quote: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def require_non_empty_ordered_span(self):
+        if self.char_end <= self.char_start:
+            raise ValueError("char_end는 char_start보다 커야 합니다")
+        return self
+
+
+EvidenceSpan = Annotated[
+    Union[PageEvidenceSpan, CharacterEvidenceSpan],
+    Field(discriminator="source_format"),
+]
+
+_DISPOSAL_CONTEXT_TERMS = ("처분", "반대매매", "기준가", "하락", "할인")
+_FULLWIDTH_ASCII_TRANSLATION = str.maketrans(
+    {chr(codepoint): chr(codepoint - 0xFEE0) for codepoint in range(0xFF01, 0xFF5F)}
+)
+
+
+def _format_decimal(value: Decimal) -> str:
+    formatted = format(value.normalize(), "f")
+    return formatted.rstrip("0").rstrip(".") if "." in formatted else formatted
+
+
+def _normalized_quote(quote: str) -> str:
+    """전각 ASCII만 반각화하고 숫자 안의 천 단위 쉼표를 제거한다."""
+
+    # NFKC는 목록 마커 ①과 뒤따르는 40%를 140%로 합쳐 거짓 근거를 만든다.
+    normalized = quote.translate(_FULLWIDTH_ASCII_TRANSLATION).replace("\u3000", " ")
+    normalized = re.sub(r"(?<=\d),(?=\d)", "", normalized)
+
+    def trim_decimal_zeros(match: re.Match[str]) -> str:
+        return match.group(0).rstrip("0").rstrip(".")
+
+    return re.sub(r"(?<![\d.])\d+\.\d+(?![\d.])", trim_decimal_zeros, normalized)
+
+
+def _contains_percent(quote: str, candidate: str) -> bool:
+    """다른 숫자의 일부가 아닌 퍼센트 표기만 수치 근거로 인정한다."""
+
+    pattern = re.compile(rf"(?<![\d.]){re.escape(candidate)}\s*%")
+    return pattern.search(quote) is not None
+
+
+def _percent_candidates(value: float, *, include_complement: bool = False) -> set[str]:
+    decimal_value = Decimal(str(value))
+    candidates = {_format_decimal(decimal_value * 100)}
+    if include_complement:
+        candidates.add(_format_decimal((Decimal("1") - decimal_value) * 100))
+    return candidates
+
+
+def _has_disposal_context(quote: str) -> bool:
+    return any(term in quote for term in _DISPOSAL_CONTEXT_TERMS)
+
+
+def _validate_numeric_quote(
+    *,
+    field_name: str,
+    value: float,
+    evidence: EvidenceSpan,
+    include_complement: bool = False,
+) -> None:
+    quote = _normalized_quote(evidence.quote)
+    direct_candidate = _format_decimal(Decimal(str(value)) * 100)
+    if _contains_percent(quote, direct_candidate):
+        return
+
+    candidates = _percent_candidates(value, include_complement=include_complement)
+    complement_candidates = candidates - {direct_candidate}
+    has_contextual_complement = include_complement and _has_disposal_context(quote) and any(
+        _contains_percent(quote, candidate) for candidate in complement_candidates
+    )
+    if has_contextual_complement:
+        return
+
+    expected = ", ".join(f"{candidate}%" for candidate in sorted(candidates))
+    context_requirement = (
+        "; 여집합 후보는 처분 문맥어가 함께 있어야 합니다"
+        if include_complement
+        else ""
+    )
+    raise ValueError(
+        f"{field_name}의 evidence.quote에 퍼센트 표기({expected})가 "
+        f"숫자 경계와 단위에 맞게 포함되어야 합니다{context_requirement}"
+    )
 
 
 class RatioRule(BaseModel):
@@ -26,6 +134,11 @@ class RatioRule(BaseModel):
     ratio: float = Field(ge=1.0, le=2.0)
     evidence: EvidenceSpan
 
+    @model_validator(mode="after")
+    def require_ratio_in_quote(self):
+        _validate_numeric_quote(field_name="ratio", value=self.ratio, evidence=self.evidence)
+        return self
+
 
 class DisposalPriceRule(BaseModel):
     trigger: str
@@ -35,17 +148,45 @@ class DisposalPriceRule(BaseModel):
     source_confidence: Literal["explicit", "inferred_from_formula"]
     evidence: EvidenceSpan
 
+    @model_validator(mode="after")
+    def require_discount_rate_in_quote(self):
+        if self.discount_basis == "prev_close_pct" and self.discount_rate is None:
+            raise ValueError("prev_close_pct 기준에는 discount_rate가 필수입니다")
+        if self.discount_rate is not None:
+            _validate_numeric_quote(
+                field_name="discount_rate",
+                value=self.discount_rate,
+                evidence=self.evidence,
+                include_complement=True,
+            )
+        return self
+
 
 class ExecutionScheduleRule(BaseModel):
     threshold_ratio: float = Field(ge=1.0, le=2.0)
     day_counting: str
     evidence: EvidenceSpan
 
+    @model_validator(mode="after")
+    def require_threshold_ratio_in_quote(self):
+        _validate_numeric_quote(
+            field_name="threshold_ratio",
+            value=self.threshold_ratio,
+            evidence=self.evidence,
+        )
+        return self
+
 
 class DocVersion(BaseModel):
     review_no: Optional[str] = None  # 심사필 번호 (우선)
     content_sha256: Optional[str] = None  # 번호 없는 회사(미래에셋·유진)의 폴백
     revised_at: Optional[str] = None
+
+    @model_validator(mode="after")
+    def require_document_identifier(self):
+        if not self.review_no and not self.content_sha256:
+            raise ValueError("review_no 또는 content_sha256 중 하나는 필수입니다")
+        return self
 
 
 class ConditionCard(BaseModel):
@@ -60,3 +201,28 @@ class ConditionCard(BaseModel):
     # 인제스트 직후는 반드시 draft. verified 승격은 사람 검수를 거친 뒤에만.
     status: Literal["verified", "draft"] = "draft"
     verified_at: Optional[str] = None  # 신선도 게이트(30일) 기준일 = 검증일
+
+    @model_validator(mode="after")
+    def require_one_coordinate_kind(self):
+        evidence_spans = [
+            *(rule.evidence for rule in self.ratio_rules),
+            *(rule.evidence for rule in self.disposal_price_rules),
+            *(rule.evidence for rule in self.execution_schedule),
+        ]
+        coordinate_kinds = {
+            "page" if isinstance(evidence, PageEvidenceSpan) else "character"
+            for evidence in evidence_spans
+        }
+        if len(coordinate_kinds) != 1:
+            raise ValueError("한 ConditionCard 안에서는 근거 좌표 형식을 하나로 통일해야 합니다")
+        if coordinate_kinds == {"character"}:
+            flattened_hashes = {
+                evidence.flattened_sha256
+                for evidence in evidence_spans
+                if isinstance(evidence, CharacterEvidenceSpan)
+            }
+            if len(flattened_hashes) != 1:
+                raise ValueError(
+                    "문자 좌표를 쓰는 한 ConditionCard 안에서는 flattened_sha256이 같아야 합니다"
+                )
+        return self

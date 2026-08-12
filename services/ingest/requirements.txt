@@ -5,3 +5,4 @@ pydantic>=2.8
 pypdf>=4.3
 anthropic>=0.40
 jsonschema>=4.23
+python-dotenv>=1.0

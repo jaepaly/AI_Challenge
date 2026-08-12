@@ -35,13 +35,28 @@ export interface CreditLedger {
 
 /* ── B(인제스트) → A(엔진) : ConditionCard v2 ───────────────────── */
 
-/** 근거 좌표 — 인제스트 출력의 필수 필드. 좌표를 못 찾으면 출력을 거부한다. */
-export interface EvidenceSpan {
-  page: number;
-  start: number;
-  end: number;
+interface EvidenceSpanBase {
   quote: string;
 }
+
+/** PDF 원본 citations의 1-indexed 페이지 좌표. */
+export interface PageEvidenceSpan extends EvidenceSpanBase {
+  source_format: "pdf";
+  page: number;
+  end_page?: number;
+}
+
+/** 평탄화된 text/html citations의 문자 오프셋 좌표. */
+export interface CharacterEvidenceSpan extends EvidenceSpanBase {
+  source_format: "text" | "html";
+  char_start: number;
+  char_end: number;
+  /** 문자 오프셋이 가리키는 평탄화 결과물의 SHA-256 (소문자 64자리 hex). */
+  flattened_sha256: string;
+}
+
+/** 근거 좌표 — 페이지형 또는 문자형 중 정확히 하나. */
+export type EvidenceSpan = PageEvidenceSpan | CharacterEvidenceSpan;
 
 export type SourceConfidence = "explicit" | "inferred_from_formula";
 
