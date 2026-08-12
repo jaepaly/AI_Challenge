@@ -15,6 +15,21 @@ interface KisGetOptions {
 }
 
 const KIS_FETCH_TIMEOUT_MS = 5_000;
+const KIS_REQUEST_BUDGET_MS = 8_000;
+
+function combinedSignal(requestDeadline: AbortSignal) {
+  return AbortSignal.any([
+    AbortSignal.timeout(KIS_FETCH_TIMEOUT_MS),
+    requestDeadline,
+  ]);
+}
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  );
+}
 
 function buildUrl(baseUrl: string, path: string, params: Record<string, string>) {
   const url = new URL(path, baseUrl);
@@ -49,13 +64,22 @@ async function parseJson(response: Response) {
 async function fetchJson(
   url: URL,
   headers: HeadersInit,
+  requestDeadline: AbortSignal,
   attempt = 1,
 ): Promise<unknown> {
-  const response = await fetch(url, {
-    method: "GET",
-    headers,
-    signal: AbortSignal.timeout(KIS_FETCH_TIMEOUT_MS),
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers,
+      signal: combinedSignal(requestDeadline),
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new KisGuardError("KIS upstream request timed out.", 504);
+    }
+    throw error;
+  }
   const data = await parseJson(response);
 
   if (response.ok && !isKisRateLimit(data)) {
@@ -64,27 +88,32 @@ async function fetchJson(
 
   if (attempt < 3 && (response.status === 429 || isKisRateLimit(data))) {
     await backoffKisRateLimit(attempt);
-    return fetchJson(url, headers, attempt + 1);
+    return fetchJson(url, headers, requestDeadline, attempt + 1);
   }
 
   throw new KisGuardError(`KIS request failed: ${response.status}`);
 }
 
 export async function kisGet(options: KisGetOptions) {
+  const requestDeadline = AbortSignal.timeout(KIS_REQUEST_BUDGET_MS);
   const config = options.config ?? getKisAuthConfig();
   const target = getKisRequestTarget(options.purpose, config.env);
-  const token = await getKisAccessToken(config);
+  const token = await getKisAccessToken(config, requestDeadline);
   const url = buildUrl(target.baseUrl, options.path, options.params);
 
   return enqueueKisCall(() =>
-    fetchJson(url, {
-      "content-type": "application/json; charset=utf-8",
-      accept: "application/json",
-      authorization: `${token.tokenType} ${token.accessToken}`,
-      appkey: config.appKey,
-      appsecret: config.appSecret,
-      tr_id: target.trId,
-      custtype: "P",
-    }),
+    fetchJson(
+      url,
+      {
+        "content-type": "application/json; charset=utf-8",
+        accept: "application/json",
+        authorization: `${token.tokenType} ${token.accessToken}`,
+        appkey: config.appKey,
+        appsecret: config.appSecret,
+        tr_id: target.trId,
+        custtype: "P",
+      },
+      requestDeadline,
+    ),
   );
 }

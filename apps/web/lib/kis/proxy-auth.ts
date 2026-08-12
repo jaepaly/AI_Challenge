@@ -6,7 +6,7 @@ import { KisGuardError } from "./guard";
 
 export const KIS_PROXY_AUTH_HEADER = "x-marginguard-kis-proxy-token";
 
-let localProxyEnvCache: Record<string, string> | null = null;
+let localProxyToken: string | null = null;
 
 function parseEnvFile(content: string) {
   const values: Record<string, string> = {};
@@ -40,12 +40,12 @@ function parseEnvFile(content: string) {
   return values;
 }
 
-function readLocalProxyEnv() {
-  if (localProxyEnvCache) {
-    return localProxyEnvCache;
+function readLocalProxyToken() {
+  if (localProxyToken !== null) {
+    return localProxyToken;
   }
 
-  const localEnv: Record<string, string> = {};
+  let token = "";
   const candidates = new Set([
     resolve(process.cwd(), "..", "..", ".env"),
     resolve(process.cwd(), ".env"),
@@ -54,12 +54,17 @@ function readLocalProxyEnv() {
 
   for (const envPath of candidates) {
     if (existsSync(envPath)) {
-      Object.assign(localEnv, parseEnvFile(readFileSync(envPath, "utf8")));
+      const value = parseEnvFile(
+        readFileSync(envPath, "utf8"),
+      ).KIS_PROXY_TOKEN?.trim();
+      if (value) {
+        token = value;
+      }
     }
   }
 
-  localProxyEnvCache = localEnv;
-  return localProxyEnvCache;
+  localProxyToken = token;
+  return localProxyToken;
 }
 
 function readExpectedToken(source: NodeJS.ProcessEnv) {
@@ -68,7 +73,7 @@ function readExpectedToken(source: NodeJS.ProcessEnv) {
     return token ?? "";
   }
 
-  return readLocalProxyEnv().KIS_PROXY_TOKEN?.trim() ?? "";
+  return readLocalProxyToken();
 }
 
 function readPresentedToken(request: Request) {
@@ -95,10 +100,7 @@ export function assertKisAccountProxyAuthorized(
 ) {
   const expected = readExpectedToken(source);
   if (!expected) {
-    throw new KisGuardError(
-      "KIS account proxy is disabled: KIS_PROXY_TOKEN is required.",
-      503,
-    );
+    throw new KisGuardError("KIS account proxy is unavailable.", 503);
   }
 
   const presented = readPresentedToken(request);

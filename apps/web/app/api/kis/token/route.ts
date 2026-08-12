@@ -3,6 +3,7 @@ import { getKisAccessToken } from "@/lib/kis/token";
 import { kisError, kisJson } from "../_response";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 10;
 
 export async function GET() {
   try {

@@ -23,6 +23,20 @@ let tokenPromise: Promise<KisTokenCache> | null = null;
 
 const KIS_TOKEN_FETCH_TIMEOUT_MS = 5_000;
 
+function tokenSignal(requestDeadline?: AbortSignal) {
+  const attemptSignal = AbortSignal.timeout(KIS_TOKEN_FETCH_TIMEOUT_MS);
+  return requestDeadline
+    ? AbortSignal.any([attemptSignal, requestDeadline])
+    : attemptSignal;
+}
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof DOMException &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  );
+}
+
 function isUsableToken(cache: KisTokenCache | null): cache is KisTokenCache {
   return cache !== null && cache.expiresAt - Date.now() > 60_000;
 }
@@ -38,20 +52,31 @@ function parseExpiresAt(data: KisTokenResponse) {
   return Date.now() + Math.max(0, data.expires_in ?? 86_400) * 1_000;
 }
 
-async function requestToken(config: KisAuthConfig): Promise<KisTokenCache> {
-  const response = await fetch(`${config.baseUrl}/oauth2/tokenP`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      accept: "application/json",
-    },
-    body: JSON.stringify({
-      grant_type: "client_credentials",
-      appkey: config.appKey,
-      appsecret: config.appSecret,
-    }),
-    signal: AbortSignal.timeout(KIS_TOKEN_FETCH_TIMEOUT_MS),
-  });
+async function requestToken(
+  config: KisAuthConfig,
+  requestDeadline?: AbortSignal,
+): Promise<KisTokenCache> {
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl}/oauth2/tokenP`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        grant_type: "client_credentials",
+        appkey: config.appKey,
+        appsecret: config.appSecret,
+      }),
+      signal: tokenSignal(requestDeadline),
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new KisGuardError("KIS token request timed out.", 504);
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     throw new KisGuardError(`KIS token request failed: ${response.status}`);
@@ -69,12 +94,17 @@ async function requestToken(config: KisAuthConfig): Promise<KisTokenCache> {
   };
 }
 
-export async function getKisAccessToken(config = getKisAuthConfig()) {
+export async function getKisAccessToken(
+  config = getKisAuthConfig(),
+  requestDeadline?: AbortSignal,
+) {
   if (isUsableToken(tokenCache)) {
     return tokenCache;
   }
 
-  tokenPromise ??= enqueueKisCall(() => requestToken(config)).finally(() => {
+  tokenPromise ??= enqueueKisCall(() =>
+    requestToken(config, requestDeadline),
+  ).finally(() => {
     tokenPromise = null;
   });
 
