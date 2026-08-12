@@ -38,6 +38,9 @@ export default function PortfolioView({
 }) {
   const cur = steps && cursor >= 0 ? steps[cursor] : null;
   const executed = steps?.filter((s) => s.executedQtyTotal > 0) ?? [];
+  /** 가장 취약한 종목이 먼저 팔린 종목과 같은가 — 우연히 같을 때만 그렇다고 말한다 */
+  const firstSold = executed[0]?.positions.find((p) => p.executedQty > 0)?.symbol ?? null;
+  const weakestIsFirstSold = weakest !== null && firstSold !== null && weakest.symbol === firstSold;
 
   return (
     <section className="pf" aria-label="다종목 한계선">
@@ -157,6 +160,15 @@ export default function PortfolioView({
             <div className="optBasis">
               앞 종목부터 채워지는 것은 <b>종목번호 오름차순</b> 배분이기 때문입니다 — 6사 약관이
               공통으로 명시한 최종 기준입니다.
+            </div>
+            {/* 위 표의 '가장 취약한 종목'과 여기 '먼저 팔린 종목'은 **기준이 다르다**.
+                앞은 평가액이 커서, 뒤는 종목번호가 빨라서다. 한 화면에 붙어 있으면
+                "취약해서 팔렸다"는 인과로 읽힌다 — 이 제품이 막으려는 종류의 오독이다.
+                균등 시나리오라 더 위험하다: 종목별 하락폭 차이가 없으니 어느 종목이
+                팔리는지를 정하는 것이 순서 하나뿐이다(#37 리뷰). */}
+            <div className="optWhy">
+              먼저 팔린 종목은 <b>종목번호가 빠른 종목</b>이지, 가장 취약한 종목이 아닙니다.
+              {weakestIsFirstSold ? " 이 계좌에서는 둘이 우연히 같습니다." : ""}
             </div>
           </div>
         )}

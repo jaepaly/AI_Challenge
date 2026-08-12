@@ -1,3 +1,23 @@
+# 소스 파일 개행 — LF로 고정한다.
+# Windows 기본(core.autocrlf=true)에서 스크립트로 파일을 다시 쓰면 CRLF가 되고,
+# 저장소에 eol 규칙이 없으면 그대로 커밋돼 **파일 전체가 재작성으로 잡힌다.**
+# 실제로 PR 3건에서 연달아 났다(#35 86% · #36 90% · #37 62%가 개행 노이즈).
+# ⚠ `*`가 아니라 **확장자로 좁힌다.** `* text=auto eol=lf`로 걸면 data/terms의
+#   증거 PDF에도 `eol: lf`가 붙는다. git 문서상 eol은 "내용 검사 없이 개행 변환을
+#   켠다 — 사실상 text를 설정한다"이므로, 아래 `-text`와 조합했을 때의 동작이
+#   git 버전에 의존하게 된다. **바이트가 신원인 파일에 버전 의존을 남기지 않는다.**
+# ⚠ 기존 파일 일괄 정리(git add --renormalize .)는 **하지 않는다** — 그건 전 파일
+#   diff를 만든다. 8/17 게이트 이후 단독 커밋으로 처리한다(#38).
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.css  text eol=lf
+*.py   text eol=lf
+*.yml  text eol=lf
+*.md   text eol=lf
+
 # 개행 정규화 고정 — 증거 아티팩트만
 # ---------------------------------------------------------------------------
 # core.autocrlf=true 인 머신(Windows 기본)에서는 git이 체크아웃 때 텍스트 파일의
