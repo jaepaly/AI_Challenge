@@ -132,3 +132,28 @@
   .phase.notified{background:var(--warn-soft); color:var(--warn)}
   .phase.executed{background:var(--danger); color:#fff}
   .replayNote{margin-top:10px; font-size:12.5px; color:var(--ink2); line-height:1.6}
+
+  /* ── 다종목 한계선 (λ* · λ_k) ── */
+  .pf{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin:16px 0}
+  .pf h2{margin:0 0 4px; font-family:var(--serif); font-size:17px}
+  .pfStar{background:var(--ground); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:12px}
+  .pfTableWrap{overflow-x:auto}
+  .pfTable{width:100%; border-collapse:collapse; font-size:13px; min-width:560px}
+  .pfTable th{text-align:left; font-size:11px; letter-spacing:.06em; color:var(--ink3); font-weight:700; padding:6px 8px; border-bottom:1px solid var(--line2)}
+  .pfTable td{padding:8px; border-bottom:1px dashed var(--line)}
+  .pfTable .num{text-align:right}
+  .pfTable tr.weak td{background:var(--warn-soft)}
+  .pfTable .sym{font-size:11px; color:var(--ink3); margin-left:4px}
+  .pfNa{font-size:11.5px; color:var(--ink3)}
+
+  .pfReplay{margin-top:16px; border-top:1px solid var(--line); padding-top:14px}
+  .pfReplay h3{margin:0 0 8px; font-size:14px}
+  .pfReplay button{font:inherit; font-size:13.5px; font-weight:700; padding:9px 18px; border-radius:999px; border:none; background:var(--accent); color:var(--accent-ink); cursor:pointer}
+  .pfReplay button:disabled{opacity:.5; cursor:default}
+  .pfStep{margin-top:12px; background:var(--ground); border:1px solid var(--line); border-radius:10px; padding:12px 14px}
+  .pfStepHead{display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:12.5px; color:var(--ink2)}
+  .pfExec{margin-top:8px; font-size:13px}
+  .pfExecBy{font-size:12px; color:var(--ink3); margin-top:2px}
+  .pfSummary{margin-top:12px; background:var(--danger-soft); border:1px solid var(--danger); border-radius:10px; padding:12px 14px}
+  .pfSummary .optLbl{color:var(--danger)}
+  .pfSummaryRow{font-size:13.5px; margin-top:4px}

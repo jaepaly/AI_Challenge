@@ -6,7 +6,13 @@
  *
  * 수치는 전부 packages/engine이 산출한다. 이 파일은 입력값만 보관한다.
  */
-import type { ConditionCard, CreditLedger, DailyReturn, Position } from "@marginguard/engine";
+import type {
+  ConditionCard,
+  CreditLedger,
+  DailyPortfolioReturn,
+  DailyReturn,
+  Position,
+} from "@marginguard/engine";
 
 /** 가상 계좌 — 한투 설명서 골든 계좌와 같은 구조(1,000주 · 융자 600만 · 유지비율 140%) */
 export const ACCOUNT = {
@@ -151,3 +157,40 @@ export const won = (n: number) => n.toLocaleString("ko-KR") + "원";
  */
 export const ASSUMED_FEE_RATE = 0.008;
 export const assumedFeePct = (ASSUMED_FEE_RATE * 100).toFixed(1); // "0.8"
+
+/* ── 다종목 스냅숏 (D) ───────────────────────────────────────────────────
+ * 단일 종목 화면이 답하지 못하는 질문이 하나 있다 — "내 계좌엔 종목이 여러 개인데?"
+ *
+ * 계좌 규모는 단일 종목 계좌와 나란히 읽히도록 융자 600만·유지비율 140%로 맞췄다.
+ * 평가액 합계 1,000만이라 버퍼가 160만이고, 그래서 λ*가 정확히 16%다.
+ *
+ * ⚠ cash는 0이어야 한다 — 엔진이 현금 우선 상환을 모델링하지 않았고,
+ *   미반영은 낙관 방향이라 replayPortfolio가 cash>0을 아예 거부한다(#23).
+ */
+export const PORTFOLIO_POSITIONS: Position[] = [
+  { symbol: "A0001", name: "가상 종목 갑", qty: 400, prevClose: 12_000, group: "일반" },
+  { symbol: "A0002", name: "가상 종목 을", qty: 300, prevClose: 10_000, group: "일반" },
+  { symbol: "A0003", name: "가상 종목 병", qty: 500, prevClose: 4_400, group: "일반" },
+];
+
+export const portfolioLedger = (): CreditLedger => ({
+  loan: 6_000_000,
+  cash: 0,
+  requiredRatio: 1.4,
+});
+
+/**
+ * 다종목 재생 입력 — **전 종목에 같은 일간 등락을 적용한 균등 시나리오다.**
+ *
+ * 날짜와 등락폭은 JULY_SEQ(실측)를 그대로 쓰지만, **종목별 실제 등락은 서로 다르다.**
+ * 종목별 실데이터 스냅숏은 아직 없다(8/24 전 확보 예정). 지어낸 종목별 수익률을
+ * "7월에 실제로 있었던 일"로 내보내면 그 순간 이 제품의 주장이 거짓이 된다.
+ *
+ * 그래서 이 재생이 증명하는 것은 **역사 재현이 아니라 배분 규칙**이다 —
+ * 같은 충격에서 종목번호 순으로 어떻게 처분이 배분되는지.
+ */
+export const portfolioJuly = (): DailyPortfolioReturn[] =>
+  JULY_SEQ.map((d) => ({
+    date: d.date,
+    bySymbol: Object.fromEntries(PORTFOLIO_POSITIONS.map((p) => [p.symbol, d.bp])),
+  }));

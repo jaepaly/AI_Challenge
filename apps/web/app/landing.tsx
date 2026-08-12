@@ -14,8 +14,10 @@ import {
   liquidationQty,
   marginRatioPct,
   replay,
+  replayPortfolio,
   resolutionPaths,
   shortfall,
+  type PortfolioReplayStep,
   type ReplayStep,
 } from "@marginguard/engine";
 import { cardH } from "../lib/marginguard/card";
@@ -28,11 +30,16 @@ import {
   fullDisposalLabel,
 } from "../lib/marginguard/options";
 import OptionsCompare from "./options-compare";
+import PortfolioView from "./portfolio-view";
+import { portfolioLambdaView, weakestRow } from "../lib/marginguard/portfolio";
 import {
   ACCOUNT,
   ASSUMED_FEE_RATE,
   CARDS,
   JULY_SEQ,
+  PORTFOLIO_POSITIONS,
+  portfolioJuly,
+  portfolioLedger,
   PRICE_MAX,
   PRICE_MIN,
   PRICE_START,
@@ -64,6 +71,10 @@ export default function Landing({ build }: { build: BuildInfo }) {
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   /** 재생 중 여부는 state로 둔다 — ref를 렌더에서 읽으면 버튼 disabled가 갱신되지 않는다 */
   const [playing, setPlaying] = useState(false);
+  const [pfSteps, setPfSteps] = useState<PortfolioReplayStep[] | null>(null);
+  const [pfCursor, setPfCursor] = useState(-1);
+  const pfTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [pfPlaying, setPfPlaying] = useState(false);
 
   /**
    * 신선도 판정 기준일 — **열람 시각**이다. 빌드 시각으로 하면 우리가 막으려는
@@ -94,7 +105,13 @@ export default function Landing({ build }: { build: BuildInfo }) {
   const pStar = useMemo(() => thresholdPrice(), []);
 
   // 언마운트 시 재현 타이머 정리
-  useEffect(() => () => { if (timer.current) clearInterval(timer.current); }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearInterval(timer.current);
+      if (pfTimer.current) clearInterval(pfTimer.current);
+    },
+    [],
+  );
 
   /* ── 엔진 산출 ─────────────────────────────────────────────── */
   const V = ACCOUNT.qty * price;
@@ -163,6 +180,35 @@ export default function Landing({ build }: { build: BuildInfo }) {
         return;
       }
       setCursor(i);
+    }, 900);
+  }
+
+  /* ── 다종목 — λ*·λ_k는 카드와 무관한 확정값이라 게이트를 걸지 않는다 ── */
+  const pfView = useMemo(() => portfolioLambdaView(PORTFOLIO_POSITIONS, portfolioLedger()), []);
+  const pfWeakest = useMemo(() => weakestRow(pfView), [pfView]);
+
+  function playPortfolio() {
+    if (pfTimer.current || !quantOk) return; // 처분 수량은 카드 h가 있어야 낸다
+    const result = replayPortfolio(
+      PORTFOLIO_POSITIONS,
+      portfolioLedger(),
+      portfolioJuly(),
+      preset.card,
+    );
+    setPfSteps(result);
+    setPfCursor(0);
+    setPfPlaying(true);
+    let i = 0;
+    pfTimer.current = setInterval(() => {
+      i += 1;
+      if (i >= result.length) {
+        clearInterval(pfTimer.current!);
+        pfTimer.current = null;
+        setPfCursor(result.length - 1);
+        setPfPlaying(false);
+        return;
+      }
+      setPfCursor(i);
     }, 900);
   }
 
@@ -335,6 +381,24 @@ export default function Landing({ build }: { build: BuildInfo }) {
             cardStatus={preset.card.status}
           />
         )}
+
+        {/* 다종목 — 단일 종목 화면이 답하지 못하는 질문. λ*·λ_k는 카드와 무관하므로
+            blocked에서도 낸다. 재생(처분 수량)만 카드 h에 달려 있다 */}
+        <PortfolioView
+          view={pfView}
+          weakest={pfWeakest}
+          steps={pfSteps}
+          cursor={pfCursor}
+          playing={pfPlaying}
+          onPlay={playPortfolio}
+          disabledReason={
+            quantOk
+              ? null
+              : hUnknown
+                ? "조건카드에 산정 기준가 규칙(할인율)이 없어 처분 수량을 내지 않습니다"
+                : "이 카드는 재검증이 필요합니다 — 낡은 값으로 처분 수량을 내지 않습니다"
+          }
+        />
 
         <section className="july">
           <h2>2026년 7월, 실제로 있었던 연쇄 하락을 재현해 보세요</h2>
