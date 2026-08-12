@@ -8,7 +8,7 @@
  *  - 7월 연쇄는 engine.replay()가 낸 ReplayStep[]을 그대로 렌더한다(집행·원장 갱신 포함).
  *  - 담보비율 3단 규칙(PR #2 합의): 판정=원시값(engine) / 골든 재현=사사오입 / 표시=내림.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   equalShockLambda,
   liquidationQty,
@@ -19,6 +19,7 @@ import {
   type ReplayStep,
 } from "@marginguard/engine";
 import { cardH } from "../lib/marginguard/card";
+import { freshnessView, todayISO } from "../lib/marginguard/freshness-view";
 import type { BuildInfo } from "../lib/build-info";
 import {
   buildOptions,
@@ -64,9 +65,32 @@ export default function Landing({ build }: { build: BuildInfo }) {
   /** 재생 중 여부는 state로 둔다 — ref를 렌더에서 읽으면 버튼 disabled가 갱신되지 않는다 */
   const [playing, setPlaying] = useState(false);
 
+  /**
+   * 신선도 판정 기준일 — **열람 시각**이다. 빌드 시각으로 하면 우리가 막으려는
+   * 실패를 못 잡는다: 9/6 재검증을 잊고 배포하면 배포일 기준 28일이라 FRESH이고,
+   * 9/9이 되어도 배포본은 계속 28일이라고 믿는다. 열람 시각이면 31일로 잡힌다.
+   * SSR 하이드레이션 불일치를 피해 useEffect에서 넣는다 — 판정 전(null)에는
+   * 기본 가격이 안전 구간이라 처분 박스가 렌더되지 않아 깜빡임이 없다.
+   */
+  const asOf = useSyncExternalStore<string | null>(
+    () => () => {},              // 구독 없음 — 시계는 렌더 시점에 읽는다
+    () => todayISO(new Date()),  // 클라이언트 스냅숏 (같은 날이면 같은 문자열 → 재렌더 없음)
+    () => null,                  // 서버 스냅숏 — SSR에서는 판정하지 않는다
+  );
+
   const preset = CARDS.find((c) => c.key === cardKey)!;
   const h = cardH(preset.card);
   const hUnknown = h === null; // 조건카드 불완전 — 수량을 추정하지 않는다
+
+  /** 신선도 게이트 — 판정은 엔진, 화면 규약은 lib/marginguard/freshness-view */
+  const fresh = asOf ? freshnessView(preset.card, asOf) : null;
+  /**
+   * 수량·배수를 낼 수 있는가.
+   * draft는 **낸다**(참고 모드 라벨만) — 인제스트 출력이 무조건 draft이므로
+   * 여기서 막으면 라이브 데모의 출력 화면이 "산정 불가"가 된다(#30 리뷰).
+   * 막는 것은 blocked(STALE·NO_VERIFIED_AT)와 h 부재뿐이다.
+   */
+  const quantOk = !hUnknown && fresh?.mode !== "blocked";
   const pStar = useMemo(() => thresholdPrice(), []);
 
   // 언마운트 시 재현 타이머 정리
@@ -105,14 +129,17 @@ export default function Landing({ build }: { build: BuildInfo }) {
   const shown = displayRatio(V, ACCOUNT.loan); // 표시 = 내림
   const engineRatio = marginRatioPct(V, ACCOUNT.loan); // 골든 재현 = 사사오입
 
+  // 회사별 비교도 카드마다 게이트를 건다 — 선택된 카드만 막고 비교 행에 수량을
+  // 남기면, 같은 카드가 한 화면에서 "산정 불가"와 "전량"을 동시에 말하게 된다
   const compare = CARDS.map((c) => {
     const ch = cardH(c.card);
+    const ok = ch !== null && (asOf === null || freshnessView(c.card, asOf).mode !== "blocked");
     return {
       key: c.key,
       label: c.label,
-      unknown: ch === null,
+      unusable: !ok,
       qty:
-        breached && ch !== null
+        breached && ok
           ? liquidationQty({ D, prevClose: price, r: ACCOUNT.requiredRatio, h: ch, held: ACCOUNT.qty })
           : null,
     };
@@ -120,7 +147,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
 
   /* ── 7월 연쇄 — engine.replay() ─────────────────────────────── */
   function playJuly() {
-    if (timer.current || hUnknown) return; // hUnknown이면 engine.replay가 throw한다
+    if (timer.current || !quantOk) return; // 불완전 카드면 replay가 throw / 신선하지 않으면 산출 안 함
     const result = replay(positions(PRICE_START), ledger(), JULY_SEQ, preset.card);
     setSteps(result);
     setCursor(0);
@@ -221,11 +248,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
             ))}
           </div>
           <p id="cardSource">{preset.source}</p>
-          {preset.card.status === "draft" && (
-            <div id="cardBanner">
-              ⚠ 참고 모드 — 검수 전(draft) 조건카드. 정식 한계선 산출에 사용하지 않습니다
-            </div>
-          )}
+          {fresh?.banner && <div id="cardBanner">{fresh.banner}</div>}
         </section>
 
         <section className="grid" aria-label="계기판">
@@ -256,20 +279,22 @@ export default function Landing({ build }: { build: BuildInfo }) {
           </div>
         </section>
 
-        {breached && hUnknown && (
+        {breached && !quantOk && (
           <section id="liqBox" aria-label="반대매매 산정">
             <h2>이대로면 — 산정 불가</h2>
             <span className="mode full">
-              조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다
+              {hUnknown
+                ? "조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다"
+                : "이 카드는 재검증이 필요합니다 — 낡은 값을 정식 산출로 내지 않습니다"}
             </span>
             <div className="note">
               담보부족액 {won(D)}은 확정입니다. 부족액은 유지비율만으로 정해지고, 처분 수량만 회사별
-              산정 기준가에 달려 있습니다. 카드를 검증해 채운 뒤 다시 보세요.
+              산정 기준가에 달려 있습니다. {hUnknown ? "카드를 검증해 채운 뒤" : "카드를 재검증한 뒤"} 다시 보세요.
             </div>
           </section>
         )}
 
-        {breached && liq && paths && (
+        {breached && quantOk && liq && paths && (
           <section id="liqBox" aria-label="반대매매 산정">
             <h2>이대로면 — 약관 산정 방식의 재현값</h2>
             <span id="liqQty" className="tnum">
@@ -286,7 +311,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
                 <span key={c.key}>
                   {c.label}{" "}
                   <b>
-                    {c.unknown
+                    {c.unusable
                       ? "산정 불가"
                       : c.qty
                         ? c.qty.mode === "FULL"
@@ -301,7 +326,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
           </section>
         )}
 
-        {breached && optionRows && forcedRow && verdict && (
+        {breached && quantOk && optionRows && forcedRow && verdict && (
           <OptionsCompare
             options={optionRows}
             forced={forcedRow}
@@ -322,13 +347,15 @@ export default function Landing({ build }: { build: BuildInfo }) {
             id="julyBtn"
             type="button"
             onClick={playJuly}
-            disabled={playing || hUnknown}
+            disabled={playing || !quantOk}
           >
             ▶ 7월 연쇄 재현 (7/7 → 7/29)
           </button>
-          {hUnknown && (
+          {!quantOk && (
             <span className="note">
-              이 조건카드는 산정 기준가 규칙이 불완전해 재현할 수 없습니다 — 값을 추정하지 않습니다
+              {hUnknown
+                ? "이 조건카드는 산정 기준가 규칙이 불완전해 재현할 수 없습니다 — 값을 추정하지 않습니다"
+                : "이 카드는 재검증이 필요해 재현하지 않습니다"}
             </span>
           )}
 
