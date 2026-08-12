@@ -208,10 +208,10 @@ export function replay(
 /**
  * 종목코드 오름차순. 로케일 비의존이어야 해서 localeCompare를 쓰지 않는다.
  *
- * ⚠ 6사가 같은 정렬이 아니다. 신용 채널에서 종목 단위 판별자를 명문화한 5사 중
+ * ⚠ 5사가 같은 정렬이 아니다. 신용 채널에서 종목 단위 판별자를 명문화한 5사 중
  *   4사는 "종목번호 빠른 순"이고, 한국투자만 "종목코드순(알파벳>숫자)"이라 문자
  *   포함 코드에서 이 비교자와 **반대**가 된다(ASCII는 숫자가 앞). 현재는 전 종목이
- *   6자리 숫자코드라는 전제 위에서만 6사가 같은 답을 낸다.
+ *   6자리 숫자코드라는 전제 위에서만 5사가 같은 답을 낸다.
  */
 function bySymbolAsc(a: { symbol: string }, b: { symbol: string }): number {
   return a.symbol < b.symbol ? -1 : a.symbol > b.symbol ? 1 : 0;
