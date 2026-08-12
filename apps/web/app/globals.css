@@ -101,6 +101,9 @@
   .optWhy{font-size:11px; color:var(--warn); margin-top:4px; line-height:1.5}
 
   .optForced{margin-top:14px; background:var(--danger-soft); border:1px solid var(--danger); border-radius:10px; padding:13px 15px}
+  /* 카드가 blocked라 강제 처분을 못 낼 때 — 위험색을 쓰지 않는다. 위험이 아니라 미산정이다 */
+  .optForced.na{background:var(--ground); border:1px dashed var(--line2)}
+  .optForced.na .optLbl{color:var(--ink3)}
   .optForcedHead{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
   .optForcedHead .optLbl{color:var(--danger)}
   .optForcedBody .optAmt{color:var(--danger)}

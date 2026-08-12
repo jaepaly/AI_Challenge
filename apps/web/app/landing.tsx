@@ -91,6 +91,12 @@ export default function Landing({ build }: { build: BuildInfo }) {
    * 막는 것은 blocked(STALE·NO_VERIFIED_AT)와 h 부재뿐이다.
    */
   const quantOk = !hUnknown && fresh?.mode !== "blocked";
+  /** 수량을 못 내는 사유 — 계기판과 선택지 비교가 같은 문장을 쓴다(두 곳에 쓰면 갈라진다) */
+  const quantBlockReason = quantOk
+    ? null
+    : hUnknown
+      ? "조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다"
+      : "이 카드는 재검증이 필요합니다 — 낡은 값을 정식 산출로 내지 않습니다";
   const pStar = useMemo(() => thresholdPrice(), []);
 
   // 언마운트 시 재현 타이머 정리
@@ -282,11 +288,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
         {breached && !quantOk && (
           <section id="liqBox" aria-label="반대매매 산정">
             <h2>이대로면 — 산정 불가</h2>
-            <span className="mode full">
-              {hUnknown
-                ? "조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다"
-                : "이 카드는 재검증이 필요합니다 — 낡은 값을 정식 산출로 내지 않습니다"}
-            </span>
+            <span className="mode full">{quantBlockReason}</span>
             <div className="note">
               담보부족액 {won(D)}은 확정입니다. 부족액은 유지비율만으로 정해지고, 처분 수량만 회사별
               산정 기준가에 달려 있습니다. {hUnknown ? "카드를 검증해 채운 뒤" : "카드를 재검증한 뒤"} 다시 보세요.
@@ -326,11 +328,14 @@ export default function Landing({ build }: { build: BuildInfo }) {
           </section>
         )}
 
-        {breached && quantOk && optionRows && forcedRow && verdict && (
+        {/* quantOk로 막지 않는다 — 4경로는 카드와 무관하고, 카드에 달린 것은
+            강제 처분 대조뿐이다. 그 블록만 사유와 함께 내린다(#33 리뷰) */}
+        {breached && optionRows && (
           <OptionsCompare
             options={optionRows}
-            forced={forcedRow}
-            verdict={verdict}
+            forced={quantOk ? forcedRow : null}
+            verdict={quantOk ? verdict : null}
+            forcedUnavailable={quantBlockReason}
             shortfallAmount={D}
             cardStatus={preset.card.status}
           />

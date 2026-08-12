@@ -8,6 +8,15 @@
  *  - **추천하지 않는다.** 고정 순서로 나란히 놓기만 하고 순위·권장 표현을 쓰지 않는다
  *  - **근거 없는 값을 만들지 않는다.** 산정 불가는 빈칸이 아니라 사유를 적는다
  *  - 종목 선택 UI 없음 · 주문 경로 없음
+ *
+ * **4경로와 강제 처분 대조는 의존이 다르다**(#33 리뷰에서 드러난 불일치).
+ *  - 4경로 = 원장 r · 가격 · 제비용 f. **조건카드와 무관하다** — engine.resolutionPaths가
+ *    h를 아예 받지 않는 것이 근거다
+ *  - 강제 처분·배수 = 카드의 h 유래. 카드가 blocked(STALE·검증일 없음)면 낼 수 없다
+ *
+ * 그래서 `forced`/`verdict`는 **null이 될 수 있다.** 이전에는 이 컴포넌트를 통째로
+ * 가려서, 엔진은 "4경로는 blocked에서도 살린다"인데 화면은 "다 가린다"였다.
+ * 카드와 무관한 사실까지 같이 사라지는 것은 과잉 차단이다.
  */
 import type { OptionRow, ForcedRow, ComparisonVerdict } from "../lib/marginguard/options";
 import { fullDisposalKind, fullDisposalLabel } from "../lib/marginguard/options";
@@ -18,13 +27,17 @@ export default function OptionsCompare({
   options,
   forced,
   verdict,
+  forcedUnavailable,
   shortfallAmount,
   cardStatus,
 }: {
   options: OptionRow[];
-  forced: ForcedRow;
+  /** 카드 h가 없거나 blocked면 null — 4경로는 그대로 두고 이 블록만 내린다 */
+  forced: ForcedRow | null;
   /** 결론 한 줄. 배수가 성립하는 경우와 아닌 경우가 나뉜다 — options.ts 참조 */
-  verdict: ComparisonVerdict;
+  verdict: ComparisonVerdict | null;
+  /** forced가 null인 사유. 빈칸으로 두지 않고 이 문장을 그대로 보여준다 */
+  forcedUnavailable?: string | null;
   shortfallAmount: number;
   /** draft면 이 섹션에도 참고 모드를 표시한다 — 배너가 화면 위쪽에만 있으면
    *  여기까지 스크롤한 사람은 미검수 카드인 줄 모른 채 숫자만 본다 */
@@ -65,6 +78,19 @@ export default function OptionsCompare({
         ))}
       </div>
 
+      {forced === null ? (
+        <div className="optForced na">
+          <div className="optForcedHead">
+            <span className="optLbl">아무것도 하지 않으면 — 강제 반대매매</span>
+          </div>
+          <div className="optNa">산정 안 함</div>
+          <div className="optWhy">{forcedUnavailable}</div>
+          <div className="optBasis">
+            위 해소 경로는 그대로입니다 — <b>담보유지비율과 가격만으로 정해지고 조건카드를 쓰지
+            않습니다.</b> 회사별 산정 기준가에 달린 것은 강제 처분 수량뿐입니다.
+          </div>
+        </div>
+      ) : (
       <div className="optForced">
         <div className="optForcedHead">
           <span className="optLbl">아무것도 하지 않으면 — 강제 반대매매</span>
@@ -96,19 +122,20 @@ export default function OptionsCompare({
           </div>
         </div>
       </div>
+      )}
 
-      {verdict.kind === "ratio" && (
+      {verdict?.kind === "ratio" && (
         <p className="optPunch">
           미리 알고 자발적으로 매도할 때보다 <b>{verdict.ratio.toFixed(1)}배</b> 규모가 처분됩니다.
         </p>
       )}
-      {verdict.kind === "forced_capped" && (
+      {verdict?.kind === "forced_capped" && (
         <p className="optPunch">
           지금 스스로 팔면 <b>{verdict.voluntaryQty.toLocaleString()}주</b>로 끝납니다. 강제 반대매매는
           보유 {verdict.held.toLocaleString()}주를 <b>전량</b> 처분하고도 부족액이 남습니다.
         </p>
       )}
-      {verdict.kind === "unresolvable" && (
+      {verdict?.kind === "unresolvable" && (
         <p className="optPunch">
           이 가격에서는 <b>전량을 팔아도 해소되지 않습니다</b> — 남는 것은 잔여채무입니다. 입금·상환만이
           경로입니다.
