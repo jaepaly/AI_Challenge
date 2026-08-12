@@ -1,12 +1,15 @@
 import { kisGet } from "@/lib/kis/client";
 import { getKisAccountConfig } from "@/lib/kis/config";
 import { getKisRequestTarget } from "@/lib/kis/guard";
+import { assertKisAccountProxyAuthorized } from "@/lib/kis/proxy-auth";
+import { sanitizeKisBalanceResponse } from "@/lib/kis/proxy-response";
 import { kisError, kisJson } from "../_response";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    assertKisAccountProxyAuthorized(request);
     getKisRequestTarget("balance", process.env.KIS_ENV);
     const config = getKisAccountConfig();
 
@@ -29,7 +32,7 @@ export async function GET() {
       },
     });
 
-    return kisJson(data);
+    return kisJson(sanitizeKisBalanceResponse(data));
   } catch (error) {
     return kisError(error);
   }

@@ -14,12 +14,13 @@ export function kisJson(data: unknown, init?: ResponseInit) {
 export function kisError(error: unknown) {
   const message =
     error instanceof KisGuardError ? error.message : "KIS proxy request failed.";
+  const status = error instanceof KisGuardError ? error.status : 500;
 
   return kisJson(
     {
       ok: false,
       error: message,
     },
-    { status: error instanceof KisGuardError ? 400 : 500 },
+    { status },
   );
 }

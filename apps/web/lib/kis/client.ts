@@ -14,6 +14,8 @@ interface KisGetOptions {
   config?: KisAuthConfig;
 }
 
+const KIS_FETCH_TIMEOUT_MS = 5_000;
+
 function buildUrl(baseUrl: string, path: string, params: Record<string, string>) {
   const url = new URL(path, baseUrl);
   for (const [key, value] of Object.entries(params)) {
@@ -49,7 +51,11 @@ async function fetchJson(
   headers: HeadersInit,
   attempt = 1,
 ): Promise<unknown> {
-  const response = await fetch(url, { method: "GET", headers });
+  const response = await fetch(url, {
+    method: "GET",
+    headers,
+    signal: AbortSignal.timeout(KIS_FETCH_TIMEOUT_MS),
+  });
   const data = await parseJson(response);
 
   if (response.ok && !isKisRateLimit(data)) {

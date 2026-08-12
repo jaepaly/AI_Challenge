@@ -21,6 +21,8 @@ interface KisTokenCache {
 let tokenCache: KisTokenCache | null = null;
 let tokenPromise: Promise<KisTokenCache> | null = null;
 
+const KIS_TOKEN_FETCH_TIMEOUT_MS = 5_000;
+
 function isUsableToken(cache: KisTokenCache | null): cache is KisTokenCache {
   return cache !== null && cache.expiresAt - Date.now() > 60_000;
 }
@@ -48,6 +50,7 @@ async function requestToken(config: KisAuthConfig): Promise<KisTokenCache> {
       appkey: config.appKey,
       appsecret: config.appSecret,
     }),
+    signal: AbortSignal.timeout(KIS_TOKEN_FETCH_TIMEOUT_MS),
   });
 
   if (!response.ok) {
