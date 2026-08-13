@@ -72,7 +72,8 @@ AI_Challenge/
 git clone https://github.com/jaepaly/AI_Challenge.git
 cd AI_Challenge
 npm install
-npm test        # ← 110건(엔진 61 + 웹 49) 전부 green이어야 정상. 하나라도 red면 즉시 팀 채널에 공유
+npm test        # ← 전부 green이어야 정상. 하나라도 red면 즉시 팀 채널에 공유
+                # (개수는 여기 적지 않는다 — PR이 머지될 때마다 썩는다. 기준은 CI다)
 cp .env.example .env   # 키 입력 (커밋 금지 — .gitignore가 막고 있음)
 ```
 
@@ -256,6 +257,35 @@ curl -s https://marginguard-web.vercel.app/api/build
 
 ---
 
+
+---
+
+### 6-6. 정수 스케일 — 비율 곱을 부동소수로 풀지 말 것 (A)
+
+`r`·`h`가 걸린 곱은 **정수 스케일**(`r×100`, `h×10000`)로 환산해 계산한다. `packages/engine`의
+`shortfall`·`restorationCoefficient`가 그렇게 돼 있고, **풀지 말 것.**
+
+근거는 이 곱이다:
+
+```
+1.4 × 5,500,000 = 7,699,999.999999999   (IEEE754)
+1.4 × 6,000,000 = 8,400,000             (오차 0)
+```
+
+**오차 방향이 D 과소 = 처분 수량 과소 = 낙관이다.** "소수점까지 재현"을 내건 제품에서
+가장 위험한 방향으로 틀어진다.
+
+⚠ **이 규약은 오래 검증되지 않은 채로 있었다.** 골든이 8건인데 L 분포가 이렇다(실측):
+
+```
+L=6,000,000  kis-case1-full · kis-case2-partial · kis-ratio-series
+L=5,500,000  samsung-h15-partial · samsung-h20-full     ← 정수 스케일 가드
+(L 없음)     meritz-h20 · lower-limit-fallback · voluntary-sale-96
+```
+
+**삼성 2건이 들어오기 전까지는 naive float로 바꿔도 골든이 전부 통과했다.** 이 문서도 한동안
+`1.4 × 6,000,000`을 근거로 들었는데, 그 곱은 오차가 0이라 근거가 될 수 없었다(#21에서 A가 정정).
+**규약이 테스트로 지켜지고 있는지와 규약이 옳은지는 다른 질문이다.**
 
 ---
 
