@@ -48,9 +48,27 @@ class PathComparisonTest(unittest.TestCase):
         self.assertEqual(result["delimiter_count"], 0)
         self.assertEqual(result["delimiter_rows"], 0)
 
-    def test_raw_pdf_path_is_explicitly_not_claimed(self) -> None:
-        self.assertEqual(self.comparison["raw_pdf_document"]["status"], "not_run")
-        self.assertIn("pending", self.comparison["branch_decision"]["pdf"])
+    def test_raw_pdf_result_records_measured_recall_and_selects_pypdf(self) -> None:
+        result = self.comparison["raw_pdf_document"]
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["transport"], "message_batches")
+        self.assertEqual(len(result["documents"]), 5)
+        self.assertEqual(result["recovered"], 8)
+        self.assertEqual(result["total"], 13)
+        self.assertEqual(result["verbatim_recovered"], 6)
+        self.assertEqual(
+            result["missing_fact_ids"],
+            [
+                "meritz-required-309",
+                "mirae-required-195",
+                "shinhan-grade-discounts",
+                "kiwoom-unpaid-lower-limit",
+                "kiwoom-next-open",
+            ],
+        )
+        self.assertLess(result["actual_cost_krw"], result["approved_max_cost_krw"])
+        self.assertIn("pypdf_text", self.comparison["branch_decision"]["pdf"])
 
 
 if __name__ == "__main__":
