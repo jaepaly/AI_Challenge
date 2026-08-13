@@ -90,15 +90,19 @@ class RawPdfComparisonTest(unittest.TestCase):
 
     def test_fake_api_citations_recover_all_pdf_facts(self) -> None:
         client = FakeClient()
+        # 한도와 실행이 같은 max_tokens를 봐야 한다 — 기본값이 바뀌면 한도만
+        # 옛 값으로 남아 "승인 한도가 예상 최대보다 작다"로 죽는다(실제로 났다).
+        max_tokens = 2048
         ceiling = estimate_max_cost_krw(
             RAW_PDF_INPUT_TOKENS,
-            max_tokens=2048,
+            max_tokens=max_tokens,
         )
 
         result = run_comparison(
             REPO_ROOT,
             client=client,
             approved_max_krw=ceiling,
+            max_tokens=max_tokens,
         )
 
         self.assertEqual(result["status"], "completed")
@@ -108,8 +112,15 @@ class RawPdfComparisonTest(unittest.TestCase):
         self.assertEqual(len(client.messages.calls), 5)
         self.assertEqual(result["usage"]["cache_creation_input_tokens"], 100)
         for call in client.messages.calls:
-            self.assertEqual(call["temperature"], 0)
             self.assertEqual(call["timeout"], 120.0)
+            # Sonnet 5는 비기본 sampling 파라미터를 400으로 거부한다.
+            # temperature=0을 보내던 코드가 첫 실호출에서 죽었다 — 재발 방지.
+            self.assertNotIn("temperature", call)
+            self.assertNotIn("top_p", call)
+            self.assertNotIn("top_k", call)
+            # 적응형 사고가 기본 ON이고 max_tokens가 사고+본문을 함께 덮는다.
+            # 명시적으로 끄지 않으면 citation이 잘린다.
+            self.assertEqual(call["thinking"], {"type": "disabled"})
 
     def test_non_page_citation_is_rejected(self) -> None:
         message = SimpleNamespace(

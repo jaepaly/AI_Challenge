@@ -23,7 +23,17 @@ from benchmarks.path_comparison import PDF_TEXT_FACTS, _normalize_for_match
 
 
 DEFAULT_MODEL = "claude-sonnet-5"
-DEFAULT_MAX_TOKENS = 2048
+
+# 2048은 실측으로 부족하다 — 첫 실행에서 5개 문서 전부 output_tokens가 정확히
+# 2048로 끝났다(= 전량 잘림). 잘린 상태의 재현율은 9/13이었고, 8192로 올리자
+# 13/13이 됐다. 누락 4건은 못 찾은 게 아니라 못 쓴 것이었다.
+# 8192에서는 다섯 문서 모두 상한에 닿지 않는다(최대 6,059).
+DEFAULT_MAX_TOKENS = 8192
+
+# ⚠ 상한 추정용 상수다. Sonnet 5는 2026-08-31까지 도입가 $2/$10이 적용되므로
+# 그때까지 실제 청구는 이 추정의 약 2/3다(실측: 추정 2,826원 → 청구 1,619원).
+# 도입가가 끝나면 아래 값이 정가이므로 그대로 둔다 — 승인 한도 가드가
+# 과소 추정으로 뚫리는 것보다 과대 추정이 안전하다.
 DEFAULT_INPUT_USD_PER_MTOK = 3.0
 DEFAULT_OUTPUT_USD_PER_MTOK = 15.0
 DEFAULT_KRW_PER_USD = 1500.0
@@ -224,7 +234,16 @@ def run_comparison(
         response = client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            temperature=0,
+            # temperature를 보내지 않는다 — Sonnet 5는 비기본 sampling 파라미터를
+            # 400으로 거부한다(기본 temperature는 1.0이라 0은 비기본값).
+            # 결정론이 목적이었는데, temperature=0은 이전 모델에서도 동일 출력을
+            # 보장한 적이 없다. 재현성은 프롬프트 sha와 문서 sha로 잡는다.
+            #
+            # thinking을 명시적으로 끈다 — Sonnet 5는 적응형 사고가 기본 ON이고
+            # max_tokens가 사고+본문을 함께 덮는다. 이 스크립트의 max_tokens는
+            # 출력 길이만 보고 잡힌 값이라, 사고를 켜두면 citation이 잘린다.
+            # (사고를 켠 재현율 비교는 별도 측정 항목이다.)
+            thinking={"type": "disabled"},
             messages=[
                 {
                     "role": "user",
