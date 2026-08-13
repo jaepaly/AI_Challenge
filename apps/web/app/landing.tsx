@@ -396,13 +396,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
           cursor={pfCursor}
           playing={pfPlaying}
           onPlay={playPortfolio}
-          disabledReason={
-            quantOk
-              ? null
-              : hUnknown
-                ? "조건카드에 산정 기준가 규칙(할인율)이 없어 처분 수량을 내지 않습니다"
-                : "이 카드는 재검증이 필요합니다 — 낡은 값으로 처분 수량을 내지 않습니다"
-          }
+          disabledReason={quantBlockReason}
         />
 
         <section className="july">
