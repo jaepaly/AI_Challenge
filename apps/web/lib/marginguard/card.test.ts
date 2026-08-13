@@ -1,43 +1,39 @@
+/**
+ * 스냅숏 조건카드가 엔진 규약대로 읽히는지 — 화면 쪽 검증
+ * ---------------------------------------------------------------------------
+ * h를 읽는 규약 자체는 엔진이 소유한다(`disposalDiscountRate`). 웹에 같은 함수가
+ * 한 벌 더 있었는데(`lib/marginguard/card.ts`의 `cardH`) 본문이 글자 단위로
+ * 같았고, `lower_limit → 0.3`이 두 곳에 박혀 있었다. 하한가 폭이 제도 변경으로
+ * 바뀌면 두 파일을 동시에 고쳐야 하고, 한쪽만 고치면 화면과 엔진이 서로 다른
+ * h로 계산한다 — h가 틀리면 k = r(1−h) − 1이 틀리고 처분 수량이 통째로 틀린다.
+ * A가 #33에서 엔진 쪽을 export해줘서(#10 리뷰 약속) 웹 사본을 지웠다.
+ *
+ * 규약의 의미론(정상값 / lower_limit / 부재 / discount_rate 없음)은 엔진이
+ * 덮는다 — packages/engine/test/riskresult.test.ts의
+ * "disposalDiscountRate 조회 규약". 여기 남긴 둘은 엔진이 덮을 수 없는 것이다:
+ *
+ *  ① 우리 스냅숏 카드 3종이 실제로 그 규약에 맞는 모양인가 (웹 데이터 검증)
+ *  ② null 대신 0을 돌려주면 화면에 무엇이 보이는가 (규약의 이유를 주 단위로 박음)
+ *
+ * ⚠ ②는 **회귀를 잡지 못한다.** 실측으로 확인했다 — 엔진에 `?? 0`을 주입해도
+ * 웹 61건이 전부 통과한다. ②는 liquidationQty에 h를 리터럴로 넣기 때문에
+ * disposalDiscountRate를 거치지 않고, ①의 스냅숏 3종은 값이 다 있어 폴백
+ * 경로에 닿지 않는다. **그 회귀를 잡는 것은 엔진 테스트다**
+ * (riskresult.test.ts "disposalDiscountRate 조회 규약" → expected +0 to be null).
+ *
+ * ②가 여기 있는 이유는 감시가 아니라 설명이다 — 엔진 테스트는 "null을
+ * 돌려준다"까지만 말하고, 그게 왜 중요한지는 195주 대 93주로만 보인다.
+ */
 import { describe, expect, it } from "vitest";
-import type { ConditionCard } from "@marginguard/engine";
-import { liquidationQty, shortfall } from "@marginguard/engine";
-import { cardH } from "./card";
+import { disposalDiscountRate, liquidationQty, shortfall } from "@marginguard/engine";
 import { ACCOUNT, CARDS } from "./snapshot";
 
-/** 최소 카드 — disposal_price_rules만 시험 대상이다 */
-function card(rules: ConditionCard["disposal_price_rules"]): ConditionCard {
-  return {
-    broker: "테스트",
-    ratio_rules: [
-      { product_type: "신용거래융자", collateral_type: "주식", symbol_group: "일반", ratio: 1.4 },
-    ],
-    account_aggregation: "max",
-    disposal_price_rules: rules,
-    execution_schedule: [{ threshold_ratio: 1.4, day_counting: "D일 평가 → D+2 집행" }],
-    ratio_source: "clause",
-    doc_version: {},
-    status: "verified",
-  };
-}
-
-describe("cardH — 산정 기준가 할인율 읽기 규약", () => {
+describe("스냅숏 카드 — 엔진 h 읽기 규약과의 정합", () => {
   it("스냅숏 프리셋 3종을 규약대로 읽는다", () => {
-    const byKey = Object.fromEntries(CARDS.map((c) => [c.key, cardH(c.card)]));
-    expect(byKey).toEqual({ hantoo: 0.15, meritz: 0.2, lower: 0.3 });
-  });
-
-  it("lower_limit는 discount_rate가 없어도 하한가(0.3) 등가로 읽는다", () => {
-    const h = cardH(
-      card([
-        {
-          trigger: "담보부족",
-          symbol_group: "일반",
-          discount_basis: "lower_limit",
-          source_confidence: "explicit",
-        },
-      ]),
+    const byKey = Object.fromEntries(
+      CARDS.map((c) => [c.key, disposalDiscountRate(c.card)]),
     );
-    expect(h).toBe(0.3);
+    expect(byKey).toEqual({ hantoo: 0.15, meritz: 0.2, lower: 0.3 });
   });
 
   /**
@@ -45,25 +41,10 @@ describe("cardH — 산정 기준가 할인율 읽기 규약", () => {
    * 0을 돌려주면 k = r−1 = 0.4로 커져 처분 수량이 실제보다 작게 나온다.
    * 위험 진단 도구에서 "실제보다 안전해 보이는" 오류는 가장 나쁜 방향이라
    * 값을 추정하지 않고 null로 산정을 포기한다.
+   *
+   * 엔진이 `?? 0`을 넣는 순간 이 테스트가 red가 된다 — 규약을 지우면
+   * 그 변경이 조용히 통과한다.
    */
-  it("prev_close_pct인데 discount_rate가 없으면 null — 0으로 폴백하지 않는다", () => {
-    const h = cardH(
-      card([
-        {
-          trigger: "담보부족",
-          symbol_group: "일반",
-          discount_basis: "prev_close_pct",
-          source_confidence: "inferred_from_formula",
-        },
-      ]),
-    );
-    expect(h).toBeNull();
-  });
-
-  it("disposal_price_rules가 비어 있으면 null", () => {
-    expect(cardH(card([]))).toBeNull();
-  });
-
   it("0 폴백이 왜 위험한지 — h=0은 처분 수량을 실제의 절반 아래로 줄인다", () => {
     const price = 8_100;
     const D = shortfall(ACCOUNT.qty * price, ACCOUNT.loan, ACCOUNT.requiredRatio);
