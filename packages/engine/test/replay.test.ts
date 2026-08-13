@@ -21,6 +21,7 @@
  *     그 외(normal/executed) — D>0·held>0이면 다음날 통지(재관통 포함), 아니면 평상.
  */
 import { readFileSync } from "node:fs";
+import { TEST_EVIDENCE } from "./evidence-fixture";
 import { describe, it, expect } from "vitest";
 import { replay } from "../src/index";
 import type {
@@ -66,12 +67,12 @@ function makeCard(broker: string, disposal_price_rules: DisposalPriceRule[]): Co
   return {
     broker,
     ratio_rules: [
-      { product_type: "신용융자", collateral_type: "주식", symbol_group: "일반", ratio: 1.4 },
+      { product_type: "신용융자", collateral_type: "주식", symbol_group: "일반", ratio: 1.4, evidence: TEST_EVIDENCE },
     ],
     account_aggregation: "max",
     disposal_price_rules,
     execution_schedule: [
-      { threshold_ratio: 1.4, day_counting: "D일 15:40 평가 → D+1 통지 → D+2 집행" },
+      { threshold_ratio: 1.4, day_counting: "D일 15:40 평가 → D+1 통지 → D+2 집행", evidence: TEST_EVIDENCE },
     ],
     ratio_source: "clause",
     doc_version: { review_no: "TEST-REPLAY-2026-08" },
@@ -89,6 +90,7 @@ function kisCard(): ConditionCard {
       discount_basis: "prev_close_pct",
       discount_rate: 0.15,
       source_confidence: "explicit",
+      evidence: TEST_EVIDENCE,
     },
   ]);
 }
@@ -102,6 +104,7 @@ function meritzCard(): ConditionCard {
       discount_basis: "prev_close_pct",
       discount_rate: 0.2,
       source_confidence: "explicit",
+      evidence: TEST_EVIDENCE,
     },
   ]);
 }
@@ -114,6 +117,7 @@ function lowerLimitCard(): ConditionCard {
       symbol_group: "일반",
       discount_basis: "lower_limit",
       source_confidence: "inferred_from_formula",
+      evidence: TEST_EVIDENCE,
     },
   ]);
 }
