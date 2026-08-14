@@ -81,7 +81,40 @@ async def ingest(
             data=await file.read(),
         )
     except IngestPipelineError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+        headers: dict[str, str] = {}
+        if error.timing is not None:
+            headers.update(
+                {
+                    "X-Ingest-Parse-Ms": f"{error.timing.parse_ms:.1f}",
+                    "X-Ingest-Pass1-Ms": f"{error.timing.pass1_ms:.1f}",
+                    "X-Ingest-Pass2-Ms": f"{error.timing.pass2_ms:.1f}",
+                    "X-Ingest-Total-Ms": f"{error.timing.total_ms:.1f}",
+                }
+            )
+        if error.usage is not None:
+            headers.update(
+                {
+                    "X-Ingest-Pass1-Input-Tokens": str(
+                        error.usage.pass1_input_tokens
+                    ),
+                    "X-Ingest-Pass1-Output-Tokens": str(
+                        error.usage.pass1_output_tokens
+                    ),
+                    "X-Ingest-Pass1-Cache-Write-Tokens": str(
+                        error.usage.pass1_cache_creation_input_tokens
+                    ),
+                    "X-Ingest-Pass1-Cache-Read-Tokens": str(
+                        error.usage.pass1_cache_read_input_tokens
+                    ),
+                    "X-Ingest-Pass2-Input-Tokens": str(
+                        error.usage.pass2_input_tokens
+                    ),
+                    "X-Ingest-Pass2-Output-Tokens": str(
+                        error.usage.pass2_output_tokens
+                    ),
+                }
+            )
+        raise HTTPException(status_code=422, detail=str(error), headers=headers) from error
     except anthropic.APIError as error:
         raise HTTPException(status_code=502, detail="Anthropic 인제스트 호출에 실패했습니다") from error
 

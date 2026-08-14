@@ -202,15 +202,47 @@ def run_hankook(
 ) -> dict[str, Any]:
     estimated = require_approved_budget(approved_max_krw)
     response = asyncio.run(_post_ingest(repo_root=repo_root, api_key=api_key, model=model))
+    path = repo_root / "data" / "terms" / HANKOOK_FILENAME
+    headers = {key.lower(): value for key, value in response.headers.items()}
     if response.status_code != 200:
-        raise RuntimeError(
-            f"POST /ingest 실패: HTTP {response.status_code} {response.text[:500]}"
-        )
+        timing_headers = {
+            key: float(headers[f"x-ingest-{key}-ms"])
+            for key in ("parse", "pass1", "pass2", "total")
+            if f"x-ingest-{key}-ms" in headers
+        }
+        usage_headers = {
+            key.removeprefix("x-ingest-"): value
+            for key, value in headers.items()
+            if key.startswith("x-ingest-pass") and key.endswith("tokens")
+        }
+        failure: dict[str, Any] = {
+            "status": "failed",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "endpoint": "POST /ingest",
+            "http_status": response.status_code,
+            "detail": response.json().get("detail", response.text[:500]),
+            "model": model,
+            "document_sha256": sha256(path.read_bytes()).hexdigest(),
+            "prompt_sha256": prompt_sha256(),
+            "approved_max_cost_krw": approved_max_krw,
+            "estimated_max_cost_krw": estimated,
+            "timing_ms": timing_headers,
+            "usage": usage_headers,
+        }
+        required_cost_headers = {
+            "x-ingest-pass1-input-tokens",
+            "x-ingest-pass1-output-tokens",
+            "x-ingest-pass1-cache-write-tokens",
+            "x-ingest-pass1-cache-read-tokens",
+            "x-ingest-pass2-input-tokens",
+            "x-ingest-pass2-output-tokens",
+        }
+        if required_cost_headers <= headers.keys():
+            failure["actual_estimated_cost_krw"] = actual_cost_krw(headers)
+        return failure
 
     card_data = response.json()
-    path = repo_root / "data" / "terms" / HANKOOK_FILENAME
     checks = validate_gate_card(repo_root, card_data, parse_document(path))
-    headers = {key.lower(): value for key, value in response.headers.items()}
     total_ms = float(headers["x-ingest-total-ms"])
     return {
         "status": "completed",
@@ -290,6 +322,8 @@ def main() -> None:
     )
     _write_result(output, result)
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    if result["status"] != "completed":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

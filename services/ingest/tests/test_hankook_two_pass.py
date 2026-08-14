@@ -1,5 +1,8 @@
 from pathlib import Path
 import unittest
+from unittest.mock import AsyncMock, patch
+
+import httpx
 
 from benchmarks.hankook_two_pass import (
     HANKOOK_FILENAME,
@@ -23,8 +26,8 @@ class HankookTwoPassGateTest(unittest.TestCase):
         self.assertEqual(plan["network_requests"], 0)
         self.assertEqual(plan["document"]["measured_input_tokens"], 42_948)
         self.assertEqual(plan["cache_control"], "ephemeral_5m")
-        self.assertGreater(plan["estimated_max_cost_krw"], 400)
-        self.assertLess(plan["estimated_max_cost_krw"], 550)
+        self.assertGreater(plan["estimated_max_cost_krw"], 550)
+        self.assertLess(plan["estimated_max_cost_krw"], 650)
 
     def test_budget_guard_rejects_below_estimated_ceiling(self) -> None:
         estimated = estimate_max_cost_krw()
@@ -99,6 +102,41 @@ class HankookTwoPassGateTest(unittest.TestCase):
         checks = validate_gate_card(REPO_ROOT, card, parsed)
 
         self.assertTrue(all(checks.values()))
+
+    def test_failed_endpoint_response_preserves_usage_and_cost(self) -> None:
+        response = httpx.Response(
+            422,
+            json={"detail": "2패스 응답이 완결되지 않았습니다"},
+            headers={
+                "x-ingest-parse-ms": "10.0",
+                "x-ingest-pass1-ms": "20.0",
+                "x-ingest-pass2-ms": "30.0",
+                "x-ingest-total-ms": "60.0",
+                "x-ingest-pass1-input-tokens": "100",
+                "x-ingest-pass1-output-tokens": "200",
+                "x-ingest-pass1-cache-write-tokens": "1000",
+                "x-ingest-pass1-cache-read-tokens": "500",
+                "x-ingest-pass2-input-tokens": "300",
+                "x-ingest-pass2-output-tokens": "400",
+            },
+        )
+        from benchmarks import hankook_two_pass
+
+        with patch.object(
+            hankook_two_pass,
+            "_post_ingest",
+            new=AsyncMock(return_value=response),
+        ):
+            result = hankook_two_pass.run_hankook(
+                REPO_ROOT,
+                api_key="sk-ant-test",
+                approved_max_krw=estimate_max_cost_krw(),
+            )
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["http_status"], 422)
+        self.assertEqual(result["actual_estimated_cost_krw"], 21.15)
+        self.assertEqual(result["timing_ms"]["total"], 60.0)
 
 
 if __name__ == "__main__":

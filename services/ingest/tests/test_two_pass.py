@@ -41,9 +41,16 @@ def _citation(text: str, quote: str):
 
 
 class FakeMessages:
-    def __init__(self, pass1, card: dict[str, object]):
+    def __init__(
+        self,
+        pass1,
+        card: dict[str, object],
+        *,
+        pass2_stop_reason: str = "end_turn",
+    ):
         self.pass1 = pass1
         self.card = card
+        self.pass2_stop_reason = pass2_stop_reason
         self.calls: list[dict[str, object]] = []
 
     async def create(self, **kwargs):
@@ -51,15 +58,25 @@ class FakeMessages:
         if len(self.calls) == 1:
             return self.pass1
         return SimpleNamespace(
-            stop_reason="end_turn",
+            stop_reason=self.pass2_stop_reason,
             content=[SimpleNamespace(type="text", text=json.dumps(self.card, ensure_ascii=False))],
             usage=_usage(1200, 700),
         )
 
 
 class FakeAnthropicClient:
-    def __init__(self, pass1, card: dict[str, object]):
-        self.messages = FakeMessages(pass1, card)
+    def __init__(
+        self,
+        pass1,
+        card: dict[str, object],
+        *,
+        pass2_stop_reason: str = "end_turn",
+    ):
+        self.messages = FakeMessages(
+            pass1,
+            card,
+            pass2_stop_reason=pass2_stop_reason,
+        )
 
 
 class TwoPassIngestTest(unittest.TestCase):
@@ -137,8 +154,18 @@ class TwoPassIngestTest(unittest.TestCase):
             "quote": quote,
         }
 
-    def _post(self, card: dict[str, object] | None = None, pass1=None):
-        fake = FakeAnthropicClient(pass1 or self.pass1, card or self.card)
+    def _post(
+        self,
+        card: dict[str, object] | None = None,
+        pass1=None,
+        *,
+        pass2_stop_reason: str = "end_turn",
+    ):
+        fake = FakeAnthropicClient(
+            pass1 or self.pass1,
+            card or self.card,
+            pass2_stop_reason=pass2_stop_reason,
+        )
         service = TwoPassIngestService(fake)
         app.dependency_overrides[get_ingest_service] = lambda: service
         response = TestClient(app).post(
@@ -268,6 +295,16 @@ class TwoPassIngestTest(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("완결되지", response.json()["detail"])
         self.assertEqual(len(fake.messages.calls), 1)
+
+    def test_truncated_second_pass_returns_usage_and_timing_headers(self) -> None:
+        response, fake = self._post(pass2_stop_reason="max_tokens")
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("완결되지", response.json()["detail"])
+        self.assertEqual(len(fake.messages.calls), 2)
+        self.assertEqual(response.headers["x-ingest-pass1-input-tokens"], "43000")
+        self.assertEqual(response.headers["x-ingest-pass2-output-tokens"], "700")
+        self.assertIn("x-ingest-total-ms", response.headers)
 
     def test_prompt_contract_has_stable_sha256(self) -> None:
         self.assertRegex(prompt_sha256(), r"^[0-9a-f]{64}$")

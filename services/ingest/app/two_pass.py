@@ -24,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 SCHEMA_PATH = REPO_ROOT / "schemas" / "condition_card.schema.json"
 DEFAULT_MODEL = "claude-sonnet-5"
 PASS1_MAX_TOKENS = 4096
-PASS2_MAX_TOKENS = 4096
+PASS2_MAX_TOKENS = 8192
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 PASS1_SYSTEM = """당신은 금융투자 약관에서 인용 근거만 수집하는 파서다.
@@ -55,6 +55,17 @@ _REVIEW_NO_PATTERN = re.compile(
 
 class IngestPipelineError(ValueError):
     """불완전하거나 검증 불가능한 카드 전체를 거부한다."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        timing: PassTiming | None = None,
+        usage: TokenUsage | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.timing = timing
+        self.usage = usage
 
 
 @dataclass(frozen=True)
@@ -308,6 +319,19 @@ def _usage_value(response: object, name: str) -> int:
     return int(_field(_field(response, "usage", {}), name, 0) or 0)
 
 
+def _token_usage(pass1: object, pass2: object) -> TokenUsage:
+    return TokenUsage(
+        pass1_input_tokens=_usage_value(pass1, "input_tokens"),
+        pass1_output_tokens=_usage_value(pass1, "output_tokens"),
+        pass1_cache_creation_input_tokens=_usage_value(
+            pass1, "cache_creation_input_tokens"
+        ),
+        pass1_cache_read_input_tokens=_usage_value(pass1, "cache_read_input_tokens"),
+        pass2_input_tokens=_usage_value(pass2, "input_tokens"),
+        pass2_output_tokens=_usage_value(pass2, "output_tokens"),
+    )
+
+
 class TwoPassIngestService:
     def __init__(
         self,
@@ -396,7 +420,19 @@ class TwoPassIngestService:
             },
         )
         pass2_ms = (perf_counter() - pass2_started) * 1000
-        _require_complete_response(pass2, "2패스")
+        try:
+            _require_complete_response(pass2, "2패스")
+        except IngestPipelineError as error:
+            raise IngestPipelineError(
+                str(error),
+                timing=PassTiming(
+                    parse_ms=parse_ms,
+                    pass1_ms=pass1_ms,
+                    pass2_ms=pass2_ms,
+                    total_ms=(perf_counter() - total_started) * 1000,
+                ),
+                usage=_token_usage(pass1, pass2),
+            ) from error
         try:
             card_data = json.loads(_response_text(pass2))
         except json.JSONDecodeError as error:
@@ -418,18 +454,7 @@ class TwoPassIngestService:
                 pass2_ms=pass2_ms,
                 total_ms=(perf_counter() - total_started) * 1000,
             ),
-            usage=TokenUsage(
-                pass1_input_tokens=_usage_value(pass1, "input_tokens"),
-                pass1_output_tokens=_usage_value(pass1, "output_tokens"),
-                pass1_cache_creation_input_tokens=_usage_value(
-                    pass1, "cache_creation_input_tokens"
-                ),
-                pass1_cache_read_input_tokens=_usage_value(
-                    pass1, "cache_read_input_tokens"
-                ),
-                pass2_input_tokens=_usage_value(pass2, "input_tokens"),
-                pass2_output_tokens=_usage_value(pass2, "output_tokens"),
-            ),
+            usage=_token_usage(pass1, pass2),
         )
 
 
