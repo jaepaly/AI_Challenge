@@ -1,12 +1,9 @@
 """마진가드 약관 인제스트 서비스 (B 오너십).
 
-파이프라인 계약 (Phase 1에서 구현):
-  PDF 업로드 → 텍스트 확보 → Claude(claude-opus-5) 구조화 추출
-  → 4중 방어 → ConditionCard(status=draft) 반환
-
-텍스트 확보 경로는 Phase 1 스파이크에서 결정한다 — pypdf 추출 vs PDF를 그대로
-document 블록으로 전달(base64). 약관의 비율·할인율은 대부분 표 안에 있고
-pypdf는 표에서 깨지므로, 두 경로의 표 재현율을 비교한 뒤 고른다.
+파이프라인 계약:
+  HTML/PDF 업로드 → 결정론적 평탄화 → Claude Sonnet 5 native citations
+  → citation 목록만 구조화하는 2패스 → 4중 방어
+  → ConditionCard(status=draft) 반환
 
 4중 방어 — 어느 하나라도 실패하면 카드 전체 거부:
   1) 근거 좌표: 모든 수치에 EvidenceSpan(문자 스팬+인용) 필수 — citations로 확보한다.
@@ -23,9 +20,16 @@ pypdf는 표에서 깨지므로, 두 경로의 표 재현율을 비교한 뒤 �
 
 실행: uvicorn app.main:app --reload --port 8000
 """
-from fastapi import FastAPI, HTTPException, UploadFile
+import os
+from pathlib import Path
+from typing import Annotated
 
-from .schemas import ConditionCard  # noqa: F401 — Phase 1에서 응답 모델로 사용
+import anthropic
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
+from fastapi.responses import JSONResponse
+
+from .two_pass import DEFAULT_MODEL, IngestPipelineError, TwoPassIngestService
 
 app = FastAPI(title="marginguard-ingest", version="0.1.0")
 
@@ -35,9 +39,32 @@ def health() -> dict:
     return {"ok": True, "service": "ingest"}
 
 
+def get_ingest_service(request: Request) -> TwoPassIngestService:
+    """프로세스마다 Anthropic HTTP 클라이언트를 하나만 재사용한다."""
+
+    service = getattr(request.app.state, "ingest_service", None)
+    if service is not None:
+        return service
+
+    repo_root = Path(__file__).resolve().parents[3]
+    load_dotenv(repo_root / ".env", override=False)
+    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Anthropic API 키가 설정되지 않았습니다")
+    service = TwoPassIngestService(
+        anthropic.AsyncAnthropic(api_key=api_key, max_retries=0),
+        model=os.getenv("ANTHROPIC_INGEST_MODEL", "").strip() or DEFAULT_MODEL,
+    )
+    request.app.state.ingest_service = service
+    return service
+
+
 @app.post("/ingest")
-async def ingest(file: UploadFile) -> dict:
-    """약관 PDF → ConditionCard(draft). Phase 1, B가 구현.
+async def ingest(
+    file: UploadFile,
+    service: Annotated[TwoPassIngestService, Depends(get_ingest_service)],
+) -> JSONResponse:
+    """약관 HTML/PDF → 검증된 ConditionCard(draft). 불완전하면 전체 거부한다.
 
     구현 순서 권장:
       1일차: pypdf로 한투 약관 텍스트 추출 스파이크 (표 깨짐 여부를 기록으로 남길 것)
@@ -48,4 +75,35 @@ async def ingest(file: UploadFile) -> dict:
       JSON Schema 통과만으로는 수치 quote·좌표 순서·카드 내 해시 단일성을 보장할 수 없다.
       응답을 반환하거나 저장하기 전에 반드시 ConditionCard.model_validate를 거친다.
     """
-    raise HTTPException(status_code=501, detail="Phase 1 구현 대상 — README의 B 매뉴얼 참조")
+    try:
+        result = await service.ingest(
+            filename=file.filename or "upload",
+            data=await file.read(),
+        )
+    except IngestPipelineError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except anthropic.APIError as error:
+        raise HTTPException(status_code=502, detail="Anthropic 인제스트 호출에 실패했습니다") from error
+
+    timing = result.timing
+    usage = result.usage
+    return JSONResponse(
+        content=result.card.model_dump(mode="json", exclude_none=True),
+        headers={
+            "X-Ingest-Model": service.model,
+            "X-Ingest-Parse-Ms": f"{timing.parse_ms:.1f}",
+            "X-Ingest-Pass1-Ms": f"{timing.pass1_ms:.1f}",
+            "X-Ingest-Pass2-Ms": f"{timing.pass2_ms:.1f}",
+            "X-Ingest-Total-Ms": f"{timing.total_ms:.1f}",
+            "X-Ingest-Pass1-Input-Tokens": str(usage.pass1_input_tokens),
+            "X-Ingest-Pass1-Output-Tokens": str(usage.pass1_output_tokens),
+            "X-Ingest-Pass1-Cache-Write-Tokens": str(
+                usage.pass1_cache_creation_input_tokens
+            ),
+            "X-Ingest-Pass1-Cache-Read-Tokens": str(
+                usage.pass1_cache_read_input_tokens
+            ),
+            "X-Ingest-Pass2-Input-Tokens": str(usage.pass2_input_tokens),
+            "X-Ingest-Pass2-Output-Tokens": str(usage.pass2_output_tokens),
+        },
+    )

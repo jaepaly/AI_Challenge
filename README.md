@@ -98,7 +98,33 @@ uvicorn app.main:app --reload --port 8000        # http://localhost:8000/health 
 
 **게이트 3항목이 전부 여기 하나에 걸려 있다.** 다른 트랙이 다 통과해도 이게 없으면 *"AI가 어디 있나"* 에 답할 화면이 없다.
 
-현재 `POST /ingest`는 **501**이다. 파싱·근거 검증·경로 비교는 #26에서 들어왔고(전각 정규화·처분 문맥어 확인까지), **남은 것은 추출 그 자체**다.
+`POST /ingest`의 2패스 추출 경로를 구현했다. ①평탄화 문서를 citations와
+`cache_control`로 보내 native `char_location`을 확보하고, ②검증된 citation
+목록만 structured output에 넘겨 `ConditionCard(draft)`를 만든다. 원문 전체는
+2패스에 다시 보내지 않는다.
+
+반환 전에 반드시 다음을 모두 통과한다.
+
+1. citation의 `cited_text`가 평탄화 원문의 `char_start:char_end`와 축자로 일치
+2. 2패스의 모든 evidence가 1패스 citation과 필드 전체가 일치
+3. JSON Schema Draft 7 검증
+4. `ConditionCard.model_validate` 수치·좌표·해시 검증
+5. 설명 필드의 산식·계산 결과 혼입 거부 및 `status=draft` 강제
+6. 심사필 번호는 native citation에서 서버가 추출하고, 없으면 업로드 원문
+   바이트 SHA-256을 `content_sha256`으로 주입 (`doc_version`은 LLM 출력 금지)
+
+실행 시간과 토큰 사용량은 `X-Ingest-*` 응답 헤더로 기록한다. 실제 한투 1건
+유료 종단 실행과 60초 판정은 비용 승인 후 수행한다.
+
+```powershell
+cd services/ingest
+# dry-run: 네트워크 0회, 원문·프롬프트 해시와 예상 최대 비용만 출력
+.\.venv\Scripts\python.exe -m benchmarks.hankook_two_pass
+
+# 실제 실행: dry-run의 estimated_max_cost_krw 이상을 명시해야만 호출
+.\.venv\Scripts\python.exe -m benchmarks.hankook_two_pass `
+  --execute --approve-max-krw <승인금액>
+```
 
 - [ ] 한투 약관 → `ConditionCard(draft)` JSON **1건 생성** — 4중 방어(§6-2) 4개 전부 통과
 - [ ] `h=0.15`가 정확히 잡히는지 `data/golden/golden_cases.json` 대조
