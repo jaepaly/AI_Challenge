@@ -306,7 +306,10 @@ def _validate_card(
         key=lambda error: tuple(str(part) for part in error.path),
     )
     if errors:
-        raise IngestPipelineError(f"JSON Schema 검증 실패: {errors[0].message}")
+        path = ".".join(str(part) for part in errors[0].absolute_path) or "<root>"
+        raise IngestPipelineError(
+            f"JSON Schema 검증 실패 ({path}): {errors[0].message}"
+        )
     try:
         card = ConditionCard.model_validate(card_data)
     except ValidationError as error:
@@ -330,6 +333,20 @@ def _token_usage(pass1: object, pass2: object) -> TokenUsage:
         pass2_input_tokens=_usage_value(pass2, "input_tokens"),
         pass2_output_tokens=_usage_value(pass2, "output_tokens"),
     )
+
+
+def _drop_optional_nulls(value: object) -> object:
+    """Structured output의 Optional[T]용 null을 원래 Draft 7의 생략형으로 되돌린다."""
+
+    if isinstance(value, Mapping):
+        return {
+            key: _drop_optional_nulls(item)
+            for key, item in value.items()
+            if item is not None
+        }
+    if isinstance(value, list):
+        return [_drop_optional_nulls(item) for item in value]
+    return value
 
 
 class TwoPassIngestService:
@@ -422,7 +439,26 @@ class TwoPassIngestService:
         pass2_ms = (perf_counter() - pass2_started) * 1000
         try:
             _require_complete_response(pass2, "2패스")
+            try:
+                card_data = json.loads(_response_text(pass2))
+            except json.JSONDecodeError as error:
+                raise IngestPipelineError(
+                    "2패스가 유효한 JSON을 반환하지 않았습니다"
+                ) from error
+            if not isinstance(card_data, Mapping):
+                raise IngestPipelineError("2패스 최상위 출력은 JSON 객체여야 합니다")
+            normalized_card_data = _drop_optional_nulls(card_data)
+            if not isinstance(normalized_card_data, Mapping):
+                raise IngestPipelineError("2패스 최상위 출력은 JSON 객체여야 합니다")
+            normalized_card_data = _inject_document_identity(
+                normalized_card_data,
+                citations,
+                sha256(data).hexdigest(),
+            )
+            card = _validate_card(normalized_card_data, citations)
         except IngestPipelineError as error:
+            if error.timing is not None:
+                raise
             raise IngestPipelineError(
                 str(error),
                 timing=PassTiming(
@@ -433,18 +469,6 @@ class TwoPassIngestService:
                 ),
                 usage=_token_usage(pass1, pass2),
             ) from error
-        try:
-            card_data = json.loads(_response_text(pass2))
-        except json.JSONDecodeError as error:
-            raise IngestPipelineError("2패스가 유효한 JSON을 반환하지 않았습니다") from error
-        if not isinstance(card_data, Mapping):
-            raise IngestPipelineError("2패스 최상위 출력은 JSON 객체여야 합니다")
-        card_data = _inject_document_identity(
-            card_data,
-            citations,
-            sha256(data).hexdigest(),
-        )
-        card = _validate_card(card_data, citations)
 
         return IngestRun(
             card=card,

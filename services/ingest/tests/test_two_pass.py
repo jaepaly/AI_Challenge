@@ -234,6 +234,17 @@ class TwoPassIngestTest(unittest.TestCase):
             {"content_sha256": sha256(self.raw).hexdigest()},
         )
 
+    def test_optional_nulls_from_structured_output_are_omitted(self) -> None:
+        card = copy.deepcopy(self.card)
+        card["contract_vintage"] = None
+        card["verified_at"] = None
+
+        response, _ = self._post(card=card)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn("contract_vintage", response.json())
+        self.assertNotIn("verified_at", response.json())
+
     def test_rejects_model_supplied_document_identity(self) -> None:
         card = copy.deepcopy(self.card)
         card["doc_version"] = {"review_no": "제9999-9999호"}
@@ -303,6 +314,18 @@ class TwoPassIngestTest(unittest.TestCase):
         self.assertIn("완결되지", response.json()["detail"])
         self.assertEqual(len(fake.messages.calls), 2)
         self.assertEqual(response.headers["x-ingest-pass1-input-tokens"], "43000")
+        self.assertEqual(response.headers["x-ingest-pass2-output-tokens"], "700")
+        self.assertIn("x-ingest-total-ms", response.headers)
+
+    def test_schema_failure_after_second_pass_keeps_usage_headers(self) -> None:
+        card = copy.deepcopy(self.card)
+        card["broker"] = None
+
+        response, fake = self._post(card=card)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("broker", response.json()["detail"])
+        self.assertEqual(len(fake.messages.calls), 2)
         self.assertEqual(response.headers["x-ingest-pass2-output-tokens"], "700")
         self.assertIn("x-ingest-total-ms", response.headers)
 
