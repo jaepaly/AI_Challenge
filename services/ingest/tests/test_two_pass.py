@@ -222,6 +222,22 @@ class TwoPassIngestTest(unittest.TestCase):
         self.assertNotIn("doc_version", schema["properties"])
         self.assertNotIn("doc_version", schema["required"])
 
+    def test_prompts_distinguish_maintenance_ratio_from_valuation_ratio(self) -> None:
+        response, fake = self._post()
+        self.assertEqual(response.status_code, 200, response.text)
+
+        first = fake.messages.calls[0]
+        first_instruction = first["messages"][0]["content"][1]["text"]
+        self.assertIn("담보증권 평가비율", first["system"])
+        self.assertIn("수집하지 않는다", first["system"])
+        self.assertIn("후자는 제외", first_instruction)
+
+        second = fake.messages.calls[1]
+        second_instruction = second["messages"][0]["content"]
+        self.assertIn("모든 citation을 사용할 필요는 없", second["system"])
+        self.assertIn("88%·68%·98%", second["system"])
+        self.assertIn("평가비율을 담보유지비율로 분류하지 마세요", second_instruction)
+
     def test_uses_raw_document_sha_when_review_number_has_no_citation(self) -> None:
         pass1 = copy.deepcopy(self.pass1)
         pass1.content[0].citations = pass1.content[0].citations[:2]
@@ -244,6 +260,27 @@ class TwoPassIngestTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertNotIn("contract_vintage", response.json())
         self.assertNotIn("verified_at", response.json())
+
+    def test_drops_asset_valuation_ratio_misclassified_as_maintenance(self) -> None:
+        valuation_quote = "88%"
+        pass1 = copy.deepcopy(self.pass1)
+        pass1.content[0].citations.append(_citation(self.text, valuation_quote))
+        card = copy.deepcopy(self.card)
+        card["ratio_rules"].append(
+            {
+                "product_type": "신용거래대주",
+                "collateral_type": "KOSPI200 구성종목",
+                "symbol_group": "전체",
+                "ratio": 0.88,
+                "evidence": self._evidence(valuation_quote),
+            }
+        )
+
+        response, _ = self._post(card=card, pass1=pass1)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(response.json()["ratio_rules"]), 1)
+        self.assertEqual(response.json()["ratio_rules"][0]["ratio"], 1.4)
 
     def test_rejects_model_supplied_document_identity(self) -> None:
         card = copy.deepcopy(self.card)

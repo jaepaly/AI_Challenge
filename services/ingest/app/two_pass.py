@@ -32,10 +32,18 @@ PASS1_SYSTEM = """당신은 금융투자 약관에서 인용 근거만 수집하
 계산하거나 값을 유도하지 말고, 다음 네 종류를 뒷받침하는 원문을 축자로 인용한다.
 1) 담보유지비율, 2) 반대매매 산정 기준가 또는 할인율, 3) 실행 일정·기한,
 4) 심사필·심의필·검토필 번호 같은 문서 식별자.
+담보유지비율은 '담보유지비율' 또는 '최저담보유지비율'이라고 명시된 수치만 수집한다.
+담보증권 평가비율·담보평가비율·대용가·증거금률·보증금률·유형별 할인율은
+담보유지비율이 아니므로 수집하지 않는다. 필요한 규칙과 무관한 백분율도 인용하지 않는다.
 각 주장에는 반드시 제공 문서의 native citation을 붙인다."""
 
 PASS2_SYSTEM = """당신은 검증된 인용 목록만 ConditionCard JSON으로 옮기는 구조화기다.
 인용 목록 밖의 사실·수치·좌표를 만들지 않는다. 계산·산식·계산 결과를 추가하지 않는다.
+목록의 모든 citation을 사용할 필요는 없으며 규칙과 무관한 citation은 버린다.
+ratio_rules에는 quote가 '담보유지비율' 또는 '최저담보유지비율'이라고 명시한
+계좌 유지 임계값만 넣는다. 140%는 ratio 1.4로 표현한다.
+담보증권 평가비율·담보평가비율·대용가·증거금률·보증금률·유형별 할인율과
+88%·68%·98% 같은 자산 평가 수치를 ratio_rules로 옮기지 않는다.
 모든 evidence는 입력 citation의 source_format, 좌표, 해시, quote를 글자 하나 바꾸지 않고 복사한다.
 status는 반드시 draft다."""
 
@@ -51,6 +59,8 @@ _REVIEW_NO_PATTERN = re.compile(
     r"(?:심사필|심의필|검토필)\s*(?:번호\s*)?[:：]?\s*"
     r"(?P<review_no>제?\s*[0-9A-Za-z가-힣]+(?:[-/.][0-9A-Za-z가-힣]+)+)"
 )
+
+_MAINTENANCE_RATIO_PATTERN = re.compile(r"(?:최저\s*)?담보\s*유지\s*비율")
 
 
 class IngestPipelineError(ValueError):
@@ -349,6 +359,33 @@ def _drop_optional_nulls(value: object) -> object:
     return value
 
 
+def _drop_non_maintenance_ratio_rules(
+    card_data: Mapping[str, object],
+) -> dict[str, object]:
+    """Remove ratio rules whose own evidence does not identify a maintenance ratio.
+
+    Asset valuation ratios such as 88% are legitimate document facts, but they are
+    not account maintenance thresholds.  Dropping an unsupported model-added rule
+    is safe; changing its numeric value or manufacturing replacement evidence is not.
+    """
+
+    resolved = dict(card_data)
+    rules = card_data.get("ratio_rules", [])
+    if not isinstance(rules, list):
+        return resolved
+
+    resolved["ratio_rules"] = [
+        rule
+        for rule in rules
+        if isinstance(rule, Mapping)
+        and isinstance(rule.get("evidence"), Mapping)
+        and _MAINTENANCE_RATIO_PATTERN.search(
+            str(rule["evidence"].get("quote", ""))
+        )
+    ]
+    return resolved
+
+
 class TwoPassIngestService:
     def __init__(
         self,
@@ -403,7 +440,10 @@ class TwoPassIngestService:
                         },
                         {
                             "type": "text",
-                            "text": "필요한 세 규칙의 근거를 찾아 설명하고 모든 근거에 citation을 붙이세요.",
+                            "text": (
+                                "필요한 세 규칙의 근거를 찾아 설명하고 모든 근거에 citation을 붙이세요. "
+                                "담보유지비율과 담보증권 평가비율을 구분하고, 후자는 제외하세요."
+                            ),
                         },
                     ],
                 }
@@ -424,7 +464,9 @@ class TwoPassIngestService:
                     "role": "user",
                     "content": (
                         "다음은 1패스가 반환한 검증된 citation 목록입니다. "
-                        "이 목록만 사용해 ConditionCard를 만드세요.\n"
+                        "이 목록만 사용해 ConditionCard를 만드세요. 목록 중 계약 규칙과 "
+                        "무관한 citation은 사용하지 마세요. 특히 평가비율을 담보유지비율로 "
+                        "분류하지 마세요.\n"
                         + _citation_catalog(citations)
                     ),
                 }
@@ -450,6 +492,9 @@ class TwoPassIngestService:
             normalized_card_data = _drop_optional_nulls(card_data)
             if not isinstance(normalized_card_data, Mapping):
                 raise IngestPipelineError("2패스 최상위 출력은 JSON 객체여야 합니다")
+            normalized_card_data = _drop_non_maintenance_ratio_rules(
+                normalized_card_data
+            )
             normalized_card_data = _inject_document_identity(
                 normalized_card_data,
                 citations,
