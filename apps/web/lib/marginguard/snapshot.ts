@@ -159,21 +159,36 @@ function span(
   };
 }
 
-function makeCard(p: {
-  evidence: EvidenceKey;
-  broker: string;
-  discount_basis: "prev_close_pct" | "lower_limit";
-  discount_rate?: number;
-  /** 심사필 번호. 없는 회사(유진)는 doc_sha256으로 식별한다 — 둘 중 하나는 필수 */
-  review_no?: string;
-  /** 원문 바이트의 sha256. data/terms/README.md의 수집 기록과 일치해야 한다 */
-  doc_sha256?: string;
-  status: "verified" | "draft";
-  verified_at?: string;
-}): ConditionCard {
-  const doc_version: ConditionCard["doc_version"] = p.review_no
-    ? { review_no: p.review_no }
-    : { content_sha256: p.doc_sha256! };
+/**
+ * 문서 식별자 — **둘 중 정확히 하나.** 주석이 아니라 타입이 강제한다.
+ *
+ * 이전에는 둘 다 선택이고 `p.doc_sha256!`로 단정했다. 그러면 둘 다 빠뜨린 호출이
+ * `tsc`를 통과하고 `{ content_sha256: undefined }` → 직렬화하면 **`doc_version: {}`**,
+ * 즉 이 PR이 불가능하게 만들려던 상태가 카드를 만드는 유일한 헬퍼에서 나온다(#46 리뷰).
+ * 프리셋 3종이 다 채워져 있어 지금은 안 드러나지만 넷째 카드를 추가하는 사람이 밟는다.
+ * `test_schema_mirrors`는 types.ts 본문을, `test_snapshot_evidence`는 좌표를 보므로
+ * **둘 다 이걸 못 잡는다.** 잡는 것은 타입뿐이다.
+ */
+type DocIdentity =
+  /** 심사필·심의필 번호가 있는 회사 */
+  | { review_no: string; doc_sha256?: never }
+  /** 번호가 없는 회사(유진) — 원문 바이트 sha256이 버전 식별자다 */
+  | { review_no?: never; doc_sha256: string };
+
+function makeCard(
+  p: {
+    evidence: EvidenceKey;
+    broker: string;
+    discount_basis: "prev_close_pct" | "lower_limit";
+    discount_rate?: number;
+    status: "verified" | "draft";
+    verified_at?: string;
+  } & DocIdentity,
+): ConditionCard {
+  const doc_version: ConditionCard["doc_version"] =
+    p.review_no !== undefined
+      ? { review_no: p.review_no }
+      : { content_sha256: p.doc_sha256 };
   return {
     broker: p.broker,
     ratio_rules: [
