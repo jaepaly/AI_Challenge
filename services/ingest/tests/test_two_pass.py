@@ -12,7 +12,7 @@ import httpx
 
 from app.main import app, get_ingest_service
 from app.parsing import parse_document
-from app.two_pass import TwoPassIngestService, prompt_sha256
+from app.two_pass import _REVIEW_NO_PATTERN, TwoPassIngestService, prompt_sha256
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -183,7 +183,7 @@ class TwoPassIngestTest(unittest.TestCase):
             response.json()["disposal_price_rules"][0]["discount_rate"], 0.15
         )
         self.assertEqual(
-            response.json()["doc_version"], {"review_no": "제2026-0265"}
+            response.json()["doc_version"], {"review_no": "2026-0265"}
         )
         self.assertEqual(len(fake.messages.calls), 2)
         self.assertEqual(response.headers["x-ingest-model"], "claude-sonnet-5")
@@ -249,6 +249,26 @@ class TwoPassIngestTest(unittest.TestCase):
             response.json()["doc_version"],
             {"content_sha256": sha256(self.raw).hexdigest()},
         )
+
+    def test_review_number_normalization_matches_six_document_corpus(self) -> None:
+        expected = {
+            "한국투자_신용거래설명서_20260707.htm": {"2026-0265"},
+            "메리츠_신용거래설명서_20250421.pdf": {"25-125"},
+            "삼성_신용거래핵심설명서_20240822.pdf": {"24-0104"},
+            "신한_신용거래설명서_20260330.pdf": {"26-00486-511"},
+            "키움_국내주식핵심설명서_20260612.pdf": {"26-0363"},
+            "미래에셋_신용거래설명서_20250324.pdf": set(),
+        }
+
+        for filename, expected_numbers in expected.items():
+            with self.subTest(filename=filename):
+                document = parse_document(REPO_ROOT / "data" / "terms" / filename)
+                flattened_text = "\n".join(unit.text for unit in document.units)
+                actual = {
+                    match.group("review_no")
+                    for match in _REVIEW_NO_PATTERN.finditer(flattened_text)
+                }
+                self.assertEqual(actual, expected_numbers)
 
     def test_optional_nulls_from_structured_output_are_omitted(self) -> None:
         card = copy.deepcopy(self.card)

@@ -57,7 +57,7 @@ _FORMULA_PATTERN = re.compile(
 
 _REVIEW_NO_PATTERN = re.compile(
     r"(?:심사필|심의필|검토필)\s*(?:번호\s*)?[:：]?\s*"
-    r"(?P<review_no>제?\s*[0-9A-Za-z가-힣]+(?:[-/.][0-9A-Za-z가-힣]+)+)"
+    r"제?\s*(?P<review_no>[0-9A-Za-z]+(?:[-/.][0-9A-Za-z]+)+)\s*호?"
 )
 
 _MAINTENANCE_RATIO_PATTERN = re.compile(r"(?:최저\s*)?담보\s*유지\s*비율")
@@ -268,7 +268,7 @@ def _inject_document_identity(
         raise IngestPipelineError("2패스는 doc_version을 생성할 수 없습니다")
 
     review_numbers = {
-        match.group("review_no").replace(" ", "")
+        match.group("review_no")
         for citation in citations
         for match in _REVIEW_NO_PATTERN.finditer(citation.quote)
     }

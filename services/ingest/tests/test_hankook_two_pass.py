@@ -95,7 +95,7 @@ class HankookTwoPassGateTest(unittest.TestCase):
                 }
             ],
             "ratio_source": "clause",
-            "doc_version": {"review_no": "제2026-0265"},
+            "doc_version": {"review_no": "2026-0265"},
             "status": "draft",
         }
 
