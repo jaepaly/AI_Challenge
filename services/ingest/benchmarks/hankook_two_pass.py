@@ -36,8 +36,11 @@ HANKOOK_FILENAME = "한국투자_신용거래설명서_20260707.htm"
 MEASURED_PASS1_INPUT_TOKENS = 42_948
 PASS1_UNCACHED_OVERHEAD_TOKENS = 2_048
 PASS2_INPUT_CEILING_TOKENS = 16_384
-INPUT_USD_PER_MTOK = 3.0
-OUTPUT_USD_PER_MTOK = 15.0
+STANDARD_INPUT_USD_PER_MTOK = 3.0
+STANDARD_OUTPUT_USD_PER_MTOK = 15.0
+INTRODUCTORY_INPUT_USD_PER_MTOK = 2.0
+INTRODUCTORY_OUTPUT_USD_PER_MTOK = 10.0
+INTRODUCTORY_PRICE_ENDS_ON = "2026-08-31"
 KRW_PER_USD = 1_500.0
 CACHE_WRITE_MULTIPLIER = 1.25
 CACHE_READ_MULTIPLIER = 0.10
@@ -54,12 +57,19 @@ def estimate_max_cost_krw(
         MEASURED_PASS1_INPUT_TOKENS * CACHE_WRITE_MULTIPLIER
         + PASS1_UNCACHED_OVERHEAD_TOKENS
         + PASS2_INPUT_CEILING_TOKENS
-    ) * INPUT_USD_PER_MTOK
-    output_cost = (pass1_max_tokens + pass2_max_tokens) * OUTPUT_USD_PER_MTOK
+    ) * STANDARD_INPUT_USD_PER_MTOK
+    output_cost = (
+        pass1_max_tokens + pass2_max_tokens
+    ) * STANDARD_OUTPUT_USD_PER_MTOK
     return round((input_cost + output_cost) / 1_000_000 * KRW_PER_USD, 2)
 
 
-def actual_cost_krw(headers: Mapping[str, str]) -> float:
+def usage_cost_krw(
+    headers: Mapping[str, str],
+    *,
+    input_usd_per_mtok: float,
+    output_usd_per_mtok: float,
+) -> float:
     pass1_input = int(headers["x-ingest-pass1-input-tokens"])
     pass1_output = int(headers["x-ingest-pass1-output-tokens"])
     pass1_cache_write = int(headers["x-ingest-pass1-cache-write-tokens"])
@@ -74,10 +84,33 @@ def actual_cost_krw(headers: Mapping[str, str]) -> float:
     )
     output_tokens = pass1_output + pass2_output
     usd = (
-        input_tokens * INPUT_USD_PER_MTOK
-        + output_tokens * OUTPUT_USD_PER_MTOK
+        input_tokens * input_usd_per_mtok
+        + output_tokens * output_usd_per_mtok
     ) / 1_000_000
     return round(usd * KRW_PER_USD, 2)
+
+
+def usage_cost_report(headers: Mapping[str, str]) -> dict[str, Any]:
+    """가격표 환산과 콘솔 실청구를 구분한다.
+
+    Messages API usage에는 청구 금액이 없으므로 콘솔에서 대조하기 전에는
+    실제 청구액을 주장하지 않는다.
+    """
+
+    return {
+        "standard_price_usage_estimated_cost_krw": usage_cost_krw(
+            headers,
+            input_usd_per_mtok=STANDARD_INPUT_USD_PER_MTOK,
+            output_usd_per_mtok=STANDARD_OUTPUT_USD_PER_MTOK,
+        ),
+        "introductory_price_usage_estimated_cost_krw": usage_cost_krw(
+            headers,
+            input_usd_per_mtok=INTRODUCTORY_INPUT_USD_PER_MTOK,
+            output_usd_per_mtok=INTRODUCTORY_OUTPUT_USD_PER_MTOK,
+        ),
+        "introductory_price_ends_on": INTRODUCTORY_PRICE_ENDS_ON,
+        "console_billed_cost_krw": None,
+    }
 
 
 def require_approved_budget(approved_max_krw: float) -> float:
@@ -110,6 +143,11 @@ def build_dry_run_plan(repo_root: Path) -> dict[str, Any]:
         "cache_control": "ephemeral_5m",
         "prompt_sha256": prompt_sha256(),
         "estimated_max_cost_krw": estimate_max_cost_krw(),
+        "approval_pricing_basis": {
+            "input_usd_per_mtok": STANDARD_INPUT_USD_PER_MTOK,
+            "output_usd_per_mtok": STANDARD_OUTPUT_USD_PER_MTOK,
+            "krw_per_usd": KRW_PER_USD,
+        },
         "execution_requirements": [
             "저장소 루트 .env의 ANTHROPIC_API_KEY",
             "--execute",
@@ -238,7 +276,7 @@ def run_hankook(
             "x-ingest-pass2-output-tokens",
         }
         if required_cost_headers <= headers.keys():
-            failure["actual_estimated_cost_krw"] = actual_cost_krw(headers)
+            failure.update(usage_cost_report(headers))
         return failure
 
     card_data = response.json()
@@ -253,7 +291,7 @@ def run_hankook(
         "prompt_sha256": prompt_sha256(),
         "approved_max_cost_krw": approved_max_krw,
         "estimated_max_cost_krw": estimated,
-        "actual_estimated_cost_krw": actual_cost_krw(headers),
+        **usage_cost_report(headers),
         "timing_ms": {
             "parse": float(headers["x-ingest-parse-ms"]),
             "pass1": float(headers["x-ingest-pass1-ms"]),

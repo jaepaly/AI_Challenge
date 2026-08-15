@@ -6,10 +6,10 @@ import httpx
 
 from benchmarks.hankook_two_pass import (
     HANKOOK_FILENAME,
-    actual_cost_krw,
     build_dry_run_plan,
     estimate_max_cost_krw,
     require_approved_budget,
+    usage_cost_report,
     validate_gate_card,
 )
 from app.parsing import parse_document
@@ -28,6 +28,14 @@ class HankookTwoPassGateTest(unittest.TestCase):
         self.assertEqual(plan["cache_control"], "ephemeral_5m")
         self.assertGreater(plan["estimated_max_cost_krw"], 550)
         self.assertLess(plan["estimated_max_cost_krw"], 650)
+        self.assertEqual(
+            plan["approval_pricing_basis"],
+            {
+                "input_usd_per_mtok": 3.0,
+                "output_usd_per_mtok": 15.0,
+                "krw_per_usd": 1500.0,
+            },
+        )
 
     def test_budget_guard_rejects_below_estimated_ceiling(self) -> None:
         estimated = estimate_max_cost_krw()
@@ -36,7 +44,9 @@ class HankookTwoPassGateTest(unittest.TestCase):
             require_approved_budget(estimated - 0.01)
         self.assertEqual(require_approved_budget(estimated), estimated)
 
-    def test_actual_cost_uses_cache_write_and_read_rates(self) -> None:
+    def test_usage_cost_report_separates_price_estimates_from_console_bill(
+        self,
+    ) -> None:
         headers = {
             "x-ingest-pass1-input-tokens": "100",
             "x-ingest-pass1-output-tokens": "200",
@@ -46,7 +56,14 @@ class HankookTwoPassGateTest(unittest.TestCase):
             "x-ingest-pass2-output-tokens": "400",
         }
 
-        self.assertEqual(actual_cost_krw(headers), 21.15)
+        report = usage_cost_report(headers)
+
+        self.assertEqual(report["standard_price_usage_estimated_cost_krw"], 21.15)
+        self.assertEqual(
+            report["introductory_price_usage_estimated_cost_krw"], 14.10
+        )
+        self.assertEqual(report["introductory_price_ends_on"], "2026-08-31")
+        self.assertIsNone(report["console_billed_cost_krw"])
 
     def test_gate_validator_accepts_known_hankook_card_shape(self) -> None:
         path = REPO_ROOT / "data" / "terms" / HANKOOK_FILENAME
@@ -135,7 +152,13 @@ class HankookTwoPassGateTest(unittest.TestCase):
 
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["http_status"], 422)
-        self.assertEqual(result["actual_estimated_cost_krw"], 21.15)
+        self.assertEqual(
+            result["standard_price_usage_estimated_cost_krw"], 21.15
+        )
+        self.assertEqual(
+            result["introductory_price_usage_estimated_cost_krw"], 14.10
+        )
+        self.assertIsNone(result["console_billed_cost_krw"])
         self.assertEqual(result["timing_ms"]["total"], 60.0)
 
 

@@ -23,5 +23,8 @@
     "pass2-input-tokens": "6437",
     "pass2-output-tokens": "3690"
   },
-  "actual_estimated_cost_krw": 394.82
+  "standard_price_usage_estimated_cost_krw": 394.82,
+  "introductory_price_usage_estimated_cost_krw": 263.21,
+  "introductory_price_ends_on": "2026-08-31",
+  "console_billed_cost_krw": null
 }

@@ -126,6 +126,15 @@ cd services/ingest
   --execute --approve-max-krw <승인금액>
 ```
 
+승인 상한은 가격 인하 종료 뒤에도 과소 추정되지 않도록 표준가 `$3/$15`
+(입력/출력, MTok당)로 계산한다. 실행 결과에는 usage를 표준가와 2026-08-31까지의
+도입가 `$2/$10`으로 각각 환산해 기록한다. Messages API는 실제 청구액을 반환하지
+않으므로 콘솔에서 확인하기 전 `console_billed_cost_krw`는 `null`이다.
+
+`cache_control`은 같은 문서와 같은 `prompt_sha256`을 5분 안에 다시 호출할 때만
+절감 효과가 있다. 프롬프트가 바뀐 최초 실행은 cache write이고, 결과의
+cache read 토큰이 0이면 절감이 발생했다고 보고하지 않는다.
+
 - [ ] 한투 약관 → `ConditionCard(draft)` JSON **1건 생성** — 4중 방어(§6-2) 4개 전부 통과
 - [ ] `h=0.15`가 정확히 잡히는지 `data/golden/golden_cases.json` 대조
 - [ ] **60초 마일스톤 실측** (1패스 / 2패스 각각) → 보류 중이던 결정(§6-4)을 이날 확정
