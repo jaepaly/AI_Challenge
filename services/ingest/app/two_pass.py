@@ -60,9 +60,6 @@ _REVIEW_NO_PATTERN = re.compile(
     r"제?\s*(?P<review_no>[0-9A-Za-z]+(?:[-/.][0-9A-Za-z]+)+)\s*호?"
 )
 
-_MAINTENANCE_RATIO_PATTERN = re.compile(r"(?:최저\s*)?담보\s*유지\s*비율")
-
-
 class IngestPipelineError(ValueError):
     """불완전하거나 검증 불가능한 카드 전체를 거부한다."""
 
@@ -359,33 +356,6 @@ def _drop_optional_nulls(value: object) -> object:
     return value
 
 
-def _drop_non_maintenance_ratio_rules(
-    card_data: Mapping[str, object],
-) -> dict[str, object]:
-    """Remove ratio rules whose own evidence does not identify a maintenance ratio.
-
-    Asset valuation ratios such as 88% are legitimate document facts, but they are
-    not account maintenance thresholds.  Dropping an unsupported model-added rule
-    is safe; changing its numeric value or manufacturing replacement evidence is not.
-    """
-
-    resolved = dict(card_data)
-    rules = card_data.get("ratio_rules", [])
-    if not isinstance(rules, list):
-        return resolved
-
-    resolved["ratio_rules"] = [
-        rule
-        for rule in rules
-        if isinstance(rule, Mapping)
-        and isinstance(rule.get("evidence"), Mapping)
-        and _MAINTENANCE_RATIO_PATTERN.search(
-            str(rule["evidence"].get("quote", ""))
-        )
-    ]
-    return resolved
-
-
 class TwoPassIngestService:
     def __init__(
         self,
@@ -492,9 +462,6 @@ class TwoPassIngestService:
             normalized_card_data = _drop_optional_nulls(card_data)
             if not isinstance(normalized_card_data, Mapping):
                 raise IngestPipelineError("2패스 최상위 출력은 JSON 객체여야 합니다")
-            normalized_card_data = _drop_non_maintenance_ratio_rules(
-                normalized_card_data
-            )
             normalized_card_data = _inject_document_identity(
                 normalized_card_data,
                 citations,

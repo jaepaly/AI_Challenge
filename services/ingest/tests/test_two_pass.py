@@ -281,7 +281,7 @@ class TwoPassIngestTest(unittest.TestCase):
         self.assertNotIn("contract_vintage", response.json())
         self.assertNotIn("verified_at", response.json())
 
-    def test_drops_asset_valuation_ratio_misclassified_as_maintenance(self) -> None:
+    def test_rejects_asset_valuation_ratio_instead_of_silently_dropping_it(self) -> None:
         valuation_quote = "88%"
         pass1 = copy.deepcopy(self.pass1)
         pass1.content[0].citations.append(_citation(self.text, valuation_quote))
@@ -298,9 +298,9 @@ class TwoPassIngestTest(unittest.TestCase):
 
         response, _ = self._post(card=card, pass1=pass1)
 
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(len(response.json()["ratio_rules"]), 1)
-        self.assertEqual(response.json()["ratio_rules"][0]["ratio"], 1.4)
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("ratio_rules.1.ratio", response.json()["detail"])
+        self.assertIn("less than the minimum of 1.0", response.json()["detail"])
 
     def test_rejects_model_supplied_document_identity(self) -> None:
         card = copy.deepcopy(self.card)
