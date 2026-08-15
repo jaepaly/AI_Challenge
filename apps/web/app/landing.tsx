@@ -19,8 +19,8 @@ import {
   shortfall,
   type PortfolioReplayStep,
   type ReplayStep,
+  disposalDiscountRate,
 } from "@marginguard/engine";
-import { cardH } from "../lib/marginguard/card";
 import { freshnessView, todayISO } from "../lib/marginguard/freshness-view";
 import type { BuildInfo } from "../lib/build-info";
 import {
@@ -90,7 +90,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
   );
 
   const preset = CARDS.find((c) => c.key === cardKey)!;
-  const h = cardH(preset.card);
+  const h = disposalDiscountRate(preset.card);
   const hUnknown = h === null; // 조건카드 불완전 — 수량을 추정하지 않는다
 
   /** 신선도 게이트 — 판정은 엔진, 화면 규약은 lib/marginguard/freshness-view */
@@ -155,7 +155,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
   // 회사별 비교도 카드마다 게이트를 건다 — 선택된 카드만 막고 비교 행에 수량을
   // 남기면, 같은 카드가 한 화면에서 "산정 불가"와 "전량"을 동시에 말하게 된다
   const compare = CARDS.map((c) => {
-    const ch = cardH(c.card);
+    const ch = disposalDiscountRate(c.card);
     const ok = ch !== null && (asOf === null || freshnessView(c.card, asOf).mode !== "blocked");
     return {
       key: c.key,
