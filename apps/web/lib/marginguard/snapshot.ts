@@ -52,17 +52,23 @@ export interface CardPreset {
 /**
  * 스냅숏 카드의 근거 좌표 — **실측이다.**
  * ---------------------------------------------------------------------------
- * 셋 다 `data/terms`의 원문에서 뽑았고, 다음 셋을 확인했다:
- *   ① 인용문이 평탄화 결과물에 **정확히 한 번** 나온다(좌표가 유일하게 특정된다)
- *   ② `flattened[char_start:char_end]`가 인용문과 글자 단위로 같다
- *   ③ `flattened_sha256`이 그 평탄화 결과물의 해시다
+ * 셋 다 `data/terms`의 원문에서 뽑았고, 다음을 확인했다:
+ *   ① **좌표가 정본이다** — `flattened[char_start:char_end]`가 인용문과 글자
+ *      단위로 같다. 9개 스팬 전부 성립한다.
+ *   ② `flattened_sha256`이 그 평탄화 결과물의 해시다.
+ *   ③ 인용문이 원문에 실제로 존재한다(지어낸 문구 차단).
  *
- * 재현 방법(services/ingest에서):
+ * ⚠ **인용문이 유일하다고는 말하지 않는다.** 9개 중 8개는 1회 나오지만
+ * 한투 `execution`은 **2회** 나온다(예시 (1)과 (2)의 문장이 같다). 그래서
+ * 판정 기준을 "인용문이 한 번 나온다"가 아니라 ①의 좌표 일치로 잡는다 —
+ * 그쪽이 중복이 있어도 성립하고, 스팬 옆 주석이 말하는 것도 그것이다.
+ *
+ * 재현 방법(services/ingest에서) — 검사 자체는
+ * `tests/test_snapshot_evidence.py`가 CI에서 돌린다:
  *   from app.parsing import parse_document
  *   d = parse_document(Path("data/terms/<파일>"))
- *   j = "
-".join(u.text for u in d.units)   # 평탄화 결과물
- *   j.count(quote) == 1  and  j[char_start:char_end] == quote
+ *   j = "\n".join(u.text for u in d.units)   # 평탄화 결과물
+ *   j[char_start:char_end] == quote  and  quote in j
  *   d.flattened_sha256 == 아래 값
  *
  * ⚠ 메리츠는 PDF지만 `source_format`이 `"pdf"`가 아니라 `"text"`다. 우리가
