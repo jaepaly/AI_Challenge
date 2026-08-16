@@ -138,5 +138,12 @@ async def ingest(
             ),
             "X-Ingest-Pass2-Input-Tokens": str(usage.pass2_input_tokens),
             "X-Ingest-Pass2-Output-Tokens": str(usage.pass2_output_tokens),
+            # 근거 스팬 관측치 — 판정에 쓰지 않는다(two_pass.evidence_span_lengths 참조).
+            # 스팬이 크면 4중 방어가 전부 통과해도 근거를 화면에 못 올린다.
+            "X-Ingest-Evidence-Max-Span": str(result.evidence_spans["max_length"]),
+            "X-Ingest-Evidence-Min-Span": str(result.evidence_spans["min_length"]),
+            "X-Ingest-Evidence-Duplicate-Spans": str(
+                result.evidence_spans["duplicate_spans"]
+            ),
         },
     )

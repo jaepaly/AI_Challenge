@@ -101,6 +101,28 @@ def usage_cost_krw(
     return round(usd * KRW_PER_USD, 2)
 
 
+def evidence_span_report(headers: Mapping[str, str]) -> dict[str, Any]:
+    """근거 스팬 관측치를 응답 헤더에서 거둔다 — **판정이 아니라 기록이다.**
+
+    4중 방어가 전부 통과해도 스팬이 크면 근거를 화면에 못 올린다(#47 리뷰).
+    4차 실행에서 ratio·execution이 같은 1,621자 표 블록이었고, 그 안에
+    105%·120%·140%가 함께 있어 수치 대조가 셋을 똑같이 통과시켰다.
+    상한선은 실측이 쌓인 뒤 정한다 — 지금은 값을 남기기만 한다.
+    """
+
+    keys = {
+        "max_span": "x-ingest-evidence-max-span",
+        "min_span": "x-ingest-evidence-min-span",
+        "duplicate_spans": "x-ingest-evidence-duplicate-spans",
+    }
+    report = {
+        name: int(headers[header])
+        for name, header in keys.items()
+        if header in headers
+    }
+    return {"evidence_spans": report} if report else {}
+
+
 def usage_cost_report(headers: Mapping[str, str]) -> dict[str, Any]:
     """가격표 환산과 콘솔 실청구를 구분한다.
 
@@ -294,6 +316,7 @@ def run_hankook(
         }
         if required_cost_headers <= headers.keys():
             failure.update(usage_cost_report(headers))
+        failure.update(evidence_span_report(headers))
         return failure
 
     card_data = response.json()
@@ -311,6 +334,7 @@ def run_hankook(
         "approved_max_cost_krw": approved_max_krw,
         "estimated_max_cost_krw": estimated,
         **usage_cost_report(headers),
+        **evidence_span_report(headers),
         "timing_ms": {
             "parse": float(headers["x-ingest-parse-ms"]),
             "pass1": float(headers["x-ingest-pass1-ms"]),
