@@ -13,3 +13,21 @@ python -m benchmarks.raw_pdf_comparison --execute --approve-max-krw <승인한�
 - 실행 전에 dry-run의 `estimated_max_cost_krw`와 콘솔 잔액·자동 충전 해제를 확인한다.
 - 문서당 요청은 1회이며 자동 재시도하지 않는다.
 - 결과의 `usage`와 citations를 PR 및 #7의 비교 근거로 사용한다.
+
+## 한투 2패스 종단 결과
+
+`hankook_two_pass.json`은 2026-08-16 실제 `POST /ingest` 성공 결과다.
+
+- 승인 상한: 650원
+- 예상 최대 비용: 601.01원
+- 표준가 기준 사용량 추정: 416.00원
+- 도입가 기준 사용량 추정: 277.33원
+- 콘솔 실청구액: 확인 전이므로 `null`
+- 카드: `ConditionCard(draft)`
+- 4중 방어: 4/4 통과
+- 골든: `h=0.15` 일치
+- 전체 시간: 68.14초로 60초 마일스톤 미충족
+
+`test_hankook_two_pass.py`가 결과의 문서·프롬프트 해시와 카드를 한투 정본으로
+다시 검증한다. `hankook_two_pass_attempt*_failed.json`은 성공 전 실패 원인을
+보존하는 별도 기록이다.

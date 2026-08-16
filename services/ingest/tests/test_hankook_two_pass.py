@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -16,9 +17,48 @@ from app.parsing import parse_document
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+RECORDED_RESULT = (
+    REPO_ROOT
+    / "services"
+    / "ingest"
+    / "benchmarks"
+    / "results"
+    / "hankook_two_pass.json"
+)
 
 
 class HankookTwoPassGateTest(unittest.TestCase):
+    def test_recorded_first_success_revalidates_against_hankook_source(
+        self,
+    ) -> None:
+        result = json.loads(RECORDED_RESULT.read_text(encoding="utf-8"))
+        plan = build_dry_run_plan(REPO_ROOT)
+        path = REPO_ROOT / "data" / "terms" / HANKOOK_FILENAME
+        checks = validate_gate_card(
+            REPO_ROOT,
+            result["card"],
+            parse_document(path),
+        )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["document_sha256"], plan["document"]["sha256"])
+        self.assertEqual(result["prompt_sha256"], plan["prompt_sha256"])
+        self.assertEqual(result["approved_max_cost_krw"], 650.0)
+        self.assertEqual(result["estimated_max_cost_krw"], 601.01)
+        self.assertEqual(result["checks"], checks)
+        self.assertTrue(all(checks.values()))
+        self.assertEqual(result["card"]["doc_version"], {"review_no": "2026-0265"})
+        self.assertEqual(
+            result["card"]["disposal_price_rules"][0]["discount_rate"],
+            0.15,
+        )
+        self.assertEqual(
+            result["within_60_seconds"],
+            result["timing_ms"]["total"] <= 60_000,
+        )
+        self.assertFalse(result["within_60_seconds"])
+        self.assertIsNone(result["console_billed_cost_krw"])
+
     def test_dry_run_is_network_free_and_uses_measured_input(self) -> None:
         plan = build_dry_run_plan(REPO_ROOT)
 
