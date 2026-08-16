@@ -4,6 +4,7 @@
  * 심사 3일차(9/9)에 STALE이 되는 시나리오를 테스트로 박제한다.
  */
 import { describe, it, expect } from "vitest";
+import { TEST_EVIDENCE } from "./evidence-fixture";
 import { assembleRiskResult, disposalDiscountRate } from "../src/index";
 import type { ConditionCard, CreditLedger, DisposalPriceRule, Position } from "../src/index";
 
@@ -23,7 +24,7 @@ function makeCard(p: {
   return {
     broker: "테스트",
     ratio_rules: [
-      { product_type: "신용융자", collateral_type: "주식", symbol_group: "일반", ratio: 1.4 },
+      { product_type: "신용융자", collateral_type: "주식", symbol_group: "일반", ratio: 1.4, evidence: TEST_EVIDENCE },
     ],
     account_aggregation: "max",
     disposal_price_rules: p.rules ?? [
@@ -33,9 +34,10 @@ function makeCard(p: {
         discount_basis: "prev_close_pct",
         discount_rate: 0.15,
         source_confidence: "explicit",
+        evidence: TEST_EVIDENCE,
       },
     ],
-    execution_schedule: [{ threshold_ratio: 1.4, day_counting: "D+2" }],
+    execution_schedule: [{ threshold_ratio: 1.4, day_counting: "D+2", evidence: TEST_EVIDENCE }],
     ratio_source: "clause",
     doc_version: { review_no: "TEST" },
     status: p.status ?? "verified",
@@ -131,6 +133,7 @@ describe("신선도 게이트 — #10 시한폭탄 박제 (verified_at=2026-08-0
           symbol_group: "일반",
           discount_basis: "lower_limit",
           source_confidence: "inferred_from_formula",
+          evidence: TEST_EVIDENCE,
         },
       ],
     });
@@ -197,6 +200,7 @@ describe("h를 못 뽑는 카드 — 수량만 내리지 않는다", () => {
               symbol_group: "g",
               discount_basis: "lower_limit",
               source_confidence: "explicit",
+              evidence: TEST_EVIDENCE,
             },
           ],
         }),
@@ -212,6 +216,7 @@ describe("h를 못 뽑는 카드 — 수량만 내리지 않는다", () => {
               symbol_group: "g",
               discount_basis: "prev_close_pct",
               source_confidence: "explicit",
+              evidence: TEST_EVIDENCE,
             },
           ],
         }),

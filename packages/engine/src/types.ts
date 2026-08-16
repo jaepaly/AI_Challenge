@@ -67,7 +67,7 @@ export interface RatioRule {
   symbol_group: string;
   /** 1.05 ~ 1.70 */
   ratio: number;
-  evidence?: EvidenceSpan;
+  evidence: EvidenceSpan;
 }
 
 export interface DisposalPriceRule {
@@ -78,7 +78,7 @@ export interface DisposalPriceRule {
   /** discount_basis가 prev_close_pct일 때의 h (0.15 = −15%) */
   discount_rate?: number;
   source_confidence: SourceConfidence;
-  evidence?: EvidenceSpan;
+  evidence: EvidenceSpan;
 }
 
 export interface ExecutionScheduleRule {
@@ -86,16 +86,24 @@ export interface ExecutionScheduleRule {
   threshold_ratio: number;
   /** 예: "D일 15:40 평가 → D+2 미해소 시 D+3 개장 집행" */
   day_counting: string;
-  evidence?: EvidenceSpan;
+  evidence: EvidenceSpan;
 }
 
-export interface DocVersion {
-  /** 심사필 번호 (우선) */
-  review_no?: string;
-  /** 번호가 없는 회사(미래에셋·유진 등)의 폴백 */
-  content_sha256?: string;
-  revised_at?: string;
-}
+/**
+ * 문서 버전 식별자 — **둘 중 하나는 반드시 있어야 한다.**
+ *
+ * 심사필 번호가 있는 회사는 그것이 정본 식별자이고, 없는 회사(미래에셋·유진
+ * 확인됨)는 원문 바이트의 sha256이 그 역할을 한다. 둘 다 없으면 "어느 판본을
+ * 읽고 만든 카드인가"에 답할 수 없어 개정 diff도 신선도 판정도 근거를 잃는다.
+ *
+ * 판별 유니온으로 쓴 것은 JSON Schema의 `anyOf: [required review_no,
+ * required content_sha256]`·Pydantic `require_document_identifier`와 같은
+ * 규약을 타입에서도 강제하기 위해서다. 이전에는 세 필드가 전부 선택이라
+ * `doc_version: {}`이 타입체크를 통과하면서 스키마를 위반했다.
+ */
+export type DocVersion =
+  | { review_no: string; content_sha256?: string; revised_at?: string }
+  | { review_no?: string; content_sha256: string; revised_at?: string };
 
 /** 조건 카드 v2. status가 verified인 카드만 계산에 사용한다(2단 상태). */
 export interface ConditionCard {

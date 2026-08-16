@@ -9,6 +9,7 @@
  * 관통(normal) → 통지(notified) → 집행(executed) 상태기계는 replay.test.ts가 따로 고정한다.
  */
 import { describe, it, expect } from "vitest";
+import { TEST_EVIDENCE } from "./evidence-fixture";
 import { replay, replayPortfolio, ReplayUnsupportedError } from "../src/index";
 import type {
   ConditionCard,
@@ -41,11 +42,11 @@ function card(rules: DisposalPriceRule[]): ConditionCard {
   return {
     broker: "테스트",
     ratio_rules: [
-      { product_type: "신용융자", collateral_type: "주식", symbol_group: "일반", ratio: 1.4 },
+      { product_type: "신용융자", collateral_type: "주식", symbol_group: "일반", ratio: 1.4, evidence: TEST_EVIDENCE },
     ],
     account_aggregation: "max",
     disposal_price_rules: rules,
-    execution_schedule: [{ threshold_ratio: 1.4, day_counting: "D+2" }],
+    execution_schedule: [{ threshold_ratio: 1.4, day_counting: "D+2", evidence: TEST_EVIDENCE }],
     ratio_source: "clause",
     doc_version: { review_no: "TEST" },
     status: "verified",
@@ -59,6 +60,7 @@ const RULE_H15: DisposalPriceRule = {
   discount_basis: "prev_close_pct",
   discount_rate: 0.15,
   source_confidence: "explicit",
+  evidence: TEST_EVIDENCE,
 };
 const kisCard = () => card([RULE_H15]);
 

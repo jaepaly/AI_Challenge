@@ -5,6 +5,7 @@
  * 우리 스스로를 차단한다 — 심사 주간 시나리오로 함께 고정.
  */
 import { describe, it, expect } from "vitest";
+import { TEST_EVIDENCE } from "./evidence-fixture";
 import { assessCardFreshness } from "../src/freshness";
 import type { ConditionCard } from "../src/types";
 
@@ -13,7 +14,7 @@ function makeCard(overrides: Partial<ConditionCard> = {}): ConditionCard {
   return {
     broker: "한국투자증권",
     ratio_rules: [
-      { product_type: "신용융자", collateral_type: "현금", symbol_group: "일반", ratio: 1.4 },
+      { product_type: "신용융자", collateral_type: "현금", symbol_group: "일반", ratio: 1.4, evidence: TEST_EVIDENCE },
     ],
     account_aggregation: "max",
     disposal_price_rules: [
@@ -23,10 +24,11 @@ function makeCard(overrides: Partial<ConditionCard> = {}): ConditionCard {
         discount_basis: "prev_close_pct",
         discount_rate: 0.15,
         source_confidence: "explicit",
+        evidence: TEST_EVIDENCE,
       },
     ],
     execution_schedule: [
-      { threshold_ratio: 1.4, day_counting: "D일 15:40 평가 → D+2 미해소 시 D+3 개장 집행" },
+      { threshold_ratio: 1.4, day_counting: "D일 15:40 평가 → D+2 미해소 시 D+3 개장 집행", evidence: TEST_EVIDENCE },
     ],
     ratio_source: "clause",
     doc_version: { review_no: "제2026-0001호" },
