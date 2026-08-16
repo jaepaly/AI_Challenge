@@ -117,6 +117,10 @@
 ### 실제 카드와 계기판 결합
 
 - [x] `[타팀]` A의 `RiskResult` 조립 함수는 PR #33으로 `main`에 반영됨
+- [x] `[게이트·독립 검증]` 저장된 실제 한투 인제스트 카드를 `assembleRiskResult`에 직접 입력
+  - 스냅숏 카드로 치환하지 않고 4차 성공 JSON의 `card`를 그대로 사용
+  - `h=0.15`, `status=draft`, 부족액 30만원, 담보비율 135%, 처분 195주, 해소 4경로 재현
+  - Engine 전체 77 passed, TypeScript·Web build 통과
 - [ ] `[게이트]` 성공한 한투 카드를 D 랜딩에 전달
 - [ ] `[게이트·타팀]` 스냅숏 카드가 아닌 인제스트 실제 카드로 화면이 서는지 확인
 - [ ] `[게이트·타팀]` 부족액·담보비율·처분 수량·4경로가 정상 표시되는지 확인
@@ -148,7 +152,7 @@
   - 빈 `doc_version` 및 evidence 누락 거부 회귀 테스트 포함
 - [x] `[기존]` 동기화·PR #50 반영 후 로컬 전체 테스트 재확인
   - Python 78 passed, 1 warning
-  - Engine 75 passed
+  - Engine 77 passed
   - Web 64 passed
   - lint·production build·compileall·`git diff --check` 통과
 - [x] `[기존]` push 후 GitHub CI·배포 재확인
