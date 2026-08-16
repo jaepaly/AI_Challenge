@@ -191,6 +191,17 @@ class TwoPassIngestTest(unittest.TestCase):
         self.assertEqual(response.headers["x-ingest-pass1-cache-write-tokens"], "42900")
         self.assertIn("x-ingest-pass1-ms", response.headers)
         self.assertIn("x-ingest-pass2-ms", response.headers)
+        self.assertEqual(
+            response.headers["x-ingest-evidence-coordinate-mode"], "character"
+        )
+        self.assertEqual(
+            response.headers["x-ingest-evidence-character-span-count"], "3"
+        )
+        self.assertEqual(
+            response.headers["x-ingest-evidence-non-character-span-count"], "0"
+        )
+        self.assertIn("x-ingest-evidence-max-span", response.headers)
+        self.assertIn("x-ingest-evidence-min-span", response.headers)
 
     def test_first_pass_uses_citations_cache_and_no_sampling_parameters(self) -> None:
         response, fake = self._post()
@@ -385,6 +396,16 @@ class TwoPassIngestTest(unittest.TestCase):
         self.assertEqual(len(fake.messages.calls), 2)
         self.assertEqual(response.headers["x-ingest-pass2-output-tokens"], "700")
         self.assertIn("x-ingest-total-ms", response.headers)
+        self.assertEqual(
+            response.headers["x-ingest-evidence-coordinate-mode"], "character"
+        )
+        self.assertEqual(
+            response.headers["x-ingest-evidence-character-span-count"], "3"
+        )
+        self.assertEqual(
+            response.headers["x-ingest-evidence-duplicate-spans"], "1"
+        )
+        self.assertIn("x-ingest-evidence-max-span", response.headers)
 
     def test_prompt_contract_has_stable_sha256(self) -> None:
         self.assertRegex(prompt_sha256(), r"^[0-9a-f]{64}$")

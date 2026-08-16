@@ -22,7 +22,7 @@
 """
 import os
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any, Mapping
 
 import anthropic
 from dotenv import load_dotenv
@@ -32,6 +32,40 @@ from fastapi.responses import JSONResponse
 from .two_pass import DEFAULT_MODEL, IngestPipelineError, TwoPassIngestService
 
 app = FastAPI(title="marginguard-ingest", version="0.1.0")
+
+
+def _evidence_span_headers(report: Mapping[str, Any]) -> dict[str, str]:
+    """근거 스팬 관측치를 HTTP 헤더로 직렬화한다.
+
+    문자 좌표가 없을 때 max/min을 0으로 보내면 PDF 페이지형 근거가 짧고 좋은
+    것으로 오해된다. 따라서 개수와 좌표 모드는 항상 보내고, max/min은 실제
+    문자 스팬이 있을 때만 보낸다.
+    """
+
+    character_count = int(report.get("character_span_count", 0))
+    headers = {
+        "X-Ingest-Evidence-Coordinate-Mode": str(
+            report.get("coordinate_mode", "none")
+        ),
+        "X-Ingest-Evidence-Character-Span-Count": str(character_count),
+        "X-Ingest-Evidence-Non-Character-Span-Count": str(
+            int(report.get("non_character_span_count", 0))
+        ),
+        "X-Ingest-Evidence-Unmeasurable-Span-Count": str(
+            int(report.get("unmeasurable_span_count", 0))
+        ),
+        "X-Ingest-Evidence-Duplicate-Spans": str(
+            int(report.get("duplicate_spans", 0))
+        ),
+    }
+    if character_count:
+        headers.update(
+            {
+                "X-Ingest-Evidence-Max-Span": str(int(report["max_length"])),
+                "X-Ingest-Evidence-Min-Span": str(int(report["min_length"])),
+            }
+        )
+    return headers
 
 
 @app.get("/health")
@@ -114,6 +148,8 @@ async def ingest(
                     ),
                 }
             )
+        if error.evidence_spans is not None:
+            headers.update(_evidence_span_headers(error.evidence_spans))
         raise HTTPException(status_code=422, detail=str(error), headers=headers) from error
     except anthropic.APIError as error:
         raise HTTPException(status_code=502, detail="Anthropic 인제스트 호출에 실패했습니다") from error
@@ -138,5 +174,8 @@ async def ingest(
             ),
             "X-Ingest-Pass2-Input-Tokens": str(usage.pass2_input_tokens),
             "X-Ingest-Pass2-Output-Tokens": str(usage.pass2_output_tokens),
+            # 근거 스팬 관측치 — 판정에 쓰지 않는다(two_pass.evidence_span_lengths 참조).
+            # 스팬이 크면 4중 방어가 전부 통과해도 근거를 화면에 못 올린다.
+            **_evidence_span_headers(result.evidence_spans),
         },
     )

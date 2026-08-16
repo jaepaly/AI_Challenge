@@ -8,6 +8,7 @@ import httpx
 from benchmarks.hankook_two_pass import (
     HANKOOK_FILENAME,
     build_dry_run_plan,
+    evidence_span_report,
     estimate_max_cost_krw,
     lf_normalized_sha256,
     require_approved_budget,
@@ -125,6 +126,32 @@ class HankookTwoPassGateTest(unittest.TestCase):
         self.assertEqual(report["introductory_price_ends_on"], "2026-08-31")
         self.assertIsNone(report["console_billed_cost_krw"])
 
+    def test_evidence_span_report_reads_failure_headers(self) -> None:
+        report = evidence_span_report(
+            {
+                "x-ingest-evidence-coordinate-mode": "character",
+                "x-ingest-evidence-character-span-count": "3",
+                "x-ingest-evidence-non-character-span-count": "0",
+                "x-ingest-evidence-unmeasurable-span-count": "0",
+                "x-ingest-evidence-max-span": "1621",
+                "x-ingest-evidence-min-span": "115",
+                "x-ingest-evidence-duplicate-spans": "1",
+            }
+        )
+
+        self.assertEqual(
+            report["evidence_spans"],
+            {
+                "coordinate_mode": "character",
+                "character_span_count": 3,
+                "non_character_span_count": 0,
+                "unmeasurable_span_count": 0,
+                "max_length": 1621,
+                "min_length": 115,
+                "duplicate_spans": 1,
+            },
+        )
+
     def test_gate_validator_accepts_known_hankook_card_shape(self) -> None:
         path = REPO_ROOT / "data" / "terms" / HANKOOK_FILENAME
         parsed = parse_document(path)
@@ -195,6 +222,13 @@ class HankookTwoPassGateTest(unittest.TestCase):
                 "x-ingest-pass1-cache-read-tokens": "500",
                 "x-ingest-pass2-input-tokens": "300",
                 "x-ingest-pass2-output-tokens": "400",
+                "x-ingest-evidence-coordinate-mode": "character",
+                "x-ingest-evidence-character-span-count": "3",
+                "x-ingest-evidence-non-character-span-count": "0",
+                "x-ingest-evidence-unmeasurable-span-count": "0",
+                "x-ingest-evidence-max-span": "1621",
+                "x-ingest-evidence-min-span": "115",
+                "x-ingest-evidence-duplicate-spans": "1",
             },
         )
         from benchmarks import hankook_two_pass
@@ -220,6 +254,47 @@ class HankookTwoPassGateTest(unittest.TestCase):
         )
         self.assertIsNone(result["console_billed_cost_krw"])
         self.assertEqual(result["timing_ms"]["total"], 60.0)
+        self.assertEqual(result["evidence_spans"]["max_length"], 1621)
+        self.assertEqual(result["evidence_spans"]["duplicate_spans"], 1)
+
+    def test_completed_result_preserves_role_level_evidence_spans(self) -> None:
+        recorded = json.loads(RECORDED_RESULT.read_text(encoding="utf-8"))
+        response = httpx.Response(
+            200,
+            json=recorded["card"],
+            headers={
+                "x-ingest-parse-ms": "10.0",
+                "x-ingest-pass1-ms": "20000.0",
+                "x-ingest-pass2-ms": "30000.0",
+                "x-ingest-total-ms": "50010.0",
+                "x-ingest-pass1-input-tokens": "100",
+                "x-ingest-pass1-output-tokens": "200",
+                "x-ingest-pass1-cache-write-tokens": "1000",
+                "x-ingest-pass1-cache-read-tokens": "500",
+                "x-ingest-pass2-input-tokens": "300",
+                "x-ingest-pass2-output-tokens": "400",
+            },
+        )
+        from benchmarks import hankook_two_pass
+
+        with patch.object(
+            hankook_two_pass,
+            "_post_ingest",
+            new=AsyncMock(return_value=response),
+        ):
+            result = hankook_two_pass.run_hankook(
+                REPO_ROOT,
+                api_key="sk-ant-test",
+                approved_max_krw=estimate_max_cost_krw(),
+            )
+
+        spans = result["evidence_spans"]["spans"]
+        self.assertEqual(
+            {span["role"] for span in spans},
+            {"ratio_rules", "disposal_price_rules", "execution_schedule"},
+        )
+        self.assertEqual(result["evidence_spans"]["max_length"], 1621)
+        self.assertEqual(result["evidence_spans"]["duplicate_spans"], 1)
 
 
 if __name__ == "__main__":

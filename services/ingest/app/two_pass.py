@@ -69,10 +69,12 @@ class IngestPipelineError(ValueError):
         *,
         timing: PassTiming | None = None,
         usage: TokenUsage | None = None,
+        evidence_spans: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.timing = timing
         self.usage = usage
+        self.evidence_spans = dict(evidence_spans) if evidence_spans is not None else None
 
 
 @dataclass(frozen=True)
@@ -116,6 +118,8 @@ class IngestRun:
     card: ConditionCard
     timing: PassTiming
     usage: TokenUsage
+    #: 근거 스팬 길이 관측치. 판정에 쓰지 않는다 — evidence_span_lengths 참조
+    evidence_spans: dict[str, Any]
 
 
 def _field(value: object, name: str, default: Any = None) -> Any:
@@ -227,6 +231,89 @@ def _all_evidence(card: ConditionCard) -> list[CharacterEvidenceSpan]:
     if not all(isinstance(item, CharacterEvidenceSpan) for item in evidence):
         raise IngestPipelineError("문자 입력 카드에 페이지형 evidence가 포함됐습니다")
     return [item for item in evidence if isinstance(item, CharacterEvidenceSpan)]
+
+
+def evidence_span_lengths(card: ConditionCard | Mapping[str, Any]) -> dict[str, Any]:
+    """근거 스팬 길이 관측치 — **계약이 아니라 텔레메트리다.**
+
+    4중 방어가 전부 통과해도 스팬이 크면 근거가 근거 노릇을 못 한다. 실측(#47
+    4차): ratio·execution이 같은 1,621자 블록(`Ⅱ.상품개요 요약표`)을 가리켰고,
+    그 안에 105%·120%·140%가 함께 들어 있어 `_validate_numeric_quote`가
+    ratio 1.05·1.2·1.4를 똑같이 통과시킨다. 값-근거 결속은 스팬이 문장
+    단위일 때만 성립한다(#47 리뷰).
+
+    여기서 막지 않는 이유는 상한선을 아직 값으로 정할 수 없기 때문이다.
+    관측 기준선: 큐레이션 9건 43~67자, 인제스트 disposal 115자.
+    상한을 스키마에 박는 것은 경계 타입이라 전원 승인이 필요하다.
+
+    `duplicate_spans`는 서로 다른 규칙이 같은 좌표를 근거로 드는 경우다 —
+    두 규칙의 근거가 구분되지 않는다는 신호이고, 4차가 그랬다.
+    """
+
+    spans: list[dict[str, Any]] = []
+    non_character_span_count = 0
+    unmeasurable_span_count = 0
+    for role, rules in (
+        ("ratio_rules", _field(card, "ratio_rules", [])),
+        ("disposal_price_rules", _field(card, "disposal_price_rules", [])),
+        ("execution_schedule", _field(card, "execution_schedule", [])),
+    ):
+        if not isinstance(rules, (list, tuple)):
+            continue
+        for index, rule in enumerate(rules):
+            evidence = _field(rule, "evidence")
+            source_format = _field(evidence, "source_format")
+            if source_format == "pdf":
+                non_character_span_count += 1
+                continue
+            if source_format not in {"text", "html"}:
+                unmeasurable_span_count += 1
+                continue
+            char_start = _field(evidence, "char_start")
+            char_end = _field(evidence, "char_end")
+            if (
+                not isinstance(char_start, int)
+                or isinstance(char_start, bool)
+                or not isinstance(char_end, int)
+                or isinstance(char_end, bool)
+            ):
+                unmeasurable_span_count += 1
+                continue
+            spans.append(
+                {
+                    "role": role,
+                    "index": index,
+                    "source_format": source_format,
+                    "char_start": char_start,
+                    "char_end": char_end,
+                    "length": char_end - char_start,
+                }
+            )
+    lengths = [span["length"] for span in spans]
+    coordinates = [
+        (span["source_format"], span["char_start"], span["char_end"])
+        for span in spans
+    ]
+    character_span_count = len(spans)
+    if character_span_count and non_character_span_count:
+        coordinate_mode = "mixed"
+    elif character_span_count:
+        coordinate_mode = "character"
+    elif non_character_span_count:
+        coordinate_mode = "page"
+    else:
+        coordinate_mode = "none"
+    return {
+        "spans": spans,
+        "max_length": max(lengths, default=0),
+        "min_length": min(lengths, default=0),
+        # 같은 좌표를 두 규칙이 근거로 들면 근거가 구분되지 않는다
+        "duplicate_spans": len(coordinates) - len(set(coordinates)),
+        "character_span_count": character_span_count,
+        "non_character_span_count": non_character_span_count,
+        "unmeasurable_span_count": unmeasurable_span_count,
+        "coordinate_mode": coordinate_mode,
+    }
 
 
 def _validate_evidence_provenance(
@@ -449,6 +536,7 @@ class TwoPassIngestService:
             },
         )
         pass2_ms = (perf_counter() - pass2_started) * 1000
+        evidence_spans: dict[str, Any] | None = None
         try:
             _require_complete_response(pass2, "2패스")
             try:
@@ -467,6 +555,9 @@ class TwoPassIngestService:
                 citations,
                 sha256(data).hexdigest(),
             )
+            # 카드 검증이 fail-closed로 끝나도 유료 실행의 근거 스팬 관측치는 남긴다.
+            # 이 값은 판정이나 카드 반환에 쓰지 않는다.
+            evidence_spans = evidence_span_lengths(normalized_card_data)
             card = _validate_card(normalized_card_data, citations)
         except IngestPipelineError as error:
             if error.timing is not None:
@@ -480,6 +571,7 @@ class TwoPassIngestService:
                     total_ms=(perf_counter() - total_started) * 1000,
                 ),
                 usage=_token_usage(pass1, pass2),
+                evidence_spans=error.evidence_spans or evidence_spans,
             ) from error
 
         return IngestRun(
@@ -491,6 +583,7 @@ class TwoPassIngestService:
                 total_ms=(perf_counter() - total_started) * 1000,
             ),
             usage=_token_usage(pass1, pass2),
+            evidence_spans=evidence_span_lengths(card),
         )
 
 
