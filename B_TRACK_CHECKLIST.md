@@ -46,7 +46,7 @@
 - [x] `[기존]` 성공 결과 JSON과 보존 중인 실패 결과 파일을 분리
 - [x] `[기존]` 성공 결과를 한투 정본으로 다시 검증하는 회귀 테스트 추가
 - [x] `[기존]` 전체 Python·Engine·Web·lint·build 재검증
-  - Python 56 passed, 1 warning
+  - Python 57 passed, 1 warning
   - Engine 75 passed
   - Web 64 passed
   - lint 통과
@@ -131,6 +131,7 @@
 - [x] `[감지]` `services/ingest/benchmarks/results/hankook_two_pass.json` 처리
   - 4차 성공 결과 정본으로 커밋
   - 한투 원문 재검증 테스트로 고정
+  - 실제 제출 SHA와 LF 정규화 SHA를 분리해 Windows/Linux CI 재현 기준 기록
 - [ ] `[감지]` `services/ingest/benchmarks/results/raw_pdf_batch_submission.json` 처리
   - 운영용 manifest
   - 근거 결과가 아니므로 커밋하지 않기

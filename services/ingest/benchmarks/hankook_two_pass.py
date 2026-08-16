@@ -46,6 +46,17 @@ CACHE_WRITE_MULTIPLIER = 1.25
 CACHE_READ_MULTIPLIER = 0.10
 
 
+def lf_normalized_sha256(data: bytes) -> str:
+    """개행만 LF로 통일한 교차 플랫폼 비교용 SHA-256을 반환한다.
+
+    ``document_sha256``은 실제 제출 바이트의 감사 기록이라 바꾸지 않는다.
+    이 값은 Windows CRLF와 Linux LF 체크아웃을 같은 문서로 대조할 때만 쓴다.
+    """
+
+    normalized = data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return sha256(normalized).hexdigest()
+
+
 def estimate_max_cost_krw(
     *,
     pass1_max_tokens: int = PASS1_MAX_TOKENS,
@@ -124,6 +135,7 @@ def require_approved_budget(approved_max_krw: float) -> float:
 
 def build_dry_run_plan(repo_root: Path) -> dict[str, Any]:
     path = repo_root / "data" / "terms" / HANKOOK_FILENAME
+    document_bytes = path.read_bytes()
     parsed = parse_document(path)
     return {
         "status": "dry_run",
@@ -133,7 +145,9 @@ def build_dry_run_plan(repo_root: Path) -> dict[str, Any]:
         "document": {
             "filename": path.name,
             "bytes": path.stat().st_size,
-            "sha256": sha256(path.read_bytes()).hexdigest(),
+            "sha256": sha256(document_bytes).hexdigest(),
+            "sha256_scope": "submitted_bytes",
+            "lf_normalized_sha256": lf_normalized_sha256(document_bytes),
             "flattened_sha256": parsed.flattened_sha256,
             "measured_input_tokens": MEASURED_PASS1_INPUT_TOKENS,
         },
@@ -241,6 +255,7 @@ def run_hankook(
     estimated = require_approved_budget(approved_max_krw)
     response = asyncio.run(_post_ingest(repo_root=repo_root, api_key=api_key, model=model))
     path = repo_root / "data" / "terms" / HANKOOK_FILENAME
+    document_bytes = path.read_bytes()
     headers = {key.lower(): value for key, value in response.headers.items()}
     if response.status_code != 200:
         timing_headers = {
@@ -260,7 +275,9 @@ def run_hankook(
             "http_status": response.status_code,
             "detail": response.json().get("detail", response.text[:500]),
             "model": model,
-            "document_sha256": sha256(path.read_bytes()).hexdigest(),
+            "document_sha256": sha256(document_bytes).hexdigest(),
+            "document_sha256_scope": "submitted_bytes",
+            "document_lf_sha256": lf_normalized_sha256(document_bytes),
             "prompt_sha256": prompt_sha256(),
             "approved_max_cost_krw": approved_max_krw,
             "estimated_max_cost_krw": estimated,
@@ -287,7 +304,9 @@ def run_hankook(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "endpoint": "POST /ingest",
         "model": model,
-        "document_sha256": sha256(path.read_bytes()).hexdigest(),
+        "document_sha256": sha256(document_bytes).hexdigest(),
+        "document_sha256_scope": "submitted_bytes",
+        "document_lf_sha256": lf_normalized_sha256(document_bytes),
         "prompt_sha256": prompt_sha256(),
         "approved_max_cost_krw": approved_max_krw,
         "estimated_max_cost_krw": estimated,

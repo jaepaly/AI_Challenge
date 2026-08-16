@@ -9,6 +9,7 @@ from benchmarks.hankook_two_pass import (
     HANKOOK_FILENAME,
     build_dry_run_plan,
     estimate_max_cost_krw,
+    lf_normalized_sha256,
     require_approved_budget,
     usage_cost_report,
     validate_gate_card,
@@ -41,7 +42,15 @@ class HankookTwoPassGateTest(unittest.TestCase):
         )
 
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["document_sha256"], plan["document"]["sha256"])
+        self.assertEqual(result["document_sha256_scope"], "submitted_bytes")
+        self.assertEqual(
+            result["document_lf_sha256"],
+            plan["document"]["lf_normalized_sha256"],
+        )
+        self.assertEqual(
+            result["document_lf_sha256"],
+            "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
+        )
         self.assertEqual(result["prompt_sha256"], plan["prompt_sha256"])
         self.assertEqual(result["approved_max_cost_krw"], 650.0)
         self.assertEqual(result["estimated_max_cost_krw"], 601.01)
@@ -65,6 +74,11 @@ class HankookTwoPassGateTest(unittest.TestCase):
         self.assertEqual(plan["status"], "dry_run")
         self.assertEqual(plan["network_requests"], 0)
         self.assertEqual(plan["document"]["measured_input_tokens"], 42_948)
+        self.assertEqual(plan["document"]["sha256_scope"], "submitted_bytes")
+        self.assertEqual(
+            plan["document"]["lf_normalized_sha256"],
+            "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
+        )
         self.assertEqual(plan["cache_control"], "ephemeral_5m")
         self.assertGreater(plan["estimated_max_cost_krw"], 550)
         self.assertLess(plan["estimated_max_cost_krw"], 650)
@@ -75,6 +89,12 @@ class HankookTwoPassGateTest(unittest.TestCase):
                 "output_usd_per_mtok": 15.0,
                 "krw_per_usd": 1500.0,
             },
+        )
+
+    def test_lf_normalized_sha_is_stable_across_line_endings(self) -> None:
+        self.assertEqual(
+            lf_normalized_sha256(b"first\r\nsecond\r\n"),
+            lf_normalized_sha256(b"first\nsecond\n"),
         )
 
     def test_budget_guard_rejects_below_estimated_ceiling(self) -> None:

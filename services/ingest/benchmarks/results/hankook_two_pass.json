@@ -4,6 +4,8 @@
   "endpoint": "POST /ingest",
   "model": "claude-sonnet-5",
   "document_sha256": "10e3f5ce98995f6bc4e70933340435d5ff9af5e086d38a5ab1db2145d9cd1a4b",
+  "document_sha256_scope": "submitted_bytes",
+  "document_lf_sha256": "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
   "prompt_sha256": "70ce01c9743bb8cc16fe2467ec83b493cc476c7d0e72b01635a8b63a5ca8de81",
   "approved_max_cost_krw": 650.0,
   "estimated_max_cost_krw": 601.01,
