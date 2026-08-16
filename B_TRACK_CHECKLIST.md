@@ -29,10 +29,11 @@
 - [x] [PR #46](https://github.com/jaepaly/AI_Challenge/pull/46) 병합 확인: `b91d2f0`
 - [x] [PR #49](https://github.com/jaepaly/AI_Challenge/pull/49) 병합 확인: `d129f10`
 - [x] [PR #47](https://github.com/jaepaly/AI_Challenge/pull/47)에 최신 `main` 2커밋 로컬 반영
-  - 현재 PR #47 HEAD: `4de51dd`
+  - 현재 PR #47 HEAD: `fe70283`
   - 현재 `main` HEAD: `d129f10`
   - PR #46·#49를 일반 merge한 로컬 커밋: `0092464`
-  - 원격 push는 아직 하지 않음
+  - 원격 push 완료, force push 사용 안 함
+  - GitHub CI·배포 모두 성공
 
 ## P0 — 현재 작업: PR #47 성공 카드 생성
 
@@ -67,7 +68,7 @@
 - [x] `[기존]` 성공 결과 JSON과 보존 중인 실패 결과 파일을 분리
 - [x] `[기존]` 성공 결과를 한투 정본으로 다시 검증하는 회귀 테스트 추가
 - [x] `[기존]` 전체 Python·Engine·Web·lint·build 재검증
-  - Python 57 passed, 1 warning
+  - 최종 통합 기준 Python 77 passed, 1 warning
   - Engine 75 passed
   - Web 64 passed
   - lint 통과
@@ -136,16 +137,22 @@
   - 422 실패 응답에 evidence 헤더가 실제로 남는 endpoint 테스트 추가
   - 성공 결과 JSON에 규칙별 `role·좌표·length` 보존
   - 페이지형 근거를 `coordinate_mode=page`와 별도 개수로 구분
-- [ ] `[직접 요청]` 로컬 보완 커밋 push 후 PR #50 상태·리뷰 정리
+- [x] `[직접 요청]` 로컬 보완 커밋 push 후 PR #50 상태·리뷰 정리
+  - 보완 커밋 `899f647`을 PR #47 브랜치에 push
+  - PR #50 원본 커밋과 보완 커밋이 PR #47에 포함되면서 GitHub상 병합 완료로 정리됨
 - [x] `[감지]` PR #46·#49를 포함한 최신 `main`을 PR #47에 일반 merge
   - 로컬 merge commit `0092464`
-- [ ] `[감지]` `evidence`·`doc_version` 필수 계약과 PR #47 생산 카드 재대조
+- [x] `[감지]` `evidence`·`doc_version` 필수 계약과 PR #47 생산 카드 재대조
+  - 최신 main 계약을 반영한 Pydantic 전체 검증에서 성공 카드 통과
+  - 빈 `doc_version` 및 evidence 누락 거부 회귀 테스트 포함
 - [x] `[기존]` 동기화·PR #50 반영 후 로컬 전체 테스트 재확인
   - Python 77 passed, 1 warning
   - Engine 75 passed
   - Web 64 passed
   - lint·production build·compileall·`git diff --check` 통과
-- [ ] `[기존]` push 후 GitHub CI·배포 재확인
+- [x] `[기존]` push 후 GitHub CI·배포 재확인
+  - `fe70283` 기준 GitHub CI run 137 성공
+  - 배포 run 89 성공
 - [ ] `[기존]` 팀원의 최신 커밋 재검토 확인
 - [ ] `[기존]` PR #47을 Draft에서 Ready for review로 전환
 - [ ] `[기존]` 최소 1인 리뷰 승인 확보
@@ -201,7 +208,8 @@
   - 운영용 manifest
   - 근거 결과가 아니므로 커밋하지 않기
   - PR #43 브랜치의 ignore 규칙 반영 여부 확인
-- [ ] `[감지]` 미추적 파일이 정리되기 전 `git add .` 사용 금지
+- [x] `[감지]` 현재 PR #47에서는 manifest를 추적하지 않고 제외 유지
+- [x] `[감지]` 미추적 파일이 정리되기 전 `git add .` 사용 금지
 - [x] `[감지]` pytest 임시 캐시 디렉터리 권한 경고 정리
   - 미추적 `services/ingest/pytest-cache-files-*` 29개만 경계 검증 후 삭제
   - 전체 검증은 `-p no:cacheprovider`로 실행해 재생성 없이 77 passed
