@@ -21,12 +21,47 @@
   },
   "within_60_seconds": false,
   "usage": {
-    "pass1-input-tokens": "80",
-    "pass1-output-tokens": "2115",
-    "pass1-cache-write-tokens": "43456",
-    "pass1-cache-read-tokens": "0",
-    "pass2-input-tokens": "8165",
-    "pass2-output-tokens": "3861"
+    "pass1-input-tokens": 80,
+    "pass1-output-tokens": 2115,
+    "pass1-cache-write-tokens": 43456,
+    "pass1-cache-read-tokens": 0,
+    "pass2-input-tokens": 8165,
+    "pass2-output-tokens": 3861
+  },
+  "evidence_spans": {
+    "spans": [
+      {
+        "role": "ratio_rules",
+        "index": 0,
+        "source_format": "html",
+        "char_start": 4444,
+        "char_end": 6065,
+        "length": 1621
+      },
+      {
+        "role": "disposal_price_rules",
+        "index": 0,
+        "source_format": "html",
+        "char_start": 3342,
+        "char_end": 3457,
+        "length": 115
+      },
+      {
+        "role": "execution_schedule",
+        "index": 0,
+        "source_format": "html",
+        "char_start": 4444,
+        "char_end": 6065,
+        "length": 1621
+      }
+    ],
+    "max_length": 1621,
+    "min_length": 115,
+    "duplicate_spans": 1,
+    "character_span_count": 3,
+    "non_character_span_count": 0,
+    "unmeasurable_span_count": 0,
+    "coordinate_mode": "character"
   },
   "checks": {
     "status_draft": true,

@@ -45,6 +45,14 @@ INTRODUCTORY_PRICE_ENDS_ON = "2026-08-31"
 KRW_PER_USD = 1_500.0
 CACHE_WRITE_MULTIPLIER = 1.25
 CACHE_READ_MULTIPLIER = 0.10
+USAGE_TOKEN_HEADERS = (
+    "x-ingest-pass1-input-tokens",
+    "x-ingest-pass1-output-tokens",
+    "x-ingest-pass1-cache-write-tokens",
+    "x-ingest-pass1-cache-read-tokens",
+    "x-ingest-pass2-input-tokens",
+    "x-ingest-pass2-output-tokens",
+)
 
 
 def lf_normalized_sha256(data: bytes) -> str:
@@ -152,6 +160,16 @@ def usage_cost_report(headers: Mapping[str, str]) -> dict[str, Any]:
         ),
         "introductory_price_ends_on": INTRODUCTORY_PRICE_ENDS_ON,
         "console_billed_cost_krw": None,
+    }
+
+
+def usage_token_report(headers: Mapping[str, str]) -> dict[str, int]:
+    """HTTP 헤더의 토큰 수를 기계 검산 가능한 JSON 정수로 바꾼다."""
+
+    return {
+        header.removeprefix("x-ingest-"): int(headers[header])
+        for header in USAGE_TOKEN_HEADERS
+        if header in headers
     }
 
 
@@ -294,11 +312,7 @@ def run_hankook(
             for key in ("parse", "pass1", "pass2", "total")
             if f"x-ingest-{key}-ms" in headers
         }
-        usage_headers = {
-            key.removeprefix("x-ingest-"): value
-            for key, value in headers.items()
-            if key.startswith("x-ingest-pass") and key.endswith("tokens")
-        }
+        usage_headers = usage_token_report(headers)
         failure: dict[str, Any] = {
             "status": "failed",
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -315,14 +329,7 @@ def run_hankook(
             "timing_ms": timing_headers,
             "usage": usage_headers,
         }
-        required_cost_headers = {
-            "x-ingest-pass1-input-tokens",
-            "x-ingest-pass1-output-tokens",
-            "x-ingest-pass1-cache-write-tokens",
-            "x-ingest-pass1-cache-read-tokens",
-            "x-ingest-pass2-input-tokens",
-            "x-ingest-pass2-output-tokens",
-        }
+        required_cost_headers = set(USAGE_TOKEN_HEADERS)
         if required_cost_headers <= headers.keys():
             failure.update(usage_cost_report(headers))
         failure.update(evidence_span_report(headers))
@@ -352,11 +359,7 @@ def run_hankook(
             "total": total_ms,
         },
         "within_60_seconds": total_ms <= 60_000,
-        "usage": {
-            key.removeprefix("x-ingest-"): value
-            for key, value in headers.items()
-            if key.startswith("x-ingest-pass") and key.endswith("tokens")
-        },
+        "usage": usage_token_report(headers),
         "checks": checks,
         "card": card_data,
     }

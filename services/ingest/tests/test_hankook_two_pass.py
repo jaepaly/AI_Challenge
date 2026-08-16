@@ -13,9 +13,12 @@ from benchmarks.hankook_two_pass import (
     lf_normalized_sha256,
     require_approved_budget,
     usage_cost_report,
+    usage_token_report,
     validate_gate_card,
 )
 from app.parsing import parse_document
+from app.schemas import ConditionCard
+from app.two_pass import evidence_span_lengths
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -68,6 +71,13 @@ class HankookTwoPassGateTest(unittest.TestCase):
         )
         self.assertFalse(result["within_60_seconds"])
         self.assertIsNone(result["console_billed_cost_krw"])
+        self.assertTrue(
+            all(isinstance(value, int) for value in result["usage"].values())
+        )
+        self.assertEqual(
+            result["evidence_spans"],
+            evidence_span_lengths(ConditionCard.model_validate(result["card"])),
+        )
 
     def test_dry_run_is_network_free_and_uses_measured_input(self) -> None:
         plan = build_dry_run_plan(REPO_ROOT)
@@ -125,6 +135,22 @@ class HankookTwoPassGateTest(unittest.TestCase):
         )
         self.assertEqual(report["introductory_price_ends_on"], "2026-08-31")
         self.assertIsNone(report["console_billed_cost_krw"])
+
+    def test_usage_token_report_serializes_header_values_as_integers(self) -> None:
+        report = usage_token_report(
+            {
+                "x-ingest-pass1-input-tokens": "100",
+                "x-ingest-pass1-output-tokens": "200",
+                "x-ingest-pass1-cache-write-tokens": "1000",
+                "x-ingest-pass1-cache-read-tokens": "500",
+                "x-ingest-pass2-input-tokens": "300",
+                "x-ingest-pass2-output-tokens": "400",
+            }
+        )
+
+        self.assertEqual(report["pass1-input-tokens"], 100)
+        self.assertEqual(report["pass2-output-tokens"], 400)
+        self.assertTrue(all(isinstance(value, int) for value in report.values()))
 
     def test_evidence_span_report_reads_failure_headers(self) -> None:
         report = evidence_span_report(
@@ -254,6 +280,8 @@ class HankookTwoPassGateTest(unittest.TestCase):
         )
         self.assertIsNone(result["console_billed_cost_krw"])
         self.assertEqual(result["timing_ms"]["total"], 60.0)
+        self.assertEqual(result["usage"]["pass1-input-tokens"], 100)
+        self.assertIsInstance(result["usage"]["pass2-output-tokens"], int)
         self.assertEqual(result["evidence_spans"]["max_length"], 1621)
         self.assertEqual(result["evidence_spans"]["duplicate_spans"], 1)
 
@@ -295,6 +323,8 @@ class HankookTwoPassGateTest(unittest.TestCase):
         )
         self.assertEqual(result["evidence_spans"]["max_length"], 1621)
         self.assertEqual(result["evidence_spans"]["duplicate_spans"], 1)
+        self.assertEqual(result["usage"]["pass1-input-tokens"], 100)
+        self.assertIsInstance(result["usage"]["pass2-output-tokens"], int)
 
 
 if __name__ == "__main__":

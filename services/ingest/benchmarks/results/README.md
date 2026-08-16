@@ -41,3 +41,7 @@ GitHub Linux 체크아웃은 같은 HTML을 LF로 보관해 원시 SHA가 `02209
 `test_hankook_two_pass.py`가 결과의 문서·프롬프트 해시와 카드를 한투 정본으로
 다시 검증한다. `hankook_two_pass_attempt*_failed.json`은 성공 전 실패 원인을
 보존하는 별도 기록이다.
+
+토큰 사용량은 재검산할 때 별도 형변환이 필요 없도록 JSON 정수로 기록한다.
+`evidence_spans`는 저장된 카드에서 결정론적으로 다시 계산한 역할별 좌표·길이와
+중복 개수이며, 원 API 응답이나 카드 값을 사후 변경한 것이 아니다.
