@@ -1,12 +1,13 @@
 /**
- * B의 실제 POST /ingest 성공 산출물이 A 엔진의 단일 진입점을 통과하는지 확인한다.
+ * B의 4차 POST /ingest 성공 산출물을 동결한 픽스처가 A 엔진의 단일 진입점을
+ * 통과하는지 확인한다.
  *
- * 같은 JSON은 Python의 test_hankook_two_pass.py가 JSON Schema·Pydantic·원문 좌표로
- * 검증한다. 여기서는 그 검증을 복제하지 않고, 저장된 실제 카드가 TypeScript 엔진에서
- * 스냅숏 픽스처로 교체되지 않은 채 RiskResult를 만드는 교차 경계만 고정한다.
+ * 벤치마크 정본은 재실행 시 합법적으로 바뀔 수 있으므로 엔진 테스트에서 직접 import하지
+ * 않는다. 여기서 확인하는 경계는 카드의 h·status이며, 유지비율 r은 아직 원장
+ * requiredRatio에서 읽는다. ratio_rules 소비는 별도 랜딩 결선 과제다.
  */
 import { describe, expect, it } from "vitest";
-import recorded from "../../../services/ingest/benchmarks/results/hankook_two_pass.json";
+import recorded from "./fixtures/hankook-ingest-fourth-success.json";
 import { assembleRiskResult, disposalDiscountRate } from "../src/index";
 import type { ConditionCard, CreditLedger, Position } from "../src/index";
 
@@ -28,13 +29,15 @@ const ledger: CreditLedger = {
 
 describe("실제 한투 인제스트 카드 → RiskResult", () => {
   it("저장된 4차 성공 카드를 수정 없이 읽어 h=0.15와 draft 상태를 보존한다", () => {
-    expect(recorded.status).toBe("completed");
+    expect(recorded.recorded_status).toBe("completed");
     expect(card.doc_version).toEqual({ review_no: "2026-0265" });
     expect(card.status).toBe("draft");
     expect(disposalDiscountRate(card)).toBe(0.15);
   });
 
-  it("골든 계좌에서 D 30만·195주·4경로를 한 번의 조립으로 생성한다", () => {
+  it("카드 h·status와 원장 r을 조립해 D 30만·195주·4경로를 생성한다", () => {
+    expect(card.ratio_rules[0]?.ratio).toBe(1.4);
+    expect(ledger.requiredRatio).toBe(1.4);
     const result = assembleRiskResult({
       positions,
       ledger,
