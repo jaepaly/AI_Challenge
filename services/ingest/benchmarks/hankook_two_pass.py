@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from base64 import urlsafe_b64decode
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
@@ -123,6 +124,13 @@ def evidence_span_report(headers: Mapping[str, str]) -> dict[str, Any]:
         "max_length": "x-ingest-evidence-max-span",
         "min_length": "x-ingest-evidence-min-span",
         "duplicate_spans": "x-ingest-evidence-duplicate-spans",
+        "ambiguous_percent_spans": (
+            "x-ingest-evidence-ambiguous-percent-spans"
+        ),
+        "ambiguous_bound_percent_spans": (
+            "x-ingest-evidence-ambiguous-bound-percent-spans"
+        ),
+        "derived_span_count": "x-ingest-evidence-derived-span-count",
         "character_span_count": "x-ingest-evidence-character-span-count",
         "non_character_span_count": (
             "x-ingest-evidence-non-character-span-count"
@@ -137,7 +145,40 @@ def evidence_span_report(headers: Mapping[str, str]) -> dict[str, Any]:
     coordinate_mode = headers.get("x-ingest-evidence-coordinate-mode")
     if coordinate_mode is not None:
         report["coordinate_mode"] = coordinate_mode
-    return {"evidence_spans": report} if report else {}
+    all_single_percent = headers.get("x-ingest-evidence-all-single-percent")
+    if all_single_percent is not None:
+        report["all_spans_single_percent_candidate"] = (
+            all_single_percent.lower() == "true"
+        )
+    all_bound_single = headers.get(
+        "x-ingest-evidence-all-numeric-bindings-single-percent"
+    )
+    if all_bound_single is not None:
+        report["all_numeric_bindings_single_percent_candidate"] = (
+            all_bound_single.lower() == "true"
+        )
+    encoded_spans = headers.get("x-ingest-evidence-spans")
+    if encoded_spans is not None:
+        try:
+            spans = json.loads(urlsafe_b64decode(encoded_spans).decode("ascii"))
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        else:
+            if isinstance(spans, list):
+                report["spans"] = spans
+    result = {"evidence_spans": report} if report else {}
+    encoded_candidates = headers.get("x-ingest-citation-candidates")
+    if encoded_candidates is not None:
+        try:
+            candidates = json.loads(
+                urlsafe_b64decode(encoded_candidates).decode("ascii")
+            )
+        except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+            pass
+        else:
+            if isinstance(candidates, list):
+                result["citation_candidates"] = candidates
+    return result
 
 
 def usage_cost_report(headers: Mapping[str, str]) -> dict[str, Any]:
@@ -338,6 +379,9 @@ def run_hankook(
     card_data = response.json()
     checks = validate_gate_card(repo_root, card_data, parse_document(path))
     evidence_spans = evidence_span_lengths(ConditionCard.model_validate(card_data))
+    header_evidence = evidence_span_report(headers).get("evidence_spans")
+    if isinstance(header_evidence, Mapping) and "spans" in header_evidence:
+        evidence_spans = dict(header_evidence)
     total_ms = float(headers["x-ingest-total-ms"])
     return {
         "status": "completed",

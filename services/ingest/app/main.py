@@ -20,6 +20,8 @@
 
 실행: uvicorn app.main:app --reload --port 8000
 """
+from base64 import urlsafe_b64encode
+import json
 import os
 from pathlib import Path
 from typing import Annotated, Any, Mapping
@@ -57,6 +59,25 @@ def _evidence_span_headers(report: Mapping[str, Any]) -> dict[str, str]:
         "X-Ingest-Evidence-Duplicate-Spans": str(
             int(report.get("duplicate_spans", 0))
         ),
+        "X-Ingest-Evidence-Ambiguous-Percent-Spans": str(
+            int(report.get("ambiguous_percent_spans", 0))
+        ),
+        "X-Ingest-Evidence-All-Single-Percent": str(
+            bool(report.get("all_spans_single_percent_candidate", False))
+        ).lower(),
+        "X-Ingest-Evidence-Ambiguous-Bound-Percent-Spans": str(
+            int(report.get("ambiguous_bound_percent_spans", 0))
+        ),
+        "X-Ingest-Evidence-All-Numeric-Bindings-Single-Percent": str(
+            bool(
+                report.get(
+                    "all_numeric_bindings_single_percent_candidate", False
+                )
+            )
+        ).lower(),
+        "X-Ingest-Evidence-Derived-Span-Count": str(
+            int(report.get("derived_span_count", 0))
+        ),
     }
     if character_count:
         headers.update(
@@ -65,7 +86,52 @@ def _evidence_span_headers(report: Mapping[str, Any]) -> dict[str, str]:
                 "X-Ingest-Evidence-Min-Span": str(int(report["min_length"])),
             }
         )
+    spans = report.get("spans")
+    if isinstance(spans, list):
+        safe_spans = [
+            {
+                key: span[key]
+                for key in (
+                    "role",
+                    "index",
+                    "source_format",
+                    "char_start",
+                    "char_end",
+                    "length",
+                    "percent_values",
+                    "bound_percent_values",
+                    "numeric_binding_required",
+                    "parent_char_start",
+                    "parent_char_end",
+                    "derived_from_parent",
+                )
+                if key in span
+            }
+            for span in spans
+            if isinstance(span, Mapping)
+        ]
+        encoded = json.dumps(
+            safe_spans,
+            ensure_ascii=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        # 프록시의 일반적인 단일 헤더 한도 아래에서만 상세 관측치를 보낸다.
+        if len(encoded) <= 4096:
+            headers["X-Ingest-Evidence-Spans"] = urlsafe_b64encode(
+                encoded
+            ).decode("ascii")
     return headers
+
+
+def _compact_json_header(value: object) -> str | None:
+    encoded = json.dumps(
+        value,
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("ascii")
+    if len(encoded) > 4096:
+        return None
+    return urlsafe_b64encode(encoded).decode("ascii")
 
 
 @app.get("/health")
@@ -150,6 +216,10 @@ async def ingest(
             )
         if error.evidence_spans is not None:
             headers.update(_evidence_span_headers(error.evidence_spans))
+        if error.citation_candidates is not None:
+            encoded_candidates = _compact_json_header(error.citation_candidates)
+            if encoded_candidates is not None:
+                headers["X-Ingest-Citation-Candidates"] = encoded_candidates
         raise HTTPException(status_code=422, detail=str(error), headers=headers) from error
     except anthropic.APIError as error:
         raise HTTPException(status_code=502, detail="Anthropic 인제스트 호출에 실패했습니다") from error

@@ -1,3 +1,4 @@
+from base64 import urlsafe_b64encode
 import json
 from pathlib import Path
 import unittest
@@ -18,7 +19,14 @@ from benchmarks.hankook_two_pass import (
 )
 from app.parsing import parse_document
 from app.schemas import ConditionCard
-from app.two_pass import evidence_span_lengths
+from app.two_pass import (
+    PASS1_SYSTEM,
+    CitationSpan,
+    _maintenance_row_values,
+    _percent_values,
+    _role_citations,
+    evidence_span_lengths,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -30,10 +38,30 @@ RECORDED_RESULT = (
     / "results"
     / "hankook_two_pass.json"
 )
+ENGINE_FROZEN_FIXTURE = (
+    REPO_ROOT
+    / "packages"
+    / "engine"
+    / "test"
+    / "fixtures"
+    / "hankook-ingest-fourth-success.json"
+)
+ATTEMPT6_RESULT = (
+    REPO_ROOT
+    / "services"
+    / "ingest"
+    / "benchmarks"
+    / "results"
+    / "hankook_two_pass_attempt6_failed.json"
+)
 
 
 class HankookTwoPassGateTest(unittest.TestCase):
-    def test_recorded_first_success_revalidates_against_hankook_source(
+    def test_first_pass_requests_minimal_claim_specific_citations(self) -> None:
+        self.assertIn("최소 문장·표 행", PASS1_SYSTEM)
+        self.assertIn("여러 규칙을 한 번에 인용하지 말고", PASS1_SYSTEM)
+
+    def test_recorded_fourth_success_revalidates_against_hankook_source(
         self,
     ) -> None:
         result = json.loads(RECORDED_RESULT.read_text(encoding="utf-8"))
@@ -55,7 +83,11 @@ class HankookTwoPassGateTest(unittest.TestCase):
             result["document_lf_sha256"],
             "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
         )
-        self.assertEqual(result["prompt_sha256"], plan["prompt_sha256"])
+        self.assertEqual(
+            result["prompt_sha256"],
+            "70ce01c9743bb8cc16fe2467ec83b493cc476c7d0e72b01635a8b63a5ca8de81",
+        )
+        self.assertNotEqual(result["prompt_sha256"], plan["prompt_sha256"])
         self.assertEqual(result["approved_max_cost_krw"], 650.0)
         self.assertEqual(result["estimated_max_cost_krw"], 601.01)
         self.assertEqual(result["checks"], checks)
@@ -69,15 +101,135 @@ class HankookTwoPassGateTest(unittest.TestCase):
             result["within_60_seconds"],
             result["timing_ms"]["total"] <= 60_000,
         )
-        self.assertFalse(result["within_60_seconds"])
         self.assertIsNone(result["console_billed_cost_krw"])
         self.assertTrue(
             all(isinstance(value, int) for value in result["usage"].values())
         )
-        self.assertEqual(
-            result["evidence_spans"],
-            evidence_span_lengths(ConditionCard.model_validate(result["card"])),
+        current_report = evidence_span_lengths(
+            ConditionCard.model_validate(result["card"])
         )
+        # 4차 결과의 당시 텔레메트리는 보존하고, 이후 추가된 필드는 현재
+        # 계산값에서 별도로 허용한다. 기존 키의 의미가 바뀌지는 않아야 한다.
+        for key, value in result["evidence_spans"].items():
+            if key == "spans":
+                continue
+            self.assertEqual(current_report[key], value)
+        self.assertEqual(
+            len(current_report["spans"]),
+            len(result["evidence_spans"]["spans"]),
+        )
+        for recorded_span, current_span in zip(
+            result["evidence_spans"]["spans"],
+            current_report["spans"],
+            strict=True,
+        ):
+            for key, value in recorded_span.items():
+                self.assertEqual(current_span[key], value)
+
+    def test_frozen_engine_fixture_is_traceable_to_fourth_success(self) -> None:
+        fixture = json.loads(ENGINE_FROZEN_FIXTURE.read_text(encoding="utf-8"))
+        path = REPO_ROOT / "data" / "terms" / HANKOOK_FILENAME
+
+        self.assertEqual(fixture["fixture_kind"], "frozen-fourth-success")
+        self.assertEqual(
+            fixture["source_result"],
+            "services/ingest/benchmarks/results/hankook_two_pass.json",
+        )
+        self.assertEqual(
+            fixture["source_prompt_sha256"],
+            "70ce01c9743bb8cc16fe2467ec83b493cc476c7d0e72b01635a8b63a5ca8de81",
+        )
+        self.assertEqual(fixture["recorded_status"], "completed")
+        checks = validate_gate_card(
+            REPO_ROOT,
+            fixture["card"],
+            parse_document(path),
+        )
+        self.assertTrue(all(checks.values()))
+
+    def test_sixth_run_native_citations_yield_minimal_role_subspans(self) -> None:
+        result = json.loads(ATTEMPT6_RESULT.read_text(encoding="utf-8"))
+        path = REPO_ROOT / "data" / "terms" / HANKOOK_FILENAME
+        document = parse_document(path)
+        text = document.units[0].text
+        native_citations = tuple(
+            CitationSpan(
+                source_format="html",
+                char_start=candidate["char_start"],
+                char_end=candidate["char_end"],
+                flattened_sha256=document.flattened_sha256 or "",
+                quote=text[candidate["char_start"] : candidate["char_end"]],
+            )
+            for candidate in result["citation_candidates"]
+        )
+
+        roles = _role_citations(native_citations, text)
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["usage"]["pass2-input-tokens"], 0)
+        self.assertEqual(max(len(item.quote) for item in native_citations), 1621)
+        # 6차에서 73자로 잘렸던 [1459:1532]는 투자사례다. 역할 후보에서
+        # 예시 블록 전체를 제외하고 유일한 조항 140%(@5268)만 남긴다.
+        self.assertTrue(
+            all(
+                not 1281 <= item.char_start < 2500
+                for role in roles.values()
+                for item in role
+            )
+        )
+        self.assertEqual(
+            {_percent_values(item.quote)[0] for item in roles["ratio_rules"]},
+            {140.0},
+        )
+        self.assertTrue(
+            all(
+                _maintenance_row_values(item.quote) == [140.0]
+                for item in roles["execution_schedule"]
+            )
+        )
+        self.assertEqual(
+            min(len(item.quote) for item in roles["execution_schedule"]),
+            192,
+        )
+        self.assertEqual(
+            {item.char_start for item in roles["execution_schedule"]},
+            {5252},
+        )
+        self.assertTrue(
+            all(
+                "담보부족발생(D일) + 2일" in item.quote
+                for item in roles["execution_schedule"]
+            )
+        )
+        self.assertTrue(
+            all(
+                item.parent_char_start == 4444
+                and item.parent_char_end == 6065
+                for item in roles["execution_schedule"]
+            )
+        )
+        self.assertLessEqual(
+            max(
+                len(item.quote)
+                for role in roles.values()
+                for item in role
+            ),
+            192,
+        )
+        for role in roles.values():
+            for item in role:
+                self.assertTrue(
+                    any(
+                        parent.char_start <= item.char_start
+                        and item.char_end <= parent.char_end
+                        and item.quote
+                        == parent.quote[
+                            item.char_start - parent.char_start :
+                            item.char_end - parent.char_start
+                        ]
+                        for parent in native_citations
+                    )
+                )
 
     def test_dry_run_is_network_free_and_uses_measured_input(self) -> None:
         plan = build_dry_run_plan(REPO_ROOT)
@@ -153,6 +305,27 @@ class HankookTwoPassGateTest(unittest.TestCase):
         self.assertTrue(all(isinstance(value, int) for value in report.values()))
 
     def test_evidence_span_report_reads_failure_headers(self) -> None:
+        spans = [
+            {
+                "role": "execution_schedule",
+                "index": 0,
+                "source_format": "html",
+                "char_start": 1474,
+                "char_end": 1528,
+                "length": 54,
+                "percent_values": [],
+            }
+        ]
+        candidates = [
+            {
+                "citation_id": 3,
+                "char_start": 1474,
+                "char_end": 1528,
+                "length": 54,
+                "percent_values": [],
+                "eligible_roles": [],
+            }
+        ]
         report = evidence_span_report(
             {
                 "x-ingest-evidence-coordinate-mode": "character",
@@ -162,8 +335,17 @@ class HankookTwoPassGateTest(unittest.TestCase):
                 "x-ingest-evidence-max-span": "1621",
                 "x-ingest-evidence-min-span": "115",
                 "x-ingest-evidence-duplicate-spans": "1",
+                "x-ingest-evidence-ambiguous-percent-spans": "1",
+                "x-ingest-evidence-all-single-percent": "false",
+                "x-ingest-evidence-spans": urlsafe_b64encode(
+                    json.dumps(spans, separators=(",", ":")).encode("ascii")
+                ).decode("ascii"),
+                "x-ingest-citation-candidates": urlsafe_b64encode(
+                    json.dumps(candidates, separators=(",", ":")).encode("ascii")
+                ).decode("ascii"),
             }
         )
+        self.assertEqual(report["citation_candidates"], candidates)
 
         self.assertEqual(
             report["evidence_spans"],
@@ -175,6 +357,9 @@ class HankookTwoPassGateTest(unittest.TestCase):
                 "max_length": 1621,
                 "min_length": 115,
                 "duplicate_spans": 1,
+                "ambiguous_percent_spans": 1,
+                "all_spans_single_percent_candidate": False,
+                "spans": spans,
             },
         )
 

@@ -1,5 +1,6 @@
 import copy
 import asyncio
+from base64 import urlsafe_b64decode
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -12,11 +13,25 @@ import httpx
 
 from app.main import app, get_ingest_service
 from app.parsing import parse_document
-from app.two_pass import _REVIEW_NO_PATTERN, TwoPassIngestService, prompt_sha256
+from app.two_pass import (
+    _REVIEW_NO_PATTERN,
+    CitationSpan,
+    TwoPassIngestService,
+    _role_citations,
+    prompt_sha256,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HANKOOK_TERMS = REPO_ROOT / "data/terms/한국투자_신용거래설명서_20260707.htm"
+ATTEMPT6_RESULT = (
+    REPO_ROOT
+    / "services"
+    / "ingest"
+    / "benchmarks"
+    / "results"
+    / "hankook_two_pass_attempt6_failed.json"
+)
 
 
 def _usage(input_tokens: int, output_tokens: int, *, cache_write: int = 0, cache_read: int = 0):
@@ -85,14 +100,25 @@ class TwoPassIngestTest(unittest.TestCase):
         cls.raw = HANKOOK_TERMS.read_bytes()
         cls.document = parse_document(HANKOOK_TERMS)
         cls.text = cls.document.units[0].text
-        cls.ratio_quote = "최저담보유지비율 140%"
-        cls.discount_quote = "전일종가(8,100원) 대비 15% 하락한 가격(6,890원)"
+        cls.ratio_quote = "담보유지 비율\t융자\t융자금의 140%"
+        cls.discount_quote = (
+            "반대매매는 한국거래소를 통해 진행되며 수량은 한국거래소(KRX) 전일종가 "
+            "대비 15% 하락한 가격을 기준으로 산정되고, 전일종가의 하한가로 처분될 수 "
+            "있으며 처분 금액은 담보부족금액을 상회할 수 있습니다."
+        )
+        execution_start = cls.text.index(cls.ratio_quote)
+        schedule_quote = "임의상환정리(반대매매)\t담보부족발생(D일) + 2일"
+        execution_end = cls.text.index(schedule_quote, execution_start) + len(
+            schedule_quote
+        )
+        cls.execution_quote = cls.text[execution_start:execution_end]
         cls.review_quote = "한국투자증권 소비자보호 총괄책임자 심사필 제2026-0265(2026-07-03)"
 
     def setUp(self) -> None:
         citations = [
             _citation(self.text, self.ratio_quote),
             _citation(self.text, self.discount_quote),
+            _citation(self.text, self.execution_quote),
             _citation(self.text, self.review_quote),
         ]
         self.pass1 = SimpleNamespace(
@@ -108,6 +134,7 @@ class TwoPassIngestTest(unittest.TestCase):
         )
         ratio_evidence = self._evidence(self.ratio_quote)
         discount_evidence = self._evidence(self.discount_quote)
+        execution_evidence = self._evidence(self.execution_quote)
         self.card = {
             "broker": "한국투자증권",
             "ratio_rules": [
@@ -133,8 +160,8 @@ class TwoPassIngestTest(unittest.TestCase):
             "execution_schedule": [
                 {
                     "threshold_ratio": 1.4,
-                    "day_counting": "추가담보 납부기한 경과 후",
-                    "evidence": ratio_evidence,
+                    "day_counting": "담보부족발생(D일) + 2일",
+                    "evidence": execution_evidence,
                 }
             ],
             "ratio_source": "clause",
@@ -202,6 +229,105 @@ class TwoPassIngestTest(unittest.TestCase):
         )
         self.assertIn("x-ingest-evidence-max-span", response.headers)
         self.assertIn("x-ingest-evidence-min-span", response.headers)
+        self.assertEqual(
+            response.headers["x-ingest-evidence-max-span"],
+            str(len(self.execution_quote)),
+        )
+        self.assertEqual(
+            response.headers["x-ingest-evidence-duplicate-spans"], "0"
+        )
+        self.assertEqual(
+            response.headers["x-ingest-evidence-ambiguous-percent-spans"], "1"
+        )
+        self.assertEqual(
+            response.headers["x-ingest-evidence-all-single-percent"], "false"
+        )
+        self.assertEqual(
+            response.headers[
+                "x-ingest-evidence-all-numeric-bindings-single-percent"
+            ],
+            "true",
+        )
+
+    def test_sixth_run_broad_native_citations_complete_with_server_subspans(
+        self,
+    ) -> None:
+        recorded = json.loads(ATTEMPT6_RESULT.read_text(encoding="utf-8"))
+        native_spans = tuple(
+            CitationSpan(
+                source_format="html",
+                char_start=candidate["char_start"],
+                char_end=candidate["char_end"],
+                flattened_sha256=self.document.flattened_sha256 or "",
+                quote=self.text[candidate["char_start"] : candidate["char_end"]],
+            )
+            for candidate in recorded["citation_candidates"]
+        )
+        roles = _role_citations(native_spans, self.text)
+        pass1 = copy.deepcopy(self.pass1)
+        pass1.content[0].citations = [
+            SimpleNamespace(
+                type="char_location",
+                start_char_index=span.char_start,
+                end_char_index=span.char_end,
+                cited_text=span.quote,
+                document_index=0,
+                document_title=HANKOOK_TERMS.name,
+            )
+            for span in native_spans
+        ]
+        card = copy.deepcopy(self.card)
+        card["ratio_rules"][0]["evidence"] = min(
+            roles["ratio_rules"], key=lambda item: len(item.quote)
+        ).as_dict()
+        card["disposal_price_rules"][0]["evidence"] = min(
+            roles["disposal_price_rules"], key=lambda item: len(item.quote)
+        ).as_dict()
+        card["execution_schedule"][0]["evidence"] = min(
+            roles["execution_schedule"], key=lambda item: len(item.quote)
+        ).as_dict()
+
+        response, fake = self._post(card=card, pass1=pass1)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(len(fake.messages.calls), 2)
+        self.assertEqual(
+            response.headers["x-ingest-evidence-duplicate-spans"], "0"
+        )
+        self.assertEqual(
+            response.headers[
+                "x-ingest-evidence-all-numeric-bindings-single-percent"
+            ],
+            "true",
+        )
+        self.assertEqual(
+            response.headers["x-ingest-evidence-all-single-percent"],
+            "false",
+        )
+        self.assertLessEqual(
+            int(response.headers["x-ingest-evidence-max-span"]), 192
+        )
+        spans = json.loads(
+            urlsafe_b64decode(
+                response.headers["x-ingest-evidence-spans"]
+            ).decode("ascii")
+        )
+        execution = next(
+            span for span in spans if span["role"] == "execution_schedule"
+        )
+        self.assertEqual(
+            (execution["char_start"], execution["char_end"]),
+            (5252, 5444),
+        )
+        self.assertEqual(
+            (
+                execution["parent_char_start"],
+                execution["parent_char_end"],
+            ),
+            (4444, 6065),
+        )
+        self.assertTrue(execution["derived_from_parent"])
+        self.assertEqual(execution["bound_percent_values"], [140.0])
 
     def test_first_pass_uses_citations_cache_and_no_sampling_parameters(self) -> None:
         response, fake = self._post()
@@ -225,7 +351,16 @@ class TwoPassIngestTest(unittest.TestCase):
         request = fake.messages.calls[1]
         content = request["messages"][0]["content"]
         self.assertNotIn(self.text, content)
-        self.assertIn(self.ratio_quote, content)
+        catalog = json.loads(content.split("\n", 1)[1])
+        self.assertEqual(catalog["ratio_rules"][0]["quote"], self.ratio_quote)
+        self.assertEqual(len(catalog["ratio_rules"]), 1)
+        self.assertEqual(
+            catalog["execution_schedule"][0]["quote"], self.execution_quote
+        )
+        self.assertEqual(
+            set(catalog),
+            {"ratio_rules", "disposal_price_rules", "execution_schedule"},
+        )
         self.assertNotIn("citations", request)
         schema = request["output_config"]["format"]["schema"]
         self.assertEqual(schema["properties"]["status"]["enum"], ["draft"])
@@ -251,7 +386,7 @@ class TwoPassIngestTest(unittest.TestCase):
 
     def test_uses_raw_document_sha_when_review_number_has_no_citation(self) -> None:
         pass1 = copy.deepcopy(self.pass1)
-        pass1.content[0].citations = pass1.content[0].citations[:2]
+        pass1.content[0].citations = pass1.content[0].citations[:-1]
 
         response, _ = self._post(pass1=pass1)
 
@@ -341,7 +476,7 @@ class TwoPassIngestTest(unittest.TestCase):
         response, _ = self._post(card=card)
 
         self.assertEqual(response.status_code, 422)
-        self.assertIn("1패스 native citation", response.json()["detail"])
+        self.assertIn("native citation 기반 허용 후보", response.json()["detail"])
 
     def test_rejects_numeric_quote_mismatch(self) -> None:
         card = copy.deepcopy(self.card)
@@ -351,6 +486,86 @@ class TwoPassIngestTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertIn("Pydantic 검증 실패", response.json()["detail"])
+
+    def test_rejects_schedule_only_citation_before_paid_second_pass(self) -> None:
+        schedule_only = "추가담보납부 요구일의 다음 영업일까지 추가담보를 납입하지 않아 그 다음 영업일에 임의처분"
+        pass1 = copy.deepcopy(self.pass1)
+        pass1.content[0].citations = [
+            citation
+            for citation in pass1.content[0].citations
+            if citation.cited_text != self.execution_quote
+        ]
+        pass1.content[0].citations.append(_citation(self.text, schedule_only))
+
+        response, fake = self._post(pass1=pass1)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("execution_schedule", response.json()["detail"])
+        self.assertEqual(len(fake.messages.calls), 1)
+        candidates = json.loads(
+            urlsafe_b64decode(
+                response.headers["x-ingest-citation-candidates"]
+            ).decode("ascii")
+        )
+        self.assertTrue(
+            any(
+                candidate["length"] == len(schedule_only)
+                and candidate["percent_values"] == []
+                and candidate["eligible_roles"] == []
+                for candidate in candidates
+            )
+        )
+        self.assertEqual(response.headers["x-ingest-pass2-output-tokens"], "0")
+
+    def test_narrows_ratio_row_but_rejects_missing_execution_before_second_pass(self) -> None:
+        table_start = self.text.index("담보유지 비율")
+        table_end = self.text.index("상환방법", table_start)
+        ambiguous = self.text[table_start:table_end]
+        pass1 = copy.deepcopy(self.pass1)
+        pass1.content[0].citations = [
+            citation
+            for citation in pass1.content[0].citations
+            if citation.cited_text not in {self.ratio_quote, self.execution_quote}
+        ]
+        pass1.content[0].citations.append(_citation(self.text, ambiguous))
+
+        response, fake = self._post(pass1=pass1)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertNotIn("ratio_rules", response.json()["detail"])
+        self.assertIn("execution_schedule", response.json()["detail"])
+        self.assertEqual(len(fake.messages.calls), 1)
+
+    def test_rejects_evidence_selected_from_another_role(self) -> None:
+        card = copy.deepcopy(self.card)
+        card["execution_schedule"][0]["evidence"] = self._evidence(
+            self.ratio_quote
+        )
+
+        response, _ = self._post(card=card)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("execution_schedule evidence", response.json()["detail"])
+
+    def test_rejects_day_counting_not_present_in_execution_evidence(self) -> None:
+        card = copy.deepcopy(self.card)
+        card["execution_schedule"][0]["day_counting"] = "모델이 만든 임의 일정"
+
+        response, _ = self._post(card=card)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("day_counting", response.json()["detail"])
+
+    def test_rejects_lower_limit_when_quote_has_explicit_discount(self) -> None:
+        card = copy.deepcopy(self.card)
+        disposal = card["disposal_price_rules"][0]
+        disposal["discount_basis"] = "lower_limit"
+        disposal.pop("discount_rate")
+
+        response, _ = self._post(card=card)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("직접 할인율", response.json()["detail"])
 
     def test_rejects_verified_status_and_formula_contamination(self) -> None:
         verified = copy.deepcopy(self.card)
@@ -403,8 +618,9 @@ class TwoPassIngestTest(unittest.TestCase):
             response.headers["x-ingest-evidence-character-span-count"], "3"
         )
         self.assertEqual(
-            response.headers["x-ingest-evidence-duplicate-spans"], "1"
+            response.headers["x-ingest-evidence-duplicate-spans"], "0"
         )
+        self.assertIn("x-ingest-evidence-spans", response.headers)
         self.assertIn("x-ingest-evidence-max-span", response.headers)
 
     def test_prompt_contract_has_stable_sha256(self) -> None:
@@ -424,6 +640,15 @@ class TwoPassIngestTest(unittest.TestCase):
                         "end_char_index": self.text.index(self.ratio_quote)
                         + len(self.ratio_quote),
                         "cited_text": self.ratio_quote,
+                        "document_index": 0,
+                        "document_title": HANKOOK_TERMS.name,
+                    },
+                    {
+                        "type": "char_location",
+                        "start_char_index": self.text.index(self.execution_quote),
+                        "end_char_index": self.text.index(self.execution_quote)
+                        + len(self.execution_quote),
+                        "cited_text": self.execution_quote,
                         "document_index": 0,
                         "document_title": HANKOOK_TERMS.name,
                     },

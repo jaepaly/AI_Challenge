@@ -38,6 +38,9 @@ def _card(
     ratio_span: tuple[int, int],
     disposal_span: tuple[int, int],
     execution_span: tuple[int, int],
+    ratio_quote: str = "담보유지비율 140%",
+    disposal_quote: str = "전일종가 대비 15% 하락",
+    execution_quote: str = "담보유지비율 140%",
 ) -> ConditionCard:
     return ConditionCard.model_validate(
         {
@@ -48,7 +51,7 @@ def _card(
                     "collateral_type": "주식",
                     "symbol_group": "일반",
                     "ratio": 1.4,
-                    "evidence": _evidence(*ratio_span, "담보유지비율 140%"),
+                    "evidence": _evidence(*ratio_span, ratio_quote),
                 }
             ],
             "account_aggregation": "max",
@@ -59,14 +62,14 @@ def _card(
                     "discount_basis": "prev_close_pct",
                     "discount_rate": 0.15,
                     "source_confidence": "explicit",
-                    "evidence": _evidence(*disposal_span, "전일종가 대비 15% 하락"),
+                    "evidence": _evidence(*disposal_span, disposal_quote),
                 }
             ],
             "execution_schedule": [
                 {
                     "threshold_ratio": 1.4,
                     "day_counting": "D일 평가 → D+2 집행",
-                    "evidence": _evidence(*execution_span, "담보유지비율 140%"),
+                    "evidence": _evidence(*execution_span, execution_quote),
                 }
             ],
             "ratio_source": "clause",
@@ -90,6 +93,16 @@ class EvidenceSpanTelemetryTest(unittest.TestCase):
         self.assertEqual(report["max_length"], 67)
         self.assertEqual(report["min_length"], 43)
         self.assertEqual(report["duplicate_spans"], 0)
+        self.assertEqual(report["ambiguous_percent_spans"], 0)
+        self.assertTrue(report["all_spans_single_percent_candidate"])
+        self.assertEqual(report["ambiguous_bound_percent_spans"], 0)
+        self.assertTrue(
+            report["all_numeric_bindings_single_percent_candidate"]
+        )
+        self.assertEqual(
+            [span["percent_values"] for span in report["spans"]],
+            [[140.0], [15.0], [140.0]],
+        )
         self.assertEqual(report["character_span_count"], 3)
         self.assertEqual(report["non_character_span_count"], 0)
         self.assertEqual(report["unmeasurable_span_count"], 0)
@@ -102,6 +115,8 @@ class EvidenceSpanTelemetryTest(unittest.TestCase):
                 ratio_span=(4444, 6065),
                 disposal_span=(3342, 3457),
                 execution_span=(4444, 6065),
+                ratio_quote="담보유지비율 105%·120%·140%",
+                execution_quote="담보유지비율 105%·120%·140%",
             )
         )
 
@@ -109,6 +124,41 @@ class EvidenceSpanTelemetryTest(unittest.TestCase):
         self.assertEqual(report["min_length"], 115)
         # 두 규칙이 같은 좌표를 근거로 든다 — 근거가 구분되지 않는다
         self.assertEqual(report["duplicate_spans"], 1)
+        self.assertEqual(report["ambiguous_percent_spans"], 2)
+        self.assertFalse(report["all_spans_single_percent_candidate"])
+        self.assertEqual(report["ambiguous_bound_percent_spans"], 2)
+        self.assertFalse(
+            report["all_numeric_bindings_single_percent_candidate"]
+        )
+
+    def test_execution_reports_full_span_and_row_bound_percent_separately(self) -> None:
+        """조항 연속 구간은 3개 비율을 담아도 threshold는 140% 행에 결속한다."""
+        report = evidence_span_lengths(
+            _card(
+                ratio_span=(5252, 5272),
+                disposal_span=(3342, 3457),
+                execution_span=(5252, 5444),
+                execution_quote=(
+                    "담보유지 비율\t융자\t융자금의 140%\n"
+                    "대주\t대주 시가상당액의 120%\n"
+                    "신용거래대주 전용계좌\t담보평가액의 105%\n"
+                    "임의상환정리(반대매매)\t담보부족발생(D일) + 2일"
+                ),
+            )
+        )
+
+        execution = next(
+            span
+            for span in report["spans"]
+            if span["role"] == "execution_schedule"
+        )
+        self.assertEqual(execution["percent_values"], [105.0, 120.0, 140.0])
+        self.assertEqual(execution["bound_percent_values"], [140.0])
+        self.assertEqual(report["ambiguous_percent_spans"], 1)
+        self.assertEqual(report["ambiguous_bound_percent_spans"], 0)
+        self.assertTrue(
+            report["all_numeric_bindings_single_percent_candidate"]
+        )
 
     def test_span_roles_are_labelled(self) -> None:
         """어느 규칙의 근거가 큰지 보이지 않으면 관측치가 쓸모없다."""
