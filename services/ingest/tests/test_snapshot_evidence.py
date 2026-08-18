@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 from pathlib import Path
@@ -35,8 +36,14 @@ SOURCE_FILE = {
 ROLES = ("ratio", "disposal", "execution")
 
 
+@functools.lru_cache(maxsize=None)
 def _flattened(filename: str) -> tuple[str, str]:
-    """평탄화 텍스트와 그 sha256 — snapshot.ts가 좌표를 잡은 것과 같은 문자열."""
+    """평탄화 텍스트와 그 sha256 — snapshot.ts가 좌표를 잡은 것과 같은 문자열.
+
+    파싱은 결정적이고(같은 파일 → 같은 문자열) 메리츠 PDF 한 번이 수 초다.
+    같은 세션 안에서 여러 검사가 같은 문서를 본다 — 이 캐시가 없으면
+    형제 테스트들이 같은 PDF를 열 번 넘게 다시 연다.
+    """
     document = parse_document(TERMS / filename)
     text = "\n".join(unit.text for unit in document.units)
     return text, document.flattened_sha256 or ""
@@ -60,7 +67,12 @@ def _parse_evidence_block() -> dict[str, dict]:
         body = segment.group(1)
         sha = re.search(r'sha:\s*"([0-9a-f]{64})"', body)
         assert sha, f"{key}: sha를 찾지 못했다"
-        entry: dict = {"sha": sha.group(1), "spans": {}}
+        # source_format — 형제 테스트(test_snapshot_card_validates)가 이 좌표로
+        # 실제 EvidenceSpan을 조립하는 데 쓴다. 평탄화 결과물의 형식이지
+        # 원본 파일 형식이 아니다(메리츠는 PDF지만 "text"다).
+        fmt = re.search(r'format:\s*"(text|html)"\s+as const', body)
+        assert fmt, f"{key}: format을 찾지 못했다"
+        entry: dict = {"sha": sha.group(1), "format": fmt.group(1), "spans": {}}
         for role in ROLES:
             span = re.search(
                 rf'{role}:\s*\{{\s*(?://[^\n]*\n\s*)*'
