@@ -29,8 +29,10 @@ import {
   forcedDisposal,
   fullDisposalLabel,
 } from "../lib/marginguard/options";
+import EvidencePanel from "./evidence-panel";
 import OptionsCompare from "./options-compare";
 import PortfolioView from "./portfolio-view";
+import { evidenceView } from "../lib/marginguard/evidence-view";
 import { portfolioLambdaView, weakestRow } from "../lib/marginguard/portfolio";
 import {
   ACCOUNT,
@@ -109,6 +111,21 @@ export default function Landing({ build }: { build: BuildInfo }) {
       ? "조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다"
       : "이 카드는 재검증이 필요합니다 — 낡은 값을 정식 산출로 내지 않습니다";
   const pStar = useMemo(() => thresholdPrice(), []);
+
+  /**
+   * 근거 좌표 뷰모델. **신선도 게이트를 걸지 않는다** — 근거는 h 유래 파생값이 아니라
+   * 문서 사실이고, blocked는 "왜 계산을 못 하나"를 묻는 화면이라 재검증하러 가려면
+   * 어느 판본의 어느 문장인지가 오히려 더 필요하다(freshness-view.ts:55-59).
+   *
+   * **가리지 않는 것과 만료를 숨기는 것은 다르다.** 그래서 판정(fresh)은 패널에
+   * 넘긴다 — 넘기지 않으면 blocked 화면에서 "이 카드는 재검증이 필요합니다" 바로
+   * 아래에 근거 머리글이 calculated일 때와 바이트 단위로 같은 검수 표시를 낸다.
+   *
+   * useMemo를 걸지 않는다 — 순수 조립(문자열 라벨링)이라 비용이 없고, React Compiler가
+   * `[preset.card]`를 `preset`으로 추론해 수동 메모이제이션을 보존하지 못한다며
+   * 이 컴포넌트의 최적화를 통째로 건너뛴다(react-hooks/preserve-manual-memoization).
+   */
+  const evidence = evidenceView(preset.card);
 
   // 언마운트 시 재현 타이머 정리
   useEffect(
@@ -302,6 +319,13 @@ export default function Landing({ build }: { build: BuildInfo }) {
           <p id="cardSource">{preset.source}</p>
           {fresh?.banner && <div id="cardBanner">{fresh.banner}</div>}
         </section>
+
+        {/* 바로 위 #cardSource가 "심사필 제2026-0265호" 같은 출처 주장을 산문으로
+            하고 있고, 사용자가 확인할 방법이 없었다. 그 문장 바로 아래에 좌표를 놓는다.
+            결론 블록(#liqBox)에 붙이지 않은 이유: 기본 가격 10,000원 > 임계가 8,400원이라
+            첫 페인트에서 breached=false이고 #liqBox는 DOM에 없다 — 슬라이더를 끌지 않은
+            사람은 제품의 핵심 주장을 한 번도 보지 못한다 */}
+        <EvidencePanel view={evidence} fresh={fresh} />
 
         <section className="grid" aria-label="계기판">
           <div className="panel">

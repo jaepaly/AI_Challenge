@@ -1,0 +1,518 @@
+/**
+ * 근거 표시 — **화면 출력**에 무엇이 들어가고 무엇이 안 들어가는가
+ * ---------------------------------------------------------------------------
+ * 뷰모델 규약은 lib/marginguard/evidence-view.test.ts가 소유한다. 여기가 소유하는
+ * 것은 그 뷰모델이 **실제 마크업까지 도달하는가**다 — 뷰모델에 좌표가 있어도 JSX가
+ * 안 그리면 화면에는 없는 것이고, 이 제품이 파는 주장은 화면에 있어야 성립한다.
+ *
+ * jsdom·@testing-library가 설치돼 있지 않고 vitest environment도 node다. 의존성을
+ * 늘리는 대신 react-dom/server의 renderToStaticMarkup으로 출력 문자열을 검사한다 —
+ * 이 컴포넌트는 상태가 없고(접기는 CSS <details>가 한다) 순수 표현이라 그것으로 충분하다.
+ *
+ * 이 테스트가 잡지 못하는 것: 레이아웃. max-height·overflow·pre-wrap이 실제로
+ * 1,621자를 가두는지는 CSS이고 node 렌더로는 확인되지 않는다. 여기서 확인하는 것은
+ * "잘라서 넣지 않았다"까지다.
+ */
+import { describe, expect, it } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
+import type { ConditionCard } from "@marginguard/engine";
+import { CARDS } from "../lib/marginguard/snapshot";
+import { evidenceView } from "../lib/marginguard/evidence-view";
+import { freshnessView, type FreshnessView } from "../lib/marginguard/freshness-view";
+import EvidencePanel from "./evidence-panel";
+
+const render = (card: ConditionCard, fresh?: FreshnessView) =>
+  renderToStaticMarkup(<EvidencePanel view={evidenceView(card)} fresh={fresh ?? null} />);
+
+const hantoo = CARDS.find((c) => c.key === "hantoo")!.card;
+const meritz = CARDS.find((c) => c.key === "meritz")!.card;
+const lower = CARDS.find((c) => c.key === "lower")!.card;
+
+/** 한 행(.evRow)만 잘라낸다 — 행 단위 표시가 옆 행으로 새지 않는지 본다 */
+function row(html: string, field: string): string {
+  const rows = html.split('<div class="evRow">');
+  const hit = rows.find((r) => r.includes(field));
+  expect(hit).toBeDefined();
+  return hit!;
+}
+
+/** 접힌 상태에서 보이는 부분 = 행 머리 + <summary>. 펼침 본문(<p class="evFull">…)은 뺀다 */
+function collapsed(rowHtml: string): string {
+  const at = rowHtml.indexOf("</summary>");
+  expect(at).toBeGreaterThan(-1);
+  return rowHtml.slice(0, at);
+}
+
+/** 근거 대조 없는 필드 블록만 잘라낸다 — 여기에 좌표류가 새어들면 안 된다 */
+function unbackedBlock(html: string): string {
+  const at = html.indexOf('class="evUnbacked"');
+  expect(at).toBeGreaterThan(-1);
+  return html.slice(at);
+}
+
+describe("좌표·해시가 화면 출력에 실제로 들어간다", () => {
+  it("스냅숏 3종의 9개 스팬이 좌표·형식·평탄화 해시와 함께 그려진다", () => {
+    for (const preset of CARDS) {
+      const html = render(preset.card);
+      const view = evidenceView(preset.card);
+
+      for (const row of view.rows) {
+        expect(row.locator.kind).toBe("char");
+        if (row.locator.kind !== "char") continue;
+
+        expect(html).toContain(row.locator.label); // 예: 5252–5272
+        expect(html).toContain(row.locator.shaShort); // 축약 표시
+        expect(html).toContain(row.locator.flattenedSha256); // 전체는 title 속성으로
+        expect(html).toContain(row.sourceFormat); // html / text / pdf
+      }
+    }
+  });
+
+  /**
+   * 메리츠 disposal 인용문은 원문에 같은 문장이 두 번 나온다('가. 담보부족계좌의
+   * 임의상환' @14999와 '나. 신용융자금 미상환시 임의상환' @15111). 인용문만 보여주고
+   * 좌표를 숨기면 "어느 조항인지 특정 안 됨" 상태가 되어 근거가 근거 노릇을 못 한다 —
+   * 카드의 trigger는 '담보부족'이라 정본은 @14999다.
+   * 그래서 좌표는 **접기 트리거(summary) 안**에 둔다 — 펼치지 않아도 보인다.
+   */
+  it("좌표는 접힌 상태에서도 보인다 — summary 안에 있다", () => {
+    const first = (html: string) =>
+      html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
+
+    const summary = first(render(hantoo));
+    expect(summary).toContain("5252–5272");
+    expect(summary).toContain("20자"); // 규모를 접힌 상태에서 가늠할 수 있다
+
+    // 인용문이 원문에 두 번 나오는 쪽이 이 규약의 실제 이유다
+    const disposal = row(render(meritz), "기준가 규칙(discount_basis)");
+    expect(collapsed(disposal)).toContain("14999–15048");
+  });
+
+  it("문서 판본 식별자를 평탄화 해시와 다른 라벨로 구분해 적는다", () => {
+    expect(render(hantoo)).toContain("심사필·심의필 번호");
+
+    const html = render(lower);
+    expect(html).toContain("원문 바이트 sha256");
+    expect(html).toContain("42cb41a7f535…"); // 원문 바이트 해시(축약)
+    expect(html).toContain("94fd90f454e6…"); // 평탄화 해시(축약) — 다른 값이다
+  });
+
+  it("인용이 어느 시점 판본 기준인지 붙는다 — 신선도 강등 화면에서 필요하다", () => {
+    expect(render(hantoo)).toContain("검증일 2026-08-09 판본 기준");
+    expect(render(lower)).toContain("검증일 없음"); // draft, verified_at 없음
+  });
+});
+
+describe("긴 인용문을 잘라서 넣지 않는다", () => {
+  /**
+   * 실측 최장 인용문은 char 스팬 1,621자 / 실제 문자열 2,462자다(개행 27·탭 37짜리
+   * 표 덤프). 접기를 조건부 렌더로 만들면 접힌 동안 원문이 DOM에 아예 없다 —
+   * 검색도 복사도 스크린리더도 닿지 않는다. 그래서 접기는 CSS(<details>)가 하고
+   * 전문은 항상 출력에 있다.
+   */
+  it("2,462자 표 덤프가 개행·탭까지 원문 그대로 출력에 남는다", () => {
+    const head = "Ⅱ.상품개요 및 특성\n■신용거래제도 요약\n";
+    const rows = Array.from(
+      { length: 27 },
+      (_, i) => `${i}행\t담보유지비율\t140%\t추가담보납부\t임의처분`,
+    ).join("\n");
+    const quote = head + rows + "가".repeat(2_462 - head.length - rows.length);
+    expect(quote).toHaveLength(2_462);
+
+    const span = hantoo.ratio_rules[0]!.evidence;
+    if (span.source_format === "pdf") throw new Error("스냅숏 카드는 전부 문자형이다");
+    const long: ConditionCard = {
+      ...hantoo,
+      ratio_rules: [
+        {
+          ...hantoo.ratio_rules[0]!,
+          evidence: { ...span, quote, char_start: 1_405, char_end: 1_405 + 1_621 },
+        },
+      ],
+    };
+
+    const html = render(long);
+    expect(html).toContain(quote); // 전문 — 한 글자도 잘리지 않는다
+    expect(html).toContain("2,462자"); // 규모를 접힌 상태에서 알린다
+
+    // 좌표 폭(1,621)과 인용문 길이(2,462)는 다른 것을 센다. 어긋나면 그 좌표는
+    // 이 인용문을 설명하지 못하므로 조용히 넘기지 않고 화면에 적는다
+    expect(html).toContain("좌표 폭 1,621자와 인용문 길이 2,462자가 다릅니다");
+  });
+
+  it("요약줄 미리보기는 개행·탭을 접어 한 줄로 만든다 — 원문은 아래에 그대로 있다", () => {
+    const html = render(hantoo);
+    const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
+    expect(summary).not.toContain("\n");
+    expect(html).toContain(hantoo.ratio_rules[0]!.evidence.quote);
+  });
+});
+
+describe("day_counting에는 검증·좌표 배지가 붙지 않는다", () => {
+  /**
+   * **이 테스트를 통과시키려고 문구만 바꾸지 말 것.** 막고 있는 것은 표현이 아니라
+   * 보증이다 — ExecutionScheduleRule의 인용문과 대조되는 것은 threshold_ratio뿐이고
+   * day_counting은 validator가 없어 빈 문자열도 통과한다. 여기에 좌표를 붙이면
+   * 화면이 없는 보증을 주장한다. 상세는 evidence-view.ts의 DAY_COUNTING_WHY.
+   */
+  it("day_counting 블록에 좌표·해시·인용 상자가 하나도 없다", () => {
+    const html = render(hantoo);
+    const block = unbackedBlock(html);
+
+    expect(block).toContain("D일 평가 → D+2 집행"); // 값 자체는 보여준다
+    // 배지가 없는 것은 **붙은 좌표**다. "대조 없음"이라고 쓰면 리드 문단("자동 대조는
+    // 어느 행에도 없다")과 모순되고, 모순은 위 행들이 대조를 받았다는 쪽으로 해소된다.
+    // ⚠ 막고 있는 것은 이 문구가 아니라 아래 구조 단언들이다 — 문구만 바꿔 통과시키지 말 것
+    expect(block).toContain("근거 좌표 없음");
+    expect(block).not.toContain("대조"); // 이 블록에 대조 여부를 시사하는 말이 없다
+
+    expect(block).not.toContain("evLoc"); // 좌표 pill
+    expect(block).not.toContain("evFull"); // 인용 상자
+    expect(block).not.toContain("evQuote"); // 접기 트리거
+    expect(block).not.toContain("sha256");
+    expect(block).not.toContain("5252–5444"); // execution 스팬 좌표
+    expect(block).not.toMatch(/\d+–\d+/); // 어떤 좌표도 새어들지 않는다
+  });
+
+  it("왜 다른지 사용자가 읽을 수 있다 — 라벨 없는 값은 위 인용문이 뒷받침한다고 읽힌다", () => {
+    const block = unbackedBlock(render(hantoo));
+    expect(block).toContain("인용문과 글자를 맞춰 보는 검사를 받지 않으므로");
+    expect(block).toContain("D+3"); // 원문 표의 D+3과 카드의 D+2가 왜 갈리는지
+  });
+
+  /**
+   * 화면 전체에서 "검증"이라는 말이 좌표에 붙지 않는지도 본다. 이 저장소에서 '검증'은
+   * card.status=verified(사람 검수)이고, 좌표가 보증하는 것은 그것이 아니다.
+   */
+  it("좌표에 '검증됨' 성격의 배지를 붙이지 않는다 — 좌표는 위치까지만 말한다", () => {
+    const html = render(hantoo);
+    expect(html).toContain("그 위치에 글자 그대로 있다");
+    expect(html).toContain("자동 대조는 여기 포함되지 않습니다");
+    expect(html).not.toContain("약관에서 확인된 값");
+    expect(html).not.toContain("대조됨");
+  });
+});
+
+describe("수치와 인용문의 관계 — 화면이 갖지 않은 출처 관계를 주장하지 않는다", () => {
+  /**
+   * 이 패널의 제목이 "이 수치가 나온 약관 문장"이면 행마다 출처를 단언하는 것이 된다.
+   * **2026-08-18 전에는 execution 행에서 그 단언이 거짓이었다** — 스냅숏 3장의
+   * execution 인용문에 140%가 한 글자도 없었고, 저장소 자신의 대조기(services/ingest/
+   * app/schemas.py의 require_threshold_ratio_in_quote)에 넣으면 셋 다 거부됐다.
+   * 좌표를 조항으로 교체한 지금은 셋 다 140%를 담고 통과한다(아래 213-224행 테스트가
+   * 그것을 단언한다).
+   *
+   * **그렇다고 제목을 강하게 쓰면 안 된다.** 제약이 사는 이유는 그 사실과 무관하다 —
+   * 글자가 겹치는 것과 그 문장이 옆 수치를 뒷받침하는 것은 다르고(비대칭 규약,
+   * evidence-view.ts 머리글), 실제로 지금도 한투 execution 인용문은 140%와 함께
+   * 카드가 모델링하지 않는 120%·105%를 같이 담고 있다.
+   */
+  it("제목이 값↔문장의 출처 관계를 단언하지 않는다", () => {
+    const html = render(hantoo);
+    expect(html).toContain("<h2>조항별 약관 원문과 좌표</h2>");
+    expect(html).not.toContain("이 수치가 나온 약관 문장");
+  });
+
+  /**
+   * **2026-08-18 전에는 스냅숏 3장 모두 이 문구를 달고 있었다.** execution 인용문이
+   * 집행 일정만 서술해 140%를 한 글자도 담지 않았기 때문이다. 좌표를 조항으로
+   * 교체하면서 9개 스팬 전부가 자기 표기를 담게 됐고, 그래서 이 문구가 화면에서
+   * 사라졌다 — 문구를 지운 것이 아니라 붙을 이유가 없어진 것이다.
+   */
+  it("스냅숏 3장 어느 행에도 '인용문에 이 표기 없음'이 붙지 않는다", () => {
+    for (const preset of CARDS) {
+      const html = render(preset.card);
+      expect(html).not.toContain("인용문에 이 표기 없음");
+      // 근거: 화면에 찍히는 표기가 인용문 안에 실제로 있다
+      expect(preset.card.execution_schedule[0]!.evidence.quote).toContain("140%");
+      expect(preset.card.ratio_rules[0]!.evidence.quote).toContain("140%");
+    }
+  });
+
+  /**
+   * **이 경로를 지우면 안 된다.** 인제스트가 만드는 카드에는 값↔인용문이 맞물린다는
+   * 보증이 없다. 그리고 접기 안에 두면 "펼친 사람만 진실을 보는" 화면이 된다 — 값과
+   * 인용문이 한 행에 있는 것 자체가 출처 주장으로 읽히므로, 성립하지 않는 행은
+   * 펼치기 전에 이미 달라야 한다.
+   */
+  it("표기가 없는 인용문이 오면 접힌 상태에서 그 사실을 적는다", () => {
+    const span = meritz.execution_schedule[0]!.evidence;
+    if (span.source_format === "pdf") throw new Error("스냅숏 카드는 전부 문자형이다");
+    const scheduleOnly: ConditionCard = {
+      ...meritz,
+      execution_schedule: [
+        {
+          ...meritz.execution_schedule[0]!,
+          // #46이 실제로 쓰던 인용문 — 예시 블록 안이었고 140%도 없었다
+          evidence: {
+            ...span,
+            quote:
+              "(D일)담보유지비율하회사실발생및추가담보납부요구→(D+1)추가담보납입기한일이나추가담보미납발생→(D+2)반대매매실행",
+          },
+        },
+      ],
+    };
+    const exec = collapsed(row(render(scheduleOnly), "threshold_ratio"));
+    expect(exec).toContain("인용문에 이 표기 없음");
+    expect(exec).toContain("글자로 나오지 않습니다");
+  });
+
+  /**
+   * 비대칭이 규약이다. 표기가 인용문에 있다는 것은 글자가 겹친다는 뜻뿐이고,
+   * 거기에 배지를 달면 화면이 갖지 않은 대조 보증을 주장하게 된다.
+   *
+   * ⚠ 여기서 금지하는 것은 **긍정 방향**(확인됨/대조됨)이다. 같은 행에 붙는
+   * otherFigures·overlapsSpanOf 문단은 반대 방향이라 이 금지에 걸리지 않는다 —
+   * "인용문에 다른 값도 있다"·"앞 행 구간과 겹친다"는 보증을 만드는 말이 아니라
+   * 화면에 나란히 놓인 것들에 대한 사실 진술이고, 사용자가 눈으로 검증할 수 있다.
+   * 아래 단언이 문자열 셋을 콕 집는 이유가 그것이다(문단 유무가 아니라 방향을 본다).
+   */
+  it("표기가 인용문에 있는 행에는 아무 배지도 붙지 않는다 — 긍정은 만들지 않는다", () => {
+    for (const preset of CARDS) {
+      const html = render(preset.card);
+      for (const field of [
+        "유지비율(ratio)",
+        "기준가 규칙(discount_basis)",
+        "발동 임계 담보비율(threshold_ratio)",
+      ]) {
+        const r = row(html, field);
+        expect(r).not.toContain("인용문에 이 표기 없음");
+        expect(r).not.toContain("확인됨");
+        expect(r).not.toContain("대조");
+      }
+      // 9개 스팬 전부 표기를 담으므로 이 문구가 화면 어디에도 없다
+      expect(html.split("인용문에 이 표기 없음")).toHaveLength(1);
+    }
+  });
+
+  /** 맞춰 볼 표기 자체가 없으면 있다고도 없다고도 말하지 않는다 */
+  it("할인율도 기준도 없는 카드는 침묵한다 — 없는 표기를 지어내 찾지 않는다", () => {
+    const noRate: ConditionCard = {
+      ...hantoo,
+      disposal_price_rules: [
+        {
+          ...hantoo.disposal_price_rules[0]!,
+          discount_basis: "prev_close_pct",
+          discount_rate: undefined,
+        },
+      ],
+    };
+    const r = row(render(noRate), "기준가 규칙(discount_basis)");
+    expect(r).toContain("할인율 미기재");
+    expect(r).not.toContain("인용문에 이 표기 없음");
+  });
+});
+
+describe("인용 구간이 옆 수치 하나보다 넓을 때 — 화면이 침묵하지 않는다", () => {
+  /**
+   * 이 제품이 파는 문장("근거를 정확히 가리킨다")이 가장 약해지는 지점이 화면에서
+   * 가장 먼저 보이는 행이었다. 한투 '집행 조항'은 값으로 threshold_ratio 140%를 찍고
+   * 그 아래 요약줄에 192자 인용문의 앞 90자를 놓는데, 그 90자에 들어 있는 것은
+   * 카드가 모델링하지 않는 대주(120%)·신용거래대주 전용계좌(105%) 행이다. 집행 시점을
+   * 규정하는 '임의상환정리(반대매매) 담보부족발생(D일) + 2일'은 코드포인트 164 뒤라
+   * 펼치기 전에는 화면에 없다.
+   *
+   * 그래서 사실 진술을 **접기 밖**에 놓는다. 요약줄은 CSS가 nowrap + 말줄임이라
+   * 본문 폭에서 잘리지만(globals.css의 .evPreview) 이 문단은 잘리지 않는다.
+   */
+  it("한투 집행 조항: 인용문에 120%·105%도 있다는 사실이 접힌 상태에서 보인다", () => {
+    const exec = collapsed(row(render(hantoo), "발동 임계 담보비율(threshold_ratio)"));
+
+    expect(exec).toContain("120%, 105%");
+    expect(exec).toContain("함께 들어 있습니다");
+    // 값이 틀렸다는 판정이 아니다 — 어느 부분이 근거인지는 여전히 판정하지 않는다
+    expect(exec).toContain("화면이 판정하지 않습니다");
+    expect(exec).not.toContain("확인됨");
+    expect(exec).not.toContain("대조");
+  });
+
+  /**
+   * 메리츠 문서는 신용거래융자 담보유지비율을 종목군별로 A∙B군 140% / C∙D군 150%로
+   * 나눈다. 카드는 symbol_group '일반' 하나에 1.4만 두므로 C∙D군 종목 보유자에게는
+   * 문서 값이 150%인데 화면 값은 140%다 — 위험을 과소평가하는 방향이다.
+   * figureInQuote는 '140%'가 글자로 있어 true라 기존 경고 경로가 침묵한다.
+   */
+  it("메리츠 유지비율: 인용문의 C∙D군 150%가 화면 값 140% 옆에서 드러난다", () => {
+    const ratio = collapsed(row(render(meritz), "유지비율(ratio)"));
+
+    expect(ratio).toContain("150%, 120%");
+    expect(ratio).not.toContain("인용문에 이 표기 없음"); // 140%는 인용문에 있다
+  });
+
+  /** 값이 하나뿐인 인용문에는 붙지 않는다 — 있지도 않은 혼선을 만들지 않는다 */
+  it("유진 3행에는 이 문단이 하나도 없다", () => {
+    const html = render(lower);
+    expect(html).not.toContain("함께 들어 있습니다");
+  });
+
+  /**
+   * 한투 ratio [5252:5272]는 execution [5252:5444]의 진부분 접두사다. 두 행을 나란히
+   * 그리면서 아무 말도 안 하면 서로 독립적인 근거 둘로 읽히는데, 실제로는 한쪽이
+   * 다른 쪽에 통째로 들어 있다 — 근거의 독립성이 없다.
+   */
+  it("한투 두 행의 근거 구간이 겹친다는 사실을 좌표로 적는다", () => {
+    const exec = collapsed(row(render(hantoo), "발동 임계 담보비율(threshold_ratio)"));
+
+    expect(exec).toContain("담보유지비율 조항");
+    expect(exec).toContain("5252–5272에서 겹칩니다");
+    expect(exec).toContain("서로 독립적이지 않습니다");
+    // 겹침은 "같다"가 아니다 — 인용 상자는 두 행 모두 그대로 그린다
+    expect(exec).not.toContain("같은 문장입니다");
+  });
+
+  it("겹치지 않는 카드에는 그 문장이 없다", () => {
+    expect(render(meritz)).not.toContain("겹칩니다");
+    expect(render(lower)).not.toContain("겹칩니다");
+  });
+});
+
+describe("접힌 상태가 펼친 내용보다 단정적이면 안 된다", () => {
+  /**
+   * widthMismatch 경고를 <details> 본문에만 두면, 좌표가 무효인 근거가 접힌 상태에서
+   * 유효한 근거와 똑같이 보인다 — 사용자는 확정적인 좌표 pill만 보고 근거가 붙었다고
+   * 읽는다. 스냅숏은 CI가 좌표를 보증하지만 인제스트가 만든 카드에는 그 보증이 없다.
+   */
+  it("좌표 폭이 어긋난 행은 요약줄에서도 표시된다", () => {
+    const span = hantoo.ratio_rules[0]!.evidence;
+    if (span.source_format === "pdf") throw new Error("스냅숏 카드는 전부 문자형이다");
+    const quote = "담보유지비율은 회사가 정하는 바에 따른다".padEnd(110, "가");
+    const bad: ConditionCard = {
+      ...hantoo,
+      ratio_rules: [
+        {
+          ...hantoo.ratio_rules[0]!,
+          evidence: { ...span, quote, char_start: 1_405, char_end: 1_417 },
+        },
+      ],
+    };
+
+    const html = render(bad);
+    const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
+    expect(summary).toContain("좌표 폭 불일치");
+    expect(summary).toContain("evLoc bad"); // 좌표 pill 자체가 정상 행과 다르게 그려진다
+    // 본문의 상세 경고는 그대로 남는다
+    expect(html).toContain("이 좌표는 이 인용문을 설명하지 못합니다");
+  });
+
+  it("정상 행의 요약줄에는 그 표시가 없다", () => {
+    const html = render(hantoo);
+    const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
+    expect(summary).not.toContain("좌표 폭 불일치");
+    expect(summary).not.toContain("evLoc bad");
+  });
+
+  /**
+   * 90자를 넘으면 …가 축약을 알린다. 그런데 90자 미만이면서 개행·탭만 접힌 인용문은
+   * …도 없고, 공백 치환은 길이를 바꾸지 않아 옆의 자수까지 원문과 같다 — 라벨이
+   * 없으면 접힌 문자열이 원문 그 자체로 읽힌다.
+   */
+  it("공백을 접은 요약줄에는 원문이 아니라는 라벨이 붙는다", () => {
+    const span = hantoo.ratio_rules[0]!.evidence;
+    if (span.source_format === "pdf") throw new Error("스냅숏 카드는 전부 문자형이다");
+    const quote = "제5조(임의처분)\n① 회사는 담보유지비율\t140%\t미만 시 임의처분한다.";
+    expect(quote.length).toBeLessThan(90); // 말줄임이 생기지 않는 길이
+    const folded: ConditionCard = {
+      ...hantoo,
+      ratio_rules: [
+        {
+          ...hantoo.ratio_rules[0]!,
+          evidence: { ...span, quote, char_start: 100, char_end: 100 + quote.length },
+        },
+      ],
+    };
+
+    const html = render(folded);
+    const summary = html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
+    expect(summary).toContain("미리보기");
+    expect(html).toContain("줄바꿈·탭을 공백으로 접고");
+    expect(html).toContain(quote); // 원문은 그대로 있다
+  });
+
+  /**
+   * 유진 3행은 공백이 단일 스페이스뿐이고 90자 미만이라 접을 것이 하나도 없다.
+   * (한투는 반대다 — '주요내용 요약' 표 행이라 탭·개행이 들어 있어 라벨이 붙는다.
+   *  그 대비를 아래 두 단언이 함께 본다.)
+   */
+  it("접을 것이 없으면 라벨도 없다 — 있지도 않은 가공을 표시하지 않는다", () => {
+    const html = render(lower);
+    expect(html).not.toContain("미리보기");
+    expect(html).not.toContain("줄바꿈·탭을 공백으로 접고");
+
+    // 실제로 접힌 행에는 붙는다 — 라벨이 죽은 코드가 아님을 같은 자리에서 확인한다
+    expect(collapsed(row(render(hantoo), "유지비율(ratio)"))).toContain("미리보기");
+  });
+});
+
+describe("원시 토큰을 라벨 없이 내보내지 않는다", () => {
+  /**
+   * 메리츠 원문은 PDF인데 source_format은 "text"다 — 우리가 인용하는 대상이 PDF
+   * 페이지가 아니라 pypdf가 뽑은 평탄화 텍스트이기 때문이다(snapshot.ts:74-77).
+   * 화면에 "text"만 찍으면 사용자는 그것을 원본 파일 형식으로 읽는다.
+   */
+  it("source_format에 한국어 라벨이 붙는다 — 원본 파일 형식이 아님을 본문이 밝힌다", () => {
+    expect(render(meritz)).toContain("평탄화 텍스트(text)");
+    expect(render(hantoo)).toContain("평탄화 HTML(html)");
+    expect(render(meritz)).toContain("원본이 PDF여도 텍스트로 평탄화해 인용했으면");
+  });
+
+  /** 근거 섹션에서 영어 "verified"는 "이 인용·좌표가 검증됨"으로 읽힌다 */
+  it("card.status를 무엇에 대한 검수인지 밝혀 적는다", () => {
+    expect(render(hantoo)).toContain("카드 검수 완료(verified)");
+    expect(render(lower)).toContain("카드 검수 전(draft)");
+  });
+});
+
+describe("신선도 만료 — 근거를 가리지는 않되 자격은 붙인다", () => {
+  const stale = (): FreshnessView => freshnessView(hantoo, "2026-09-09");
+
+  it("blocked에서 검수 표시가 만료됐음을 같은 섹션에 적는다", () => {
+    expect(stale().mode).toBe("blocked");
+    const html = render(hantoo, stale());
+
+    expect(html).toContain("검증일로부터 31일 경과(허용 30일)");
+    expect(html).toContain("위 검수 표시는 만료됐습니다");
+    // 근거 자체는 그대로 보인다 — blocked는 "왜 계산을 못 하나"를 묻는 화면이다
+    expect(html).toContain("5252–5272");
+    expect(html).toContain(hantoo.ratio_rules[0]!.evidence.quote);
+  });
+
+  it("calculated에서는 그 문장이 없다 — blocked와 같은 문자열을 내지 않는다", () => {
+    const fine = freshnessView(hantoo, "2026-08-18");
+    expect(fine.mode).toBe("calculated");
+    const html = render(hantoo, fine);
+
+    expect(html).not.toContain("만료됐습니다");
+    expect(html).not.toBe(render(hantoo, stale())); // 두 모드의 출력이 다르다
+  });
+
+  /** 판정이 없는 동안(SSR) 자격 문장을 지어내지 않는다 */
+  it("fresh가 없으면 아무 자격 문장도 붙이지 않는다", () => {
+    expect(render(hantoo)).not.toContain("만료됐습니다");
+    expect(render(hantoo)).not.toContain("재검증이 필요합니다");
+  });
+
+  /** draft는 한 번도 정식인 적 없는 값이라 "만료"가 틀린 문장이다 */
+  it("draft(reference)에는 만료 문장을 쓰지 않는다 — 머리글의 검수 전 표시로 충분하다", () => {
+    const ref = freshnessView(lower, "2026-08-18");
+    expect(ref.mode).toBe("reference");
+    const html = render(lower, ref);
+
+    expect(html).toContain("카드 검수 전(draft)");
+    expect(html).not.toContain("만료됐습니다");
+  });
+});
+
+describe("근거가 없는 카드", () => {
+  it("빈칸이 아니라 없다는 문장을 그린다", () => {
+    const bare: ConditionCard = {
+      ...hantoo,
+      ratio_rules: [],
+      disposal_price_rules: [],
+      execution_schedule: [],
+    };
+    const html = render(bare);
+
+    expect(html).toContain("근거 좌표가 없습니다");
+    expect(html).not.toContain("<summary");
+  });
+});
