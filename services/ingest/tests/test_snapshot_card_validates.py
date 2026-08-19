@@ -319,6 +319,44 @@ class SnapshotCardValidatesTest(unittest.TestCase):
                 self.evidence["hantoo"]["spans"][role]["quote"],
             )
 
+    def test_numeric_quote_is_existence_not_binding(self) -> None:
+        """`_validate_numeric_quote`는 존재 검사다 — 결속 검사가 아니다.
+
+        이 파일의 초록을 "카드 값이 근거로 검증됐다"로 읽으면 실제보다 넓게 읽는
+        것이다. 검증기가 보증하는 것은 *"인용문 어딘가에 그 값의 표기가 있다"* 까지고
+        *"그 값이 이 조항이 말하는 값이다"* 는 보증하지 않는다.
+
+        한투 execution 인용문(192자)이 그 차이를 그대로 드러낸다 — 담보유지 비율 표
+        블록이라 융자 140%·대주 120%·대주전용계좌 105%가 한 스팬에 같이 들어 있다.
+        그래서 융자 계좌 카드에 대주 비율을 넣어도 초록이다(A 리뷰, #52).
+
+        인제스트(#47 `e01d4bb`)에는 이 축의 방어가 있다 — `_maintenance_row_values`가
+        단일성 검사를 유지비율 **행 안으로** 좁혀 120·105를 후보에서 뺀다. 손으로 뽑은
+        이 스냅숏에는 그 관측기가 걸려 있지 않다. 두 경로가 같은 기준을 통과하게
+        만드는 것은 별도 과제이고, 여기서는 **지금 무엇이 보증되지 않는지만** 박아 둔다.
+        """
+        span = _span(self.evidence, "hantoo", "execution")
+        card_value = _number_field(self.body, "threshold_ratio")
+        self.assertEqual(card_value, 1.4)
+
+        # 같은 인용문에 다른 상품의 비율을 넣어도 통과한다 — 검사가 존재만 보기 때문이다.
+        for wrong in (1.2, 1.05):
+            with self.subTest(threshold_ratio=wrong):
+                self.assertIn(f"{wrong * 100:g}%", span["quote"])
+                schemas.ExecutionScheduleRule(
+                    threshold_ratio=wrong,
+                    day_counting=_text_field(self.body, "day_counting"),
+                    evidence=span,
+                )
+
+        # 인용문에 표기가 아예 없는 값은 거부된다 — 검사가 죽은 건 아니다.
+        with self.assertRaises(ValidationError):
+            schemas.ExecutionScheduleRule(
+                threshold_ratio=1.5,
+                day_counting=_text_field(self.body, "day_counting"),
+                evidence=span,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
