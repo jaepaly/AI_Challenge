@@ -442,7 +442,32 @@ function disposalValue(rule: DisposalPriceRule): string {
     : `전일종가 −${pct(rule.discount_rate)}`;
 }
 
-export function evidenceView(card: ConditionCard): EvidenceView {
+/**
+ * @param applicableRatioRule 유지비율 행에 그릴 조항. 엔진의 `ratioAgreement`가 좁힌
+ *   결과(`RatioView.applicableRule`)를 그대로 넘긴다. 생략하면 첫 조항이다.
+ *
+ * ── 왜 이 인자가 필요한가 ─────────────────────────────────────────────
+ * 이 행은 카드의 유지비율을 **근거 좌표·평탄화 해시와 함께 크게** 찍는다. 화면에서
+ * 가장 권위 있어 보이는 표시이고, 사람은 그것을 "이 계좌에 걸리는 유지비율"로 읽는다.
+ * 그런데 담보부족액·처분 수량을 만든 값은 원장 r이고, 그 r과 맞대 본 것은 엔진이
+ * **좁혀서 고른 조항**이다. 여기서만 `ratio_rules[0]`을 고정으로 찍으면 룰이 여럿인
+ * 카드에서 게이트와 화면이 서로 다른 조항을 보게 되고, 실측하면 두 방향으로 깨진다
+ * (카드 [대주 1.7, 융자 1.4] · 원장 1.4):
+ *   ① 게이트는 융자 140을 보고 통과 → 배너도 행 문구도 뜨지 않는데, 이 행은
+ *      좌표·해시를 달고 170%를 찍는다. 이 PR이 없애려던 그 그림이 그대로 복원된다.
+ *   ② 방향을 뒤집으면(카드 [대주 1.2, 융자 1.7]) 행 문구가 "옆 값 170%와 같지
+ *      않습니다"라고 쓰는데 옆에 찍힌 값은 120%다 — 화면에 없는 값을 "옆 값"이라 부른다.
+ * 그래서 **게이트가 본 조항을 이 행이 그린다.** 좁히기가 하나로 만들지 못했으면
+ * (AMBIGUOUS) 남은 것 중 첫 조항을 그리고, 값이 갈렸다는 사실은 행 문구가 말한다.
+ *
+ * ⚠ 이 카드에 없는 조항은 그리지 않는다 — 넘어온 객체가 `card.ratio_rules`에
+ *   들어 있을 때만 쓴다. 다른 카드의 좌표·해시를 이 카드의 근거로 내보내면
+ *   이 파일이 보증하는 단 하나(좌표가 이 문서의 그 위치를 가리킨다)가 무너진다.
+ */
+export function evidenceView(
+  card: ConditionCard,
+  applicableRatioRule?: RatioRule,
+): EvidenceView {
   const rows: EvidenceRow[] = [];
   /** 스팬 서명 → 그 스팬을 처음 그린 행의 title */
   const seen = new Map<string, string>();
@@ -531,7 +556,12 @@ export function evidenceView(card: ConditionCard): EvidenceView {
 
   // 룰 배열은 타입상 비어 있을 수 있다. 없으면 행을 만들지 않는다 — 없는 근거를
   // 그럴듯한 문구로 채우지 않는 것이 이 저장소 전체의 규율이다(fail-closed).
-  const ratio: RatioRule | undefined = card.ratio_rules[0];
+  // 게이트가 고른 조항이 있으면 **그것**을 그린다(머리글 참조). 이 카드에 없는
+  // 객체는 쓰지 않는다 — 그러면 다른 카드의 좌표를 이 카드 근거로 내보내게 된다.
+  const ratio: RatioRule | undefined =
+    applicableRatioRule !== undefined && card.ratio_rules.includes(applicableRatioRule)
+      ? applicableRatioRule
+      : card.ratio_rules[0];
   if (ratio !== undefined) {
     push(
       "ratio",

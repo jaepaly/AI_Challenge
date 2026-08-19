@@ -16,13 +16,25 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ConditionCard } from "@marginguard/engine";
-import { CARDS } from "../lib/marginguard/snapshot";
+import { ACCOUNT, CARDS, positions } from "../lib/marginguard/snapshot";
 import { evidenceView } from "../lib/marginguard/evidence-view";
 import { freshnessView, type FreshnessView } from "../lib/marginguard/freshness-view";
+import { ratioView, type RatioView } from "../lib/marginguard/ratio-view";
 import EvidencePanel from "./evidence-panel";
 
-const render = (card: ConditionCard, fresh?: FreshnessView) =>
-  renderToStaticMarkup(<EvidencePanel view={evidenceView(card)} fresh={fresh ?? null} />);
+/**
+ * landing.tsx와 **같은 배선**으로 그린다 — 대조가 고른 조항을 뷰모델에 넘긴다.
+ * 여기서만 `evidenceView(card)`를 부르면 이 파일은 룰이 하나인 카드에서만 참인
+ * 화면을 검사하게 되고, 게이트와 화면이 서로 다른 조항을 보는 결함이 통과한다.
+ */
+const render = (card: ConditionCard, fresh?: FreshnessView, ratio?: RatioView) =>
+  renderToStaticMarkup(
+    <EvidencePanel
+      view={evidenceView(card, ratio?.applicableRule ?? undefined)}
+      fresh={fresh ?? null}
+      ratio={ratio ?? null}
+    />,
+  );
 
 const hantoo = CARDS.find((c) => c.key === "hantoo")!.card;
 const meritz = CARDS.find((c) => c.key === "meritz")!.card;
@@ -514,5 +526,212 @@ describe("근거가 없는 카드", () => {
 
     expect(html).toContain("근거 좌표가 없습니다");
     expect(html).not.toContain("<summary");
+  });
+});
+
+/**
+ * 유지비율이 화면의 계산과 어긋날 때 — **이 패널이 결함이 눈에 보이는 자리다.**
+ *
+ * 패널은 카드의 ratio를 근거 좌표·해시와 함께 크게 찍는데, 같은 화면의 담보부족액은
+ * 계좌 원장의 유지비율로 산출된다. 어긋나면 "근거 있는 170%"와 "140%로 낸 부족액"이
+ * 한 스크롤 안에 모순 없어 보이게 놓인다. 기존 두 경고 경로는 이걸 못 잡는다 —
+ * figureInQuote·otherFigures 둘 다 인용문 vs 카드값만 보고 원장을 보지 않아서,
+ * **인제스트가 조항을 정확히 뽑을수록 화면이 더 조용해진다.**
+ */
+describe("유지비율 대조 — 카드 값과 화면 계산이 어긋날 때", () => {
+  const pos = positions(8_100)[0]!;
+  const mismatch = (): ConditionCard => ({
+    ...hantoo,
+    ratio_rules: [{ ...hantoo.ratio_rules[0]!, ratio: 1.7 }],
+  });
+  const gapView = (card: ConditionCard) => ratioView(card, ACCOUNT.requiredRatio, pos);
+
+  it("어긋난 카드: 유지비율 행에 두 숫자가 함께 나간다 — 큰 값 옆에서", () => {
+    const card = mismatch();
+    const r = row(render(card, undefined, gapView(card)), "유지비율(ratio)");
+
+    expect(r).toContain("170%"); // 카드가 적은 값 (기존 큰 숫자)
+    expect(r).toContain("계좌 원장의 유지비율 140%로 산출했습니다"); // 부족액을 만든 값
+    expect(r).toContain("옆 값 170%와 같지 않습니다");
+  });
+
+  it("접기 밖이다 — 펼치지 않은 사람에게 도달한다", () => {
+    const card = mismatch();
+    const r = row(render(card, undefined, gapView(card)), "유지비율(ratio)");
+    expect(collapsed(r)).toContain("계좌 원장의 유지비율 140%로 산출했습니다");
+  });
+
+  /**
+   * 지뢰: otherFigures 문단이 "카드가 값으로 두는 것은 옆의 하나뿐"이라고 단언한다.
+   * 어긋난 상태에서 화면의 부족액을 만든 값은 그 하나가 아니므로, 두 문장이 정면으로
+   * 부딪히기 전에 **계산이 쓴 값을 먼저** 밝혀야 한다.
+   */
+  it("otherFigures 문단보다 **앞에** 놓인다 — 뒤에 두면 두 문장이 부딪힌다", () => {
+    const card = mismatch();
+    const r = row(render(card, undefined, gapView(card)), "유지비율(ratio)");
+    const gapAt = r.indexOf("계좌 원장의 유지비율");
+    const otherAt = r.indexOf("함께 들어 있습니다");
+    expect(gapAt).toBeGreaterThan(-1);
+    if (otherAt > -1) expect(gapAt).toBeLessThan(otherAt);
+  });
+
+  it("어느 쪽이 틀렸다고 말하지 않는다 — 화면이 아는 것은 '같지 않다'까지다", () => {
+    const card = mismatch();
+    const html = render(card, undefined, gapView(card));
+    for (const word of ["카드가 틀", "원장이 틀", "잘못된", "오류", "확인됨", "대조됨"]) {
+      expect(html).not.toContain(word);
+    }
+    expect(html).toContain("화면이 판정하지 않습니다");
+  });
+
+  it("일치하면 아무것도 그리지 않는다 — 통과에 배지를 만들지 않는다", () => {
+    // 프리셋 3장은 카드 1.4 · 원장 1.4라 전부 이 경로다
+    for (const preset of CARDS) {
+      const withRatio = render(preset.card, undefined, gapView(preset.card));
+      expect(withRatio).toBe(render(preset.card)); // 바이트 단위로 같다
+      expect(withRatio).not.toContain("evRatioGap");
+    }
+  });
+
+  it("ratio를 안 넘기면 아무 말도 하지 않는다 — 원장을 못 본 화면은 판정하지 않는다", () => {
+    expect(render(mismatch())).not.toContain("evRatioGap");
+  });
+
+  it("유지비율 행이 없는 카드에서도 침묵하지 않는다 — 머리글 아래로 올라간다", () => {
+    const noRule: ConditionCard = { ...hantoo, ratio_rules: [] };
+    const html = render(noRule, undefined, gapView(noRule));
+
+    expect(html).toContain("evRatioGap");
+    expect(html).toContain("담보유지비율 조항이 없습니다");
+    expect(html).toContain("계좌 원장의 유지비율 140%로 산출했고");
+    // 행이 없으므로 행 안이 아니라 머리글 뒤에 있다
+    expect(html.indexOf("evRatioGap")).toBeLessThan(html.indexOf('<div class="evRow">'));
+  });
+
+  it("종목군별로 값이 갈린 카드: '다르다'가 아니라 '고르지 않는다'고 말한다", () => {
+    const base = hantoo.ratio_rules[0]!;
+    const split: ConditionCard = {
+      ...hantoo,
+      ratio_rules: [
+        { ...base, ratio: 1.4, symbol_group: "A∙B군" },
+        { ...base, ratio: 1.5, symbol_group: "C∙D군" },
+      ],
+    };
+    const r = row(render(split, undefined, gapView(split)), "유지비율(ratio)");
+
+    expect(r).toContain("140%, 150%");
+    expect(r).toContain("화면이 고르지 않습니다");
+    expect(r).not.toContain("같지 않습니다"); // 원장 140%도 후보 안에 있다 — 거짓말이 된다
+  });
+
+  /**
+   * 가장 나쁜 조합의 회귀 가드: 인제스트가 170% 조항을 **정확히** 뽑으면 인용문에
+   * "170%"가 글자로 있어 figureInQuote=true이고, 기존 경고 경로는 전부 침묵한다.
+   * 그때도 이 문장은 나가야 한다.
+   */
+  it("인용문에 카드 값이 글자로 있어 기존 경고가 전부 침묵해도 이 문장은 나간다", () => {
+    const base = hantoo.ratio_rules[0]!;
+    const clean: ConditionCard = {
+      ...hantoo,
+      ratio_rules: [
+        {
+          ...base,
+          ratio: 1.7,
+          evidence: { ...base.evidence, quote: "담보유지비율은 융자금의 170%로 한다." },
+        },
+      ],
+    };
+    const r = row(render(clean, undefined, gapView(clean)), "유지비율(ratio)");
+
+    expect(r).not.toContain("인용문에 이 표기 없음"); // figureInQuote=true
+    expect(r).not.toContain("함께 들어 있습니다"); // otherFigures 없음
+    expect(r).toContain("계좌 원장의 유지비율 140%로 산출했습니다"); // 그래도 말한다
+  });
+});
+
+/**
+ * 룰이 여럿인 카드 — **게이트와 화면이 같은 조항을 보는가.**
+ *
+ * 이 패널은 카드의 유지비율을 좌표·평탄화 해시와 함께 크게 찍는다. 화면에서 가장
+ * 권위 있어 보이는 표시이고, 사람은 그것을 "이 계좌에 걸리는 유지비율"로 읽는다.
+ * 그 자리를 `ratio_rules[0]`으로 고정해 두면 좁히기가 다른 행을 고르는 순간 두
+ * 방향으로 깨진다 — 통과 쪽은 **무표식으로 결함이 복원되고**(이 PR이 없애려던
+ * 그 그림), 어긋남 쪽은 문구가 **화면에 없는 숫자를 "옆 값"이라 부른다.**
+ *
+ * `ratio_rules`에는 순서 계약이 없다(schemas/condition_card.schema.json은 minItems만
+ * 건다). 융자행이 [0]이 아닌 카드는 인제스트가 표를 문서 순서대로 뽑기만 해도 나온다 —
+ * 한투 인용문 자체가 융자 140 / 대주 120 / 대주전용 105 세 행을 담고 있다.
+ */
+describe("룰이 여럿인 카드 — 근거 행이 대조가 본 조항을 찍는다", () => {
+  const pos = positions(8_100)[0]!; // group "일반"
+  const base = hantoo.ratio_rules[0]!;
+  const withRules = (rules: Partial<typeof base>[]): ConditionCard => ({
+    ...hantoo,
+    ratio_rules: rules.map((r) => ({ ...base, ...r })),
+  });
+  const bigValue = (html: string) => /class="evVal tnum">([^<]*)</.exec(html)?.[1];
+  const gapView = (card: ConditionCard, led: number = ACCOUNT.requiredRatio) =>
+    ratioView(card, led, pos);
+
+  it("통과: 근거로 찍는 값이 **부족액을 만든 값**이다 — 침묵이 참이 된다", () => {
+    // 대주행이 첫 줄이지만 대조는 융자행 140%를 보고 통과한다. 예전에는 이때
+    // 좌표·해시를 단 170%가 크게 찍히고 배너도 행 문구도 없어, 화면이
+    // "근거 있는 170%" + "140%로 낸 부족액 300,000원"을 무표식으로 나란히 냈다.
+    const card = withRules([
+      { product_type: "신용대주", ratio: 1.7 },
+      { product_type: "신용융자", ratio: 1.4 },
+    ]);
+    const v = gapView(card);
+    expect(v.confirmed).toBe(true);
+
+    const html = render(card, undefined, v);
+    expect(bigValue(html)).toBe("140%"); // 원장과 맞대 본 그 값
+    expect(html).not.toContain("evRatioGap"); // 침묵해도 되는 상태다
+    expect(html).not.toContain(">170%<"); // 대조가 배제한 조항을 근거로 내세우지 않는다
+  });
+
+  it("어긋남: '옆 값'이 정말 옆에 찍힌 값이다 — 배너·행 문구·큰 숫자가 한 숫자를 말한다", () => {
+    const card = withRules([
+      { product_type: "신용대주", ratio: 1.2 },
+      { product_type: "신용융자", ratio: 1.7 },
+    ]);
+    const v = gapView(card);
+    const html = render(card, undefined, v);
+
+    expect(bigValue(html)).toBe("170%");
+    expect(html).toContain("옆 값 170%와 같지 않습니다");
+    expect(v.banner).toContain("조건카드 170%"); // 배너도 같은 숫자를 말한다
+    expect(html).not.toContain(">120%<"); // 화면에 없는 값을 "옆 값"이라 부르지 않는다
+  });
+
+  it("종목군 축에서도 같다 — 적용 조항이 [0]이 아니어도 그 조항을 찍는다", () => {
+    const card = withRules([
+      { symbol_group: "A∙B군", ratio: 1.4 },
+      { symbol_group: "일반", ratio: 1.5 },
+    ]);
+    const v = gapView(card, 1.5); // pos.group="일반" → 둘째 줄로 좁혀 통과
+    expect(v.confirmed).toBe(true);
+    expect(bigValue(render(card, undefined, v))).toBe("150%");
+  });
+
+  it("하나로 좁히지 못하면 남은 값 **안에서** 찍는다 — 문구가 전부 나열한다", () => {
+    const card = withRules([
+      { symbol_group: "A∙B군", ratio: 1.4 },
+      { symbol_group: "C∙D군", ratio: 1.5 },
+    ]);
+    const v = gapView(card); // "일반"은 이 문서에 없는 어휘 → 좁히기를 버린다
+    const html = render(card, undefined, v);
+    expect(v.agreement.why).toBe("AMBIGUOUS");
+    expect(["140%", "150%"]).toContain(bigValue(html));
+    expect(html).toContain("140%, 150%"); // 큰 숫자가 문구가 말한 값들 안에 있다
+  });
+
+  it("이 카드에 없는 조항은 근거로 그리지 않는다 — 남의 좌표를 이 카드 근거로 내지 않는다", () => {
+    const mine = withRules([{ ratio: 1.4 }]);
+    const alien = meritz.ratio_rules[0]!; // 다른 문서·다른 좌표
+    const view = evidenceView(mine, alien);
+    expect(view.rows.find((r) => r.role === "ratio")!.locator.label).toBe(
+      evidenceView(mine).rows.find((r) => r.role === "ratio")!.locator.label,
+    );
   });
 });
