@@ -101,6 +101,7 @@ def _evidence_span_headers(report: Mapping[str, Any]) -> dict[str, str]:
                     "percent_values",
                     "bound_percent_values",
                     "numeric_binding_required",
+                    "evidence_product_binding",
                     "parent_char_start",
                     "parent_char_end",
                     "derived_from_parent",

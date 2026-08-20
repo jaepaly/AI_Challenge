@@ -133,6 +133,9 @@ class RatioRule(BaseModel):
     # 실측 편차 105~170% — 범위 밖이면 추출 오류로 간주
     ratio: float = Field(ge=1.0, le=2.0)
     evidence: EvidenceSpan
+    # 근거 문장 자체가 상품을 특정했는지 서버가 결정론적으로 기록한다.
+    # LLM 출력 필드가 아니며, 기존 수동 카드와의 호환을 위해 선택 필드다.
+    evidence_product_binding: Optional[Literal["explicit", "unspecified"]] = None
 
     @model_validator(mode="after")
     def require_ratio_in_quote(self):

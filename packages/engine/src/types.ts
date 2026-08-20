@@ -68,6 +68,8 @@ export interface RatioRule {
   /** 1.05 ~ 1.70 */
   ratio: number;
   evidence: EvidenceSpan;
+  /** 서버가 판정한 근거 문장 내 상품 명시 여부. 기존 수동 카드는 생략할 수 있다. */
+  evidence_product_binding?: "explicit" | "unspecified";
 }
 
 export interface DisposalPriceRule {

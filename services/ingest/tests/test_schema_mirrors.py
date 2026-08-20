@@ -65,6 +65,23 @@ class SchemaMirrorTest(unittest.TestCase):
             f"types.ts의 필수 evidence가 {len(RULE_KEYS)}개가 아니다",
         )
 
+    def test_ratio_evidence_product_binding_is_optional_in_all_three_mirrors(self) -> None:
+        ratio_schema = self.schema["properties"]["ratio_rules"]["items"]
+        self.assertNotIn("evidence_product_binding", ratio_schema["required"])
+        self.assertEqual(
+            ratio_schema["properties"]["evidence_product_binding"]["enum"],
+            ["explicit", "unspecified"],
+        )
+
+        field = schemas.RatioRule.model_fields["evidence_product_binding"]
+        self.assertFalse(field.is_required())
+        self.assertIsNone(field.default)
+
+        self.assertIn(
+            'evidence_product_binding?: "explicit" | "unspecified";',
+            self.ts,
+        )
+
     # ── doc_version ─────────────────────────────────────────────────────────
     def test_json_schema_requires_a_document_identifier(self) -> None:
         any_of = self.schema["properties"]["doc_version"]["anyOf"]

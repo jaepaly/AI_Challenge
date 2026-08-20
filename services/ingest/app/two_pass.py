@@ -252,6 +252,10 @@ def _structured_output_schema(source_format: str) -> dict[str, object]:
     evidence_ref = {"$ref": "#/$defs/CharacterEvidenceSpan"}
     for definition in ("RatioRule", "DisposalPriceRule", "ExecutionScheduleRule"):
         schema["$defs"][definition]["properties"]["evidence"] = evidence_ref
+    # 근거의 상품 명시 여부는 LLM이 아니라 서버가 citation에서 계산해 주입한다.
+    schema["$defs"]["RatioRule"]["properties"].pop(
+        "evidence_product_binding", None
+    )
     schema["$defs"]["CharacterEvidenceSpan"]["properties"]["source_format"] = {
         "type": "string",
         "enum": [source_format],
@@ -338,24 +342,35 @@ def _maintenance_row_values(quote: str) -> list[float]:
 def _credit_product_kind(text: str) -> str | None:
     """규칙·근거가 가리키는 신용 상품을 융자/대주 두 종류로 제한한다."""
 
-    kinds = {kind for kind in ("융자", "대주") if kind in text}
+    kinds = _credit_product_kinds(text)
     return next(iter(kinds)) if len(kinds) == 1 else None
 
 
-def _maintenance_row_bindings(quote: str) -> tuple[tuple[str, float], ...]:
-    """담보유지비율 행에서 상품과 단일 비율이 함께 있는 결속만 반환한다."""
+def _credit_product_kinds(text: str) -> frozenset[str]:
+    """문장에 실제 등장하는 지원 상품어 집합을 반환한다."""
 
-    bindings: list[tuple[str, float]] = []
+    return frozenset(kind for kind in ("융자", "대주") if kind in text)
+
+
+def _maintenance_row_bindings(
+    quote: str,
+) -> tuple[tuple[str | None, float], ...]:
+    """담보유지비율 행의 상품(또는 미특정)과 단일 비율 결속을 반환한다.
+
+    상품어가 0개면 단일 상품 안내문으로 보고 ``None``(상품 미특정)을 남긴다.
+    상품어가 2개면 어느 상품의 비율인지 근거가 특정하지 못하므로 결속하지 않는다.
+    """
+
+    bindings: list[tuple[str | None, float]] = []
     for line in quote.splitlines() or [quote]:
         if not _MAINTENANCE_CONTEXT_PATTERN.search(line):
             continue
-        product_kind = _credit_product_kind(line)
+        product_kinds = _credit_product_kinds(line)
         percentages = _percent_values(line)
-        if (
-            product_kind is not None
-            and len(percentages) == 1
-            and 100 <= percentages[0] <= 200
-        ):
+        if len(product_kinds) > 1:
+            continue
+        if len(percentages) == 1 and 100 <= percentages[0] <= 200:
+            product_kind = next(iter(product_kinds)) if product_kinds else None
             bindings.append((product_kind, percentages[0]))
     return tuple(dict.fromkeys(bindings))
 
@@ -531,6 +546,7 @@ def _role_citations(
                 and not has_execution
                 and len(percentages) == 1
                 and len(maintenance_values) == 1
+                and len(_maintenance_row_bindings(quote)) == 1
             ):
                 selected["ratio_rules"].append(citation)
                 eligible_roles[parent].append("ratio_rules")
@@ -544,6 +560,7 @@ def _role_citations(
                 has_maintenance
                 and has_execution
                 and len(_maintenance_row_values(quote)) == 1
+                and len(_maintenance_row_bindings(quote)) == 1
             ):
                 selected["execution_schedule"].append(citation)
                 eligible_roles[parent].append("execution_schedule")
@@ -669,7 +686,10 @@ def evidence_span_lengths(
             quote = str(_field(evidence, "quote", ""))
             percent_values = _percent_values(quote)
             if role in {"ratio_rules", "execution_schedule"}:
-                bound_percent_values = _maintenance_row_values(quote)
+                maintenance_bindings = _maintenance_row_bindings(quote)
+                bound_percent_values = sorted(
+                    {percent for _, percent in maintenance_bindings}
+                )
                 numeric_binding_required = True
             else:
                 discount_rate = _field(rule, "discount_rate")
@@ -696,6 +716,10 @@ def evidence_span_lengths(
                     "bound_percent_values": bound_percent_values,
                     "numeric_binding_required": numeric_binding_required,
                 }
+            if role == "ratio_rules":
+                span["evidence_product_binding"] = _field(
+                    rule, "evidence_product_binding"
+                )
             if selected_candidate is not None:
                 parent_start = (
                     selected_candidate.parent_char_start
@@ -797,6 +821,7 @@ def _validate_evidence_role_binding(
     """수치와 citation을 모델이 다른 규칙 역할 사이에서 바꿔 끼우지 못하게 한다."""
 
     declared_ratio_bindings: set[tuple[str, float]] = set()
+    unspecified_evidence_products: dict[tuple[object, ...], set[str]] = {}
     for ratio_rule in card.ratio_rules:
         product_kind = _credit_product_kind(ratio_rule.product_type)
         expected_percent = round(ratio_rule.ratio * 100, 10)
@@ -804,13 +829,53 @@ def _validate_evidence_role_binding(
             raise IngestPipelineError(
                 "ratio_rules.product_type은 융자 또는 대주 상품을 특정해야 합니다"
             )
-        if (product_kind, expected_percent) not in _maintenance_row_bindings(
-            ratio_rule.evidence.quote
+        expected_bindings = tuple(
+            binding
+            for binding in _maintenance_row_bindings(ratio_rule.evidence.quote)
+            if binding[1] == expected_percent
+        )
+        if len(expected_bindings) != 1:
+            raise IngestPipelineError(
+                "ratio_rules의 담보유지비율 evidence가 상품·비율 결속 하나를 특정해야 합니다"
+            )
+        evidence_product_kind, _ = expected_bindings[0]
+        expected_scope = (
+            "explicit" if evidence_product_kind is not None else "unspecified"
+        )
+        if (
+            ratio_rule.evidence_product_binding is not None
+            and ratio_rule.evidence_product_binding != expected_scope
         ):
+            raise IngestPipelineError(
+                "ratio_rules의 evidence_product_binding이 실제 근거와 일치하지 않습니다"
+            )
+        if evidence_product_kind is not None and evidence_product_kind != product_kind:
             raise IngestPipelineError(
                 "ratio_rules의 상품 종류와 담보유지비율 evidence 행이 일치하지 않습니다"
             )
+        if evidence_product_kind is None:
+            evidence = ratio_rule.evidence
+            evidence_key = (
+                evidence.source_format,
+                getattr(evidence, "char_start", None),
+                getattr(evidence, "char_end", None),
+                getattr(evidence, "page", None),
+                getattr(evidence, "end_page", None),
+                evidence.quote,
+                expected_percent,
+            )
+            unspecified_evidence_products.setdefault(evidence_key, set()).add(
+                product_kind
+            )
         declared_ratio_bindings.add((product_kind, expected_percent))
+
+    if any(
+        len(product_kinds) != 1
+        for product_kinds in unspecified_evidence_products.values()
+    ):
+        raise IngestPipelineError(
+            "상품 미특정 담보유지비율 evidence 하나를 여러 상품 규칙에 결속할 수 없습니다"
+        )
 
     for role in _CITATION_ROLES:
         allowed = {
@@ -842,14 +907,28 @@ def _validate_evidence_role_binding(
                     raise IngestPipelineError(
                         "execution_schedule의 threshold_ratio가 담보유지비율 행과 일치하지 않습니다"
                     )
-                matching_products = {
-                    product_kind
-                    for product_kind, percent in _maintenance_row_bindings(
-                        evidence.quote
+                expected_bindings = tuple(
+                    binding
+                    for binding in _maintenance_row_bindings(evidence.quote)
+                    if binding[1] == expected_percent
+                )
+                if len(expected_bindings) != 1:
+                    raise IngestPipelineError(
+                        "execution_schedule의 근거가 임계비율 상품 결속 하나를 특정해야 합니다"
                     )
-                    if (product_kind, percent) in declared_ratio_bindings
-                    and percent == expected_percent
-                }
+                evidence_product_kind, _ = expected_bindings[0]
+                if evidence_product_kind is None:
+                    matching_products = {
+                        product_kind
+                        for product_kind, percent in declared_ratio_bindings
+                        if percent == expected_percent
+                    }
+                else:
+                    matching_products = {
+                        evidence_product_kind
+                        for binding in declared_ratio_bindings
+                        if binding == (evidence_product_kind, expected_percent)
+                    }
                 if len(matching_products) != 1:
                     raise IngestPipelineError(
                         "execution_schedule의 임계비율·상품이 ratio_rules와 하나로 결속되어야 합니다"
@@ -925,6 +1004,45 @@ def _inject_broker_identity(
         raise IngestPipelineError("2패스는 broker를 생성할 수 없습니다")
     resolved = dict(card_data)
     resolved["broker"] = broker
+    return resolved
+
+
+def _inject_ratio_evidence_product_bindings(
+    card_data: Mapping[str, object],
+) -> dict[str, object]:
+    """근거가 상품을 직접 명시했는지 LLM과 무관하게 카드에 기록한다."""
+
+    resolved = deepcopy(dict(card_data))
+    ratio_rules = resolved.get("ratio_rules")
+    if not isinstance(ratio_rules, list):
+        return resolved
+    for rule in ratio_rules:
+        if not isinstance(rule, dict):
+            continue
+        if "evidence_product_binding" in rule:
+            raise IngestPipelineError(
+                "2패스는 evidence_product_binding을 생성할 수 없습니다"
+            )
+        evidence = rule.get("evidence")
+        if not isinstance(evidence, Mapping):
+            continue
+        try:
+            expected_percent = round(float(rule.get("ratio")) * 100, 10)
+        except (TypeError, ValueError):
+            continue
+        expected_bindings = tuple(
+            binding
+            for binding in _maintenance_row_bindings(
+                str(evidence.get("quote", ""))
+            )
+            if binding[1] == expected_percent
+        )
+        if len(expected_bindings) == 1:
+            rule["evidence_product_binding"] = (
+                "explicit"
+                if expected_bindings[0][0] is not None
+                else "unspecified"
+            )
     return resolved
 
 
@@ -1144,6 +1262,9 @@ class TwoPassIngestService:
                 normalized_card_data,
                 citations,
                 sha256(data).hexdigest(),
+            )
+            normalized_card_data = _inject_ratio_evidence_product_bindings(
+                normalized_card_data
             )
             # 카드 검증이 fail-closed로 끝나도 유료 실행의 근거 스팬 관측치는 남긴다.
             # 이 값은 판정이나 카드 반환에 쓰지 않는다.
