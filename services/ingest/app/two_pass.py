@@ -796,6 +796,22 @@ def _validate_evidence_role_binding(
 ) -> None:
     """수치와 citation을 모델이 다른 규칙 역할 사이에서 바꿔 끼우지 못하게 한다."""
 
+    declared_ratio_bindings: set[tuple[str, float]] = set()
+    for ratio_rule in card.ratio_rules:
+        product_kind = _credit_product_kind(ratio_rule.product_type)
+        expected_percent = round(ratio_rule.ratio * 100, 10)
+        if product_kind is None:
+            raise IngestPipelineError(
+                "ratio_rules.product_type은 융자 또는 대주 상품을 특정해야 합니다"
+            )
+        if (product_kind, expected_percent) not in _maintenance_row_bindings(
+            ratio_rule.evidence.quote
+        ):
+            raise IngestPipelineError(
+                "ratio_rules의 상품 종류와 담보유지비율 evidence 행이 일치하지 않습니다"
+            )
+        declared_ratio_bindings.add((product_kind, expected_percent))
+
     for role in _CITATION_ROLES:
         allowed = {
             (
@@ -825,6 +841,18 @@ def _validate_evidence_role_binding(
                 if expected_percent not in _maintenance_row_values(evidence.quote):
                     raise IngestPipelineError(
                         "execution_schedule의 threshold_ratio가 담보유지비율 행과 일치하지 않습니다"
+                    )
+                matching_products = {
+                    product_kind
+                    for product_kind, percent in _maintenance_row_bindings(
+                        evidence.quote
+                    )
+                    if (product_kind, percent) in declared_ratio_bindings
+                    and percent == expected_percent
+                }
+                if len(matching_products) != 1:
+                    raise IngestPipelineError(
+                        "execution_schedule의 임계비율·상품이 ratio_rules와 하나로 결속되어야 합니다"
                     )
                 normalized_schedule = re.sub(r"\s+", "", rule.day_counting)
                 normalized_quote = re.sub(r"\s+", "", evidence.quote)

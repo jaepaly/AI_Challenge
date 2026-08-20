@@ -42,6 +42,9 @@ def _card(
     disposal_quote: str = "전일종가 대비 15% 하락",
     execution_quote: str = "담보유지비율 140%",
 ) -> ConditionCard:
+    day_counting = "D일 평가 → D+2 집행"
+    if day_counting not in execution_quote:
+        execution_quote = f"{execution_quote}\n{day_counting}"
     return ConditionCard.model_validate(
         {
             "broker": "테스트",
@@ -68,7 +71,7 @@ def _card(
             "execution_schedule": [
                 {
                     "threshold_ratio": 1.4,
-                    "day_counting": "D일 평가 → D+2 집행",
+                    "day_counting": day_counting,
                     "evidence": _evidence(*execution_span, execution_quote),
                 }
             ],

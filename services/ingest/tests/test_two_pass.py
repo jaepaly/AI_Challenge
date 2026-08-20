@@ -614,6 +614,7 @@ class TwoPassIngestTest(unittest.TestCase):
         card["execution_schedule"][0]["evidence"] = self._evidence(
             self.ratio_quote
         )
+        card["execution_schedule"][0]["day_counting"] = "담보유지 비율"
 
         response, _ = self._post(card=card)
 
@@ -628,6 +629,52 @@ class TwoPassIngestTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertIn("day_counting", response.json()["detail"])
+
+    def test_rejects_ratio_product_that_does_not_match_evidence_row(self) -> None:
+        card = copy.deepcopy(self.card)
+        card["ratio_rules"][0]["product_type"] = "신용대주"
+
+        response, _ = self._post(card=card)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("상품 종류", response.json()["detail"])
+
+    def test_rejects_execution_not_bound_to_declared_ratio_product(self) -> None:
+        card = copy.deepcopy(self.card)
+        card["broker"] = "한국투자증권"
+        card["doc_version"] = {"review_no": "2026-0265"}
+        execution = card["execution_schedule"][0]
+        execution["day_counting"] = "D+2"
+        execution["evidence"] = {
+            "source_format": "html",
+            "char_start": 6000,
+            "char_end": 6040,
+            "flattened_sha256": self.document.flattened_sha256,
+            "quote": "담보유지 비율\t대주\t140%\n임의상환정리(반대매매)\tD+2",
+        }
+        parsed = ConditionCard.model_validate(card)
+
+        def citation_for(rule) -> CitationSpan:
+            evidence = rule.evidence
+            return CitationSpan(
+                source_format=evidence.source_format,
+                char_start=evidence.char_start,
+                char_end=evidence.char_end,
+                flattened_sha256=evidence.flattened_sha256,
+                quote=evidence.quote,
+            )
+
+        roles = {
+            "ratio_rules": (citation_for(parsed.ratio_rules[0]),),
+            "disposal_price_rules": (
+                citation_for(parsed.disposal_price_rules[0]),
+            ),
+            "execution_schedule": (
+                citation_for(parsed.execution_schedule[0]),
+            ),
+        }
+        with self.assertRaisesRegex(IngestPipelineError, "임계비율·상품"):
+            _validate_evidence_role_binding(parsed, roles)
 
     def test_rejects_lower_limit_when_quote_has_explicit_discount(self) -> None:
         card = copy.deepcopy(self.card)

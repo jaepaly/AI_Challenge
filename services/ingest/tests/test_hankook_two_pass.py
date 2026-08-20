@@ -8,6 +8,7 @@ import httpx
 
 from benchmarks.hankook_two_pass import (
     HANKOOK_FILENAME,
+    _default_result_path,
     build_dry_run_plan,
     evidence_span_report,
     estimate_max_cost_krw,
@@ -57,6 +58,24 @@ ATTEMPT6_RESULT = (
 
 
 class HankookTwoPassGateTest(unittest.TestCase):
+    def test_default_output_keeps_success_canonical_and_versions_failures(self) -> None:
+        root = Path("C:/virtual-repo")
+        results = root / "services" / "ingest" / "benchmarks" / "results"
+        with patch.object(
+            Path,
+            "exists",
+            autospec=True,
+            side_effect=lambda path: path.name == "hankook_two_pass_attempt1_failed.json",
+        ):
+            self.assertEqual(
+                _default_result_path(root, {"status": "completed"}),
+                results / "hankook_two_pass.json",
+            )
+            self.assertEqual(
+                _default_result_path(root, {"status": "failed"}),
+                results / "hankook_two_pass_attempt2_failed.json",
+            )
+
     def test_first_pass_requests_minimal_claim_specific_citations(self) -> None:
         self.assertIn("최소 문장·표 행", PASS1_SYSTEM)
         self.assertIn("여러 규칙을 한 번에 인용하지 말고", PASS1_SYSTEM)
@@ -243,8 +262,11 @@ class HankookTwoPassGateTest(unittest.TestCase):
             "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
         )
         self.assertEqual(plan["cache_control"], "ephemeral_5m")
-        self.assertGreater(plan["estimated_max_cost_krw"], 550)
-        self.assertLess(plan["estimated_max_cost_krw"], 650)
+        self.assertEqual(
+            plan["prompt_sha256"],
+            "c7b6effc566eabd1fc915be5f860a958d7c1e9add470f7f261553c872e15194e",
+        )
+        self.assertEqual(plan["estimated_max_cost_krw"], 601.01)
         self.assertEqual(
             plan["approval_pricing_basis"],
             {
@@ -380,6 +402,12 @@ class HankookTwoPassGateTest(unittest.TestCase):
 
         ratio_quote = "최저담보유지비율 140%"
         discount_quote = "전일종가(8,100원) 대비 15% 하락한 가격(6,890원)"
+        execution_start = text.index("담보유지 비율")
+        schedule_quote = "임의상환정리(반대매매)\t담보부족발생(D일) + 2일"
+        execution_end = text.index(schedule_quote, execution_start) + len(
+            schedule_quote
+        )
+        execution_quote = text[execution_start:execution_end]
         card = {
             "broker": "한국투자증권",
             "ratio_rules": [
@@ -405,8 +433,8 @@ class HankookTwoPassGateTest(unittest.TestCase):
             "execution_schedule": [
                 {
                     "threshold_ratio": 1.4,
-                    "day_counting": "추가담보 납부기한 경과 후",
-                    "evidence": evidence(ratio_quote),
+                    "day_counting": "담보부족발생(D일) + 2일",
+                    "evidence": evidence(execution_quote),
                 }
             ],
             "ratio_source": "clause",

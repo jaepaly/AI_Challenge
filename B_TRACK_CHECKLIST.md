@@ -68,15 +68,15 @@
 - [x] `[기존]` 성공 결과 JSON과 보존 중인 실패 결과 파일을 분리
 - [x] `[기존]` 성공 결과를 한투 정본으로 다시 검증하는 회귀 테스트 추가
 - [x] `[기존]` 전체 Python·Engine·Web·lint·build 재검증
-  - 최종 통합 기준 Python 77 passed, 1 warning
-  - Engine 75 passed
+  - 최종 통합 기준 Python 97 passed, 1 warning
+  - Engine 77 passed
   - Web 64 passed
   - lint 통과
   - production build 통과
 - [x] `[기존]` 결과 커밋·푸시: `afb2de7`
 - [x] `[기존]` PR #47 본문을 4차 성공 결과와 60초 미충족 사실로 갱신
 - [x] `[기존]` Issue #32 보고용 Markdown 초안 작성
-- [ ] `[기존]` PR #47 재검토 요청문 초안 작성
+- [x] `[기존]` PR #47 재검토 요청문 작성 및 최신 수정 코멘트에 반영
 - [x] 사용자 승인 후 Issue #32 보고 댓글 등록
   - [댓글 `5308116419`](https://github.com/jaepaly/AI_Challenge/issues/32#issuecomment-5308116419)
 
@@ -110,12 +110,31 @@
   - `day_counting`이 같은 evidence quote에 직접 없으면 422로 거부
   - 투자사례·가정·예시 블록은 역할 후보에서 제외
   - 현재 계약을 바꾸지 않고 조항 `[5252:5444]`의 192자 연속 구간을 사용
-- [ ] `[게이트]` 다음 유료 실행의 예상 비용·승인 상한을 계산하고 별도 승인받기
-- [ ] `[게이트]` 프롬프트 수정 후 한투 종단 실행 1회 재측정
-  - `h=0.15`와 기존 4중 방어 유지
-  - `duplicate_spans=0`
-  - ratio·discount는 해당 행에서, execution threshold는 유지비율 행에서 값 하나로 특정됨
-  - 1패스 선표시 시점과 전체 카드 완성 시간 기록
+- [x] `[게이트]` 다음 유료 실행의 예상 비용·승인 상한 계산
+  - 7차 실행 프롬프트 SHA-256: `1d96758fe43b515fe05ee629e48fbd2297f94892dd21b7e4bf50ccea6577da5e`
+  - 네트워크 0회 dry-run 예상 최대 비용: 601.01원
+  - 권장 승인 상한: 700원
+- [x] `[게이트]` B 담당자 자가 승인으로 7차 한투 종단 실행 1회 진행
+  - 승인 상한 700원, dry-run 예상 최대 비용 601.01원, 자동 재시도 0회
+- [x] `[게이트]` 최신 프롬프트·근거 결속 경로로 7차 한투 종단 실행 1회 재측정
+  - HTTP 422 fail-closed: 2패스의 빈 `broker` 문자열을 JSON Schema가 거부
+  - 1패스 16.00초, 2패스 15.74초, 전체 31.78초
+  - `duplicate_spans=0`, ratio 20자, discount 114자, execution 192자
+  - ratio·discount와 execution threshold의 결속값은 각각 단일 퍼센트로 특정됨
+  - 표준가 usage 환산 309.55원, 도입가 환산 206.37원, 콘솔 실청구액은 미확인
+  - 결과는 `hankook_two_pass_attempt7_failed.json`에 보존하고 4차 성공 정본은 복원
+- [x] `[게이트]` 빈 `broker` 생성 원인을 보완하고 비용 없는 적대 테스트로 고정
+  - Pydantic `min_length=1` 미러 정렬은 팀의 PR #53으로 `main` 반영 완료
+  - `broker`를 2패스 출력 스키마에서 제거하고 제출 파일명 허용 목록으로 서버가 결정·주입
+  - 모델이 `broker`를 생성하거나 파일명에서 발행사 하나를 결정할 수 없으면 fail-closed
+  - 융자/대주 상품 행과 ratio·execution 규칙이 어긋나면 fail-closed
+  - `day_counting`이 quote에 직접 없으면 Pydantic에서도 거부
+  - 실패 실행은 성공 정본 대신 다음 `_attemptN_failed.json`에 자동 분리
+  - 예시 구간은 시작점뿐 아니라 스팬 겹침 전체를 검사하고 뒤 조항까지 번지지 않도록 경계 보완
+  - 비용 없는 검증: Python 97 passed, Engine 77, Web 64, lint·build·compileall 통과
+  - 최신 프롬프트 SHA-256: `c7b6effc566eabd1fc915be5f860a958d7c1e9add470f7f261553c872e15194e`
+  - dry-run 네트워크 0회, 예상 최대 비용 601.01원
+- [ ] `[게이트]` 최신 경로에서 HTTP 200·`h=0.15`·4중 방어를 함께 만족하는 성공 카드 재검증
 - [x] `[게이트]` 5차 종단 실행 실패를 보존하고 원인 분리
   - HTTP 422 fail-closed, 51.21초, 추가 재시도 0회
   - `threshold_ratio=1.4`와 연결된 quote에 `140%`가 없어 Pydantic이 거부
@@ -250,8 +269,10 @@
 - [x] `[감지]` 미추적 파일이 정리되기 전 `git add .` 사용 금지
 - [x] `[감지]` pytest 임시 캐시 디렉터리 권한 경고 정리
   - 미추적 `services/ingest/pytest-cache-files-*` 29개만 경계 검증 후 삭제
-  - 전체 검증은 `-p no:cacheprovider`로 실행해 재생성 없이 77 passed
-- [ ] `[감지]` PR #47 최신 수정 이후 팀원의 재검토 요청
+  - 전체 검증은 `-p no:cacheprovider`로 실행해 재생성 없이 97 passed
+- [x] `[감지]` PR #47 최신 수정 이후 팀원의 재검토 요청
+  - [정정·재검토 요청 코멘트](https://github.com/jaepaly/AI_Challenge/pull/47#issuecomment-5308915996)
+  - 팀 답변과 공식 승인은 대기하되, 비용 없는 준비 작업은 계속 진행
 
 ## P6 — 지금 작업하면 안 되는 항목
 
