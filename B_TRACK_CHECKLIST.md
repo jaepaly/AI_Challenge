@@ -68,9 +68,9 @@
 - [x] `[기존]` 성공 결과 JSON과 보존 중인 실패 결과 파일을 분리
 - [x] `[기존]` 성공 결과를 한투 정본으로 다시 검증하는 회귀 테스트 추가
 - [x] `[기존]` 전체 Python·Engine·Web·lint·build 재검증
-  - 최종 통합 기준 Python 97 passed, 1 warning
+  - 최종 통합 기준 Python 118 passed, 1 warning
   - Engine 77 passed
-  - Web 64 passed
+  - Web 144 passed
   - lint 통과
   - production build 통과
 - [x] `[기존]` 결과 커밋·푸시: `afb2de7`
@@ -128,10 +128,11 @@
   - `broker`를 2패스 출력 스키마에서 제거하고 제출 파일명 허용 목록으로 서버가 결정·주입
   - 모델이 `broker`를 생성하거나 파일명에서 발행사 하나를 결정할 수 없으면 fail-closed
   - 융자/대주 상품 행과 ratio·execution 규칙이 어긋나면 fail-closed
-  - `day_counting`이 quote에 직접 없으면 Pydantic에서도 거부
+  - 2패스 인제스트의 `day_counting`이 quote에 직접 없으면 역할 결속 검증에서 거부
+  - 공통 Pydantic 계약은 추론형 스냅숏도 소비하므로 축자 일치를 강제하지 않음
   - 실패 실행은 성공 정본 대신 다음 `_attemptN_failed.json`에 자동 분리
   - 예시 구간은 시작점뿐 아니라 스팬 겹침 전체를 검사하고 뒤 조항까지 번지지 않도록 경계 보완
-  - 비용 없는 검증: Python 97 passed, Engine 77, Web 64, lint·build·compileall 통과
+  - 비용 없는 검증: Python 118 passed, Engine 77, Web 144, lint·build·compileall 통과
   - 최신 프롬프트 SHA-256: `c7b6effc566eabd1fc915be5f860a958d7c1e9add470f7f261553c872e15194e`
   - dry-run 네트워크 0회, 예상 최대 비용 601.01원
 - [ ] `[게이트]` 최신 경로에서 HTTP 200·`h=0.15`·4중 방어를 함께 만족하는 성공 카드 재검증
@@ -269,7 +270,7 @@
 - [x] `[감지]` 미추적 파일이 정리되기 전 `git add .` 사용 금지
 - [x] `[감지]` pytest 임시 캐시 디렉터리 권한 경고 정리
   - 미추적 `services/ingest/pytest-cache-files-*` 29개만 경계 검증 후 삭제
-  - 전체 검증은 `-p no:cacheprovider`로 실행해 재생성 없이 97 passed
+  - 전체 검증은 `-p no:cacheprovider`로 실행해 재생성 없이 118 passed
 - [x] `[감지]` PR #47 최신 수정 이후 팀원의 재검토 요청
   - [정정·재검토 요청 코멘트](https://github.com/jaepaly/AI_Challenge/pull/47#issuecomment-5308915996)
   - 팀 답변과 공식 승인은 대기하되, 비용 없는 준비 작업은 계속 진행

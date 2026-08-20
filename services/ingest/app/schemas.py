@@ -164,7 +164,7 @@ class DisposalPriceRule(BaseModel):
 
 class ExecutionScheduleRule(BaseModel):
     threshold_ratio: float = Field(ge=1.0, le=2.0)
-    day_counting: str = Field(min_length=1)
+    day_counting: str
     evidence: EvidenceSpan
 
     @model_validator(mode="after")
@@ -174,12 +174,6 @@ class ExecutionScheduleRule(BaseModel):
             value=self.threshold_ratio,
             evidence=self.evidence,
         )
-        normalized_schedule = re.sub(r"\s+", "", self.day_counting)
-        normalized_quote = re.sub(r"\s+", "", self.evidence.quote)
-        if normalized_schedule not in normalized_quote:
-            raise ValueError(
-                "day_counting이 evidence.quote에 직접 포함되어야 합니다"
-            )
         return self
 
 

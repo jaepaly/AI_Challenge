@@ -175,13 +175,6 @@ class EvidenceSpanContractTest(unittest.TestCase):
 
         self.assert_contract_rejects(card)
 
-    def test_day_counting_must_be_directly_supported_by_evidence(self) -> None:
-        card = make_card(page_evidence())
-        card["execution_schedule"][0]["day_counting"] = "다음 영업일"
-
-        self.assertEqual(list(self.validator.iter_errors(card)), [])
-        self.assert_pydantic_rejects(card)
-
     def test_numeric_quotes_accept_percent_decimal_and_fullwidth_notation(self) -> None:
         card = make_card(page_evidence())
         card["ratio_rules"][0]["evidence"]["quote"] = "담보유지비율 １４０％"
