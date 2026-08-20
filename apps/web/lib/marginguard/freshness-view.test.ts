@@ -72,6 +72,33 @@ describe("신선도 게이트 — 화면 규약", () => {
     expect(v.banner).toContain("검증일");
   });
 
+  /**
+   * 배너가 말하는 허용 일수는 **엔진이 실제로 막는 경계**와 같아야 한다.
+   * 리터럴이던 시절 이게 갈렸다 — 엔진 상수를 14로 바꿔 실측하니 게이트는 15일째부터
+   * 막는데 배너는 "허용 30일"이라고 말했다(#56 리뷰). 상수를 읽어 비교하면 이 검사는
+   * 무의미해지므로, **경계를 날짜별 호출로 직접 찾아** 배너 문구의 숫자와 대조한다.
+   */
+  it("배너가 말하는 허용 일수 = 게이트가 실제로 막기 시작하는 경계", () => {
+    const base = "2026-01-01";
+    const card = { ...hantoo, verified_at: base };
+    const dayAfter = (n: number) =>
+      new Date(Date.parse(base) + n * 86_400_000).toISOString().slice(0, 10);
+
+    let lastCalculated = -1;
+    for (let n = 0; n <= 400; n += 1) {
+      if (freshnessView(card, dayAfter(n)).mode !== "calculated") break;
+      lastCalculated = n;
+    }
+    expect(lastCalculated).toBeGreaterThan(0);
+
+    const stale = freshnessView(card, dayAfter(lastCalculated + 1));
+    expect(stale.verdict.reason).toBe("STALE");
+
+    const claimed = stale.banner!.match(/허용 (\d+)일/);
+    expect(claimed).not.toBeNull();
+    expect(Number(claimed![1])).toBe(lastCalculated);
+  });
+
   it("오염된 verified_at은 조용히 강등하지 않고 throw — 착시를 만들지 않는다", () => {
     expect(() => freshnessView({ ...hantoo, verified_at: "2026/08/09" }, "2026-08-09")).toThrow();
     expect(() => freshnessView(hantoo, "2026-08-01")).toThrow(); // 미래 검증일

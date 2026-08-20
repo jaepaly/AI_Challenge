@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { TEST_EVIDENCE } from "./evidence-fixture";
-import { assessCardFreshness } from "../src/freshness";
+import { assessCardFreshness, MAX_FRESH_AGE_DAYS } from "../src/freshness";
 import type { ConditionCard } from "../src/types";
 
 /** ConditionCard 필수 필드를 전부 채운 픽스처 — 한투 골든 계좌 조건 기반 */
@@ -146,6 +146,29 @@ describe("타임존 스큐 클램프", () => {
     // verified_at "2026-08-01" = 8/1 00:00Z, asOf 8/1 00:00 KST = 7/31 15:00Z → 차이 −9시간
     const v = assessCardFreshness(makeCard(), "2026-08-01T00:00:00+09:00");
     expect(v).toEqual({ calculable: true, mode: "calculated", reason: "FRESH", ageDays: 0 });
+  });
+});
+
+describe("MAX_FRESH_AGE_DAYS — 공표한 상수가 실제 경계와 같은가", () => {
+  /**
+   * 상수를 export하면 화면이 그 숫자를 문장으로 말한다("허용 30일"). 그러면 상수는
+   * 주석이 아니라 **계약**이 된다 — 값과 동작이 갈리면 화면이 거짓말을 한다.
+   * 그래서 상수를 읽지 않고 assessCardFreshness를 날짜별로 실제 호출해 경계를 찾는다.
+   */
+  it("계산 허용되는 마지막 만 일수 = MAX_FRESH_AGE_DAYS, 그 다음 날은 STALE", () => {
+    const card = makeCard({ verified_at: "2026-01-01" });
+    const dayAfter = (n: number) =>
+      new Date(Date.parse("2026-01-01") + n * 86_400_000).toISOString().slice(0, 10);
+
+    let lastFresh = -1;
+    for (let n = 0; n <= 400; n += 1) {
+      if (!assessCardFreshness(card, dayAfter(n)).calculable) break;
+      lastFresh = n;
+    }
+
+    expect(lastFresh).toBe(MAX_FRESH_AGE_DAYS);
+    expect(assessCardFreshness(card, dayAfter(MAX_FRESH_AGE_DAYS)).reason).toBe("FRESH");
+    expect(assessCardFreshness(card, dayAfter(MAX_FRESH_AGE_DAYS + 1)).reason).toBe("STALE");
   });
 });
 
