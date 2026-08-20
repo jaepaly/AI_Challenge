@@ -419,6 +419,22 @@ def _write_result(path: Path, result: Mapping[str, Any]) -> None:
     temporary.replace(path)
 
 
+def _default_result_path(
+    repo_root: Path, result: Mapping[str, Any]
+) -> Path:
+    """성공만 정본을 갱신하고 실패는 새 시도 파일에 보존한다."""
+
+    results_dir = repo_root / "services" / "ingest" / "benchmarks" / "results"
+    if result.get("status") == "completed":
+        return results_dir / "hankook_two_pass.json"
+    attempt = 1
+    while True:
+        candidate = results_dir / f"hankook_two_pass_attempt{attempt}_failed.json"
+        if not candidate.exists():
+            return candidate
+        attempt += 1
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--execute", action="store_true", help="실제 Anthropic API 호출")
@@ -450,14 +466,7 @@ def main() -> None:
     except (ValueError, RuntimeError, anthropic.AnthropicError) as error:
         raise SystemExit(str(error)) from None
 
-    output = args.output or (
-        repo_root
-        / "services"
-        / "ingest"
-        / "benchmarks"
-        / "results"
-        / "hankook_two_pass.json"
-    )
+    output = args.output or _default_result_path(repo_root, result)
     _write_result(output, result)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "completed":

@@ -13,11 +13,17 @@ import httpx
 
 from app.main import app, get_ingest_service
 from app.parsing import parse_document
+from app.schemas import ConditionCard
 from app.two_pass import (
     _REVIEW_NO_PATTERN,
     CitationSpan,
+    IngestPipelineError,
     TwoPassIngestService,
+    _broker_from_filename,
+    _example_intervals,
+    _is_example_span,
     _role_citations,
+    _validate_evidence_role_binding,
     prompt_sha256,
 )
 
@@ -136,7 +142,6 @@ class TwoPassIngestTest(unittest.TestCase):
         discount_evidence = self._evidence(self.discount_quote)
         execution_evidence = self._evidence(self.execution_quote)
         self.card = {
-            "broker": "한국투자증권",
             "ratio_rules": [
                 {
                     "product_type": "신용융자",
@@ -205,6 +210,7 @@ class TwoPassIngestTest(unittest.TestCase):
         response, fake = self._post()
 
         self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["broker"], "한국투자증권")
         self.assertEqual(response.json()["status"], "draft")
         self.assertEqual(
             response.json()["disposal_price_rules"][0]["discount_rate"], 0.15
@@ -367,6 +373,8 @@ class TwoPassIngestTest(unittest.TestCase):
         self.assertNotIn("PageEvidenceSpan", schema["$defs"])
         self.assertNotIn("doc_version", schema["properties"])
         self.assertNotIn("doc_version", schema["required"])
+        self.assertNotIn("broker", schema["properties"])
+        self.assertNotIn("broker", schema["required"])
 
     def test_prompts_distinguish_maintenance_ratio_from_valuation_ratio(self) -> None:
         response, fake = self._post()
@@ -456,6 +464,71 @@ class TwoPassIngestTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertIn("doc_version을 생성할 수 없습니다", response.json()["detail"])
+
+    def test_rejects_model_supplied_broker_identity(self) -> None:
+        card = copy.deepcopy(self.card)
+        card["broker"] = "다른증권"
+
+        response, _ = self._post(card=card)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("broker를 생성할 수 없습니다", response.json()["detail"])
+
+    def test_unknown_broker_filename_fails_before_paid_calls(self) -> None:
+        fake = FakeAnthropicClient(self.pass1, self.card)
+        service = TwoPassIngestService(fake)
+        app.dependency_overrides[get_ingest_service] = lambda: service
+
+        response = TestClient(app).post(
+            "/ingest",
+            files={"file": ("알수없음_약관.htm", self.raw, "text/html")},
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("발행사 하나", response.json()["detail"])
+        self.assertEqual(fake.messages.calls, [])
+
+    def test_broker_filename_allowlist_covers_the_terms_corpus(self) -> None:
+        expected = {
+            "한국투자_신용거래설명서_20260707.htm": "한국투자증권",
+            "메리츠_신용거래설명서_20250421.pdf": "메리츠증권",
+            "미래에셋_신용거래설명서_20250324.pdf": "미래에셋증권",
+            "삼성_신용거래핵심설명서_20240822.pdf": "삼성증권",
+            "신한_신용거래설명서_20260330.pdf": "신한투자증권",
+            "유진_반대매매안내_수집20260805.html": "유진투자증권",
+            "키움_국내주식핵심설명서_20260612.pdf": "키움증권",
+        }
+        for filename, broker in expected.items():
+            with self.subTest(filename=filename):
+                self.assertEqual(_broker_from_filename(filename), broker)
+
+        with self.assertRaises(IngestPipelineError):
+            _broker_from_filename("삼성_신한_혼합문서.pdf")
+
+    def test_example_filter_uses_overlap_and_stops_before_later_clauses(self) -> None:
+        intervals = _example_intervals(self.text)
+        first_example = self.text.index("투자사례")
+        overlapping = CitationSpan(
+            source_format="html",
+            char_start=max(0, first_example - 10),
+            char_end=first_example + 10,
+            flattened_sha256=self.document.flattened_sha256 or "",
+            quote=self.text[max(0, first_example - 10) : first_example + 10],
+        )
+        self.assertTrue(_is_example_span(overlapping, intervals))
+
+        labelled_example = self.text.index("투자사례(가,나)")
+        later_item = next(
+            end for start, end in intervals if start == labelled_example
+        )
+        later_clause = CitationSpan(
+            source_format="html",
+            char_start=later_item,
+            char_end=later_item + 2,
+            flattened_sha256=self.document.flattened_sha256 or "",
+            quote=self.text[later_item : later_item + 2],
+        )
+        self.assertFalse(_is_example_span(later_clause, intervals))
 
     def test_rejects_citation_that_does_not_match_source_slice(self) -> None:
         citation = _citation(self.text, self.ratio_quote)
@@ -602,12 +675,12 @@ class TwoPassIngestTest(unittest.TestCase):
 
     def test_schema_failure_after_second_pass_keeps_usage_headers(self) -> None:
         card = copy.deepcopy(self.card)
-        card["broker"] = None
+        card["account_aggregation"] = "invalid"
 
         response, fake = self._post(card=card)
 
         self.assertEqual(response.status_code, 422)
-        self.assertIn("broker", response.json()["detail"])
+        self.assertIn("account_aggregation", response.json()["detail"])
         self.assertEqual(len(fake.messages.calls), 2)
         self.assertEqual(response.headers["x-ingest-pass2-output-tokens"], "700")
         self.assertIn("x-ingest-total-ms", response.headers)
@@ -624,7 +697,10 @@ class TwoPassIngestTest(unittest.TestCase):
         self.assertIn("x-ingest-evidence-max-span", response.headers)
 
     def test_prompt_contract_has_stable_sha256(self) -> None:
-        self.assertRegex(prompt_sha256(), r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            prompt_sha256(),
+            "c7b6effc566eabd1fc915be5f860a958d7c1e9add470f7f261553c872e15194e",
+        )
 
     def test_real_sdk_serializes_both_requests_without_network(self) -> None:
         request_bodies: list[dict[str, object]] = []

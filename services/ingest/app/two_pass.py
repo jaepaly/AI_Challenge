@@ -45,6 +45,7 @@ PASS1_SYSTEM = """당신은 금융투자 약관에서 인용 근거만 수집하
 
 PASS2_SYSTEM = """당신은 검증된 인용 목록만 ConditionCard JSON으로 옮기는 구조화기다.
 인용 목록 밖의 사실·수치·좌표를 만들지 않는다. 계산·산식·계산 결과를 추가하지 않는다.
+broker와 doc_version은 서버가 결정하므로 생성하지 않는다.
 목록의 모든 citation을 사용할 필요는 없으며 규칙과 무관한 citation은 버린다.
 ratio_rules에는 quote가 '담보유지비율' 또는 '최저담보유지비율'이라고 명시한
 계좌 유지 임계값만 넣는다. 140%는 ratio 1.4로 표현한다.
@@ -83,6 +84,16 @@ _DIRECT_DISCOUNT_PATTERN = re.compile(
 _EXECUTION_CONTEXT_PATTERN = re.compile(
     r"(?:추가\s*담보|납부\s*기한|영업일|"
     r"D\s*일\s*\)?\s*\+\s*\d+\s*일|D\s*\+\s*\d+\s*일)"
+)
+
+_BROKER_FILENAME_ALIASES = (
+    ("한국투자", "한국투자증권"),
+    ("메리츠", "메리츠증권"),
+    ("미래에셋", "미래에셋증권"),
+    ("삼성", "삼성증권"),
+    ("신한", "신한투자증권"),
+    ("유진", "유진투자증권"),
+    ("키움", "키움증권"),
 )
 
 _CITATION_ROLES = (
@@ -247,10 +258,11 @@ def _structured_output_schema(source_format: str) -> dict[str, object]:
     }
     schema["$defs"].pop("PageEvidenceSpan", None)
 
-    # 문서 식별자는 LLM 출력으로 받지 않는다. native citation에서 서버가 심사필
-    # 번호를 읽거나, 번호가 없으면 업로드 원문 바이트 SHA-256을 직접 주입한다.
-    schema["properties"].pop("doc_version", None)
-    schema["required"].remove("doc_version")
+    # 발행사와 문서 식별자는 LLM 출력으로 받지 않는다. 발행사는 제출 파일명에서
+    # 허용 목록으로 결정하고, doc_version은 citation 또는 원문 바이트로 주입한다.
+    for server_owned_field in ("broker", "doc_version"):
+        schema["properties"].pop(server_owned_field, None)
+        schema["required"].remove(server_owned_field)
     return schema
 
 
@@ -294,10 +306,13 @@ _FULLWIDTH_PERCENT_TRANSLATION = str.maketrans(
     "0123456789.%",
 )
 _PERCENT_LITERAL_PATTERN = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*%")
-_EXAMPLE_START_PATTERN = re.compile(r"(?:투자\s*사례|<\s*예시\s*>)")
-_SECTION_BOUNDARY_PATTERN = re.compile(
-    r"\n(?=(?:[■□▣]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]\.?)[^\n]*)"
+_EXAMPLE_START_PATTERN = re.compile(
+    r"(?:투자\s*사례|<\s*예시\s*>)(?:\s*\((?P<labels>[가-힣](?:\s*[,·]\s*[가-힣])*)\))?"
 )
+_SECTION_BOUNDARY_PATTERN = re.compile(
+    r"(?<!\S)(?=(?:[■□▣]|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]\.?)[^\n]*)"
+)
+_KOREAN_ITEM_PATTERN = re.compile(r"(?<!\S)(?P<label>[가-힣])\.\s")
 
 
 def _percent_values(quote: str) -> list[float]:
@@ -320,13 +335,50 @@ def _maintenance_row_values(quote: str) -> list[float]:
     return sorted(values)
 
 
+def _credit_product_kind(text: str) -> str | None:
+    """규칙·근거가 가리키는 신용 상품을 융자/대주 두 종류로 제한한다."""
+
+    kinds = {kind for kind in ("융자", "대주") if kind in text}
+    return next(iter(kinds)) if len(kinds) == 1 else None
+
+
+def _maintenance_row_bindings(quote: str) -> tuple[tuple[str, float], ...]:
+    """담보유지비율 행에서 상품과 단일 비율이 함께 있는 결속만 반환한다."""
+
+    bindings: list[tuple[str, float]] = []
+    for line in quote.splitlines() or [quote]:
+        if not _MAINTENANCE_CONTEXT_PATTERN.search(line):
+            continue
+        product_kind = _credit_product_kind(line)
+        percentages = _percent_values(line)
+        if (
+            product_kind is not None
+            and len(percentages) == 1
+            and 100 <= percentages[0] <= 200
+        ):
+            bindings.append((product_kind, percentages[0]))
+    return tuple(dict.fromkeys(bindings))
+
+
 def _example_intervals(source_text: str) -> tuple[tuple[int, int], ...]:
     intervals: list[tuple[int, int]] = []
     for marker in _EXAMPLE_START_PATTERN.finditer(source_text):
+        if any(start <= marker.start() < end for start, end in intervals):
+            continue
         boundary = _SECTION_BOUNDARY_PATTERN.search(source_text, marker.end())
-        intervals.append(
-            (marker.start(), boundary.start() if boundary is not None else len(source_text))
-        )
+        end_candidates = [
+            boundary.start() if boundary is not None else len(source_text)
+        ]
+        labels = marker.group("labels")
+        if labels:
+            example_labels = {
+                label for label in re.split(r"\s*[,·]\s*", labels) if label
+            }
+            for item in _KOREAN_ITEM_PATTERN.finditer(source_text, marker.end()):
+                if item.group("label") not in example_labels:
+                    end_candidates.append(item.start())
+                    break
+        intervals.append((marker.start(), min(end_candidates)))
     return tuple(intervals)
 
 
@@ -335,7 +387,7 @@ def _is_example_span(
     example_intervals: tuple[tuple[int, int], ...],
 ) -> bool:
     return any(
-        start <= citation.char_start < end
+        citation.char_start < end and start < citation.char_end
         for start, end in example_intervals
     )
 
@@ -816,6 +868,38 @@ def _inject_document_identity(
     return resolved
 
 
+def _broker_from_filename(filename: str) -> str:
+    """제출 파일명의 허용 별칭 하나로 발행사를 결정한다.
+
+    본문은 타 증권사 이름을 예시로 포함할 수 있어 발행사 판정에 쓰지 않는다.
+    알 수 없거나 두 별칭이 섞인 파일명은 유료 호출 전에 fail-closed 한다.
+    """
+
+    stem = Path(filename).stem
+    matches = {
+        canonical
+        for alias, canonical in _BROKER_FILENAME_ALIASES
+        if alias in stem
+    }
+    if len(matches) != 1:
+        raise IngestPipelineError(
+            "파일명에서 허용된 발행사 하나를 결정할 수 없습니다"
+        )
+    return next(iter(matches))
+
+
+def _inject_broker_identity(
+    card_data: Mapping[str, object], broker: str
+) -> dict[str, object]:
+    """발행사는 LLM이 아닌 서버가 결정한 값만 카드에 넣는다."""
+
+    if "broker" in card_data:
+        raise IngestPipelineError("2패스는 broker를 생성할 수 없습니다")
+    resolved = dict(card_data)
+    resolved["broker"] = broker
+    return resolved
+
+
 def _reject_formula_contamination(card_data: Mapping[str, object]) -> None:
     text_fields: list[str] = []
     for rule in card_data.get("ratio_rules", []):
@@ -931,6 +1015,7 @@ class TwoPassIngestService:
         flattened_text = document.units[0].text
         if not flattened_text.strip():
             raise IngestPipelineError("평탄화 결과가 비어 있습니다")
+        broker = _broker_from_filename(filename)
 
         pass1_started = perf_counter()
         pass1 = await self.client.messages.create(
@@ -1023,6 +1108,10 @@ class TwoPassIngestService:
             normalized_card_data = _drop_optional_nulls(card_data)
             if not isinstance(normalized_card_data, Mapping):
                 raise IngestPipelineError("2패스 최상위 출력은 JSON 객체여야 합니다")
+            normalized_card_data = _inject_broker_identity(
+                normalized_card_data,
+                broker,
+            )
             normalized_card_data = _inject_document_identity(
                 normalized_card_data,
                 citations,
