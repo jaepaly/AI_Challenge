@@ -65,7 +65,9 @@ def make_card(evidence: dict[str, object]) -> dict[str, object]:
             {
                 "threshold_ratio": 1.4,
                 "day_counting": "D+2",
-                "evidence": evidence_with_quote(evidence, "담보비율 140% 미만"),
+                "evidence": evidence_with_quote(
+                    evidence, "담보비율 140% 미만이면 D+2에 처분"
+                ),
             }
         ],
         "ratio_source": "clause",
@@ -167,10 +169,18 @@ class EvidenceSpanContractTest(unittest.TestCase):
 
         self.assert_contract_rejects(card)
 
+    def test_broker_cannot_be_empty(self) -> None:
+        card = make_card(page_evidence())
+        card["broker"] = ""
+
+        self.assert_contract_rejects(card)
+
     def test_numeric_quotes_accept_percent_decimal_and_fullwidth_notation(self) -> None:
         card = make_card(page_evidence())
         card["ratio_rules"][0]["evidence"]["quote"] = "담보유지비율 １４０％"
-        card["execution_schedule"][0]["evidence"]["quote"] = "임계 담보비율 140.0% 미만"
+        card["execution_schedule"][0]["evidence"]["quote"] = (
+            "임계 담보비율 140.0% 미만이면 D+2에 처분"
+        )
 
         self.assert_contract_accepts(card)
 

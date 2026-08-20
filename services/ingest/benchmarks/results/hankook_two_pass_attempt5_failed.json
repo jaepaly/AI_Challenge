@@ -1,0 +1,41 @@
+{
+  "status": "failed",
+  "created_at": "2026-08-16T17:13:53.690536+00:00",
+  "endpoint": "POST /ingest",
+  "http_status": 422,
+  "detail": "Pydantic 검증 실패: Value error, threshold_ratio의 evidence.quote에 퍼센트 표기(140%)가 숫자 경계와 단위에 맞게 포함되어야 합니다",
+  "model": "claude-sonnet-5",
+  "document_sha256": "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
+  "document_sha256_scope": "submitted_bytes",
+  "document_lf_sha256": "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
+  "prompt_sha256": "2c61d5e5e0380c1acb33d5523465e6e692b1dfc636bab93e16c59bf1bf5873b9",
+  "approved_max_cost_krw": 700.0,
+  "estimated_max_cost_krw": 601.01,
+  "timing_ms": {
+    "parse": 14.2,
+    "pass1": 22592.9,
+    "pass2": 28603.0,
+    "total": 51213.7
+  },
+  "usage": {
+    "pass1-input-tokens": 80,
+    "pass1-output-tokens": 1915,
+    "pass1-cache-write-tokens": 43529,
+    "pass1-cache-read-tokens": 0,
+    "pass2-input-tokens": 7313,
+    "pass2-output-tokens": 2294
+  },
+  "standard_price_usage_estimated_cost_krw": 372.82,
+  "introductory_price_usage_estimated_cost_krw": 248.55,
+  "introductory_price_ends_on": "2026-08-31",
+  "console_billed_cost_krw": null,
+  "evidence_spans": {
+    "max_length": 1621,
+    "min_length": 52,
+    "duplicate_spans": 0,
+    "character_span_count": 3,
+    "non_character_span_count": 0,
+    "unmeasurable_span_count": 0,
+    "coordinate_mode": "character"
+  }
+}
