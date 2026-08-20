@@ -6,6 +6,7 @@ from app.parsing import (
     _HTMLTextParser,
     _normalize_html_text,
     parse_document,
+    parse_document_bytes,
     parse_pdf_text,
 )
 
@@ -98,6 +99,12 @@ class HankookHTMLSpikeTest(unittest.TestCase):
 
     def test_parse_document_dispatches_pdf_to_text_path(self) -> None:
         self.assertEqual(parse_document(MERITZ_TERMS).source_type, "text")
+
+    def test_parse_document_bytes_matches_path_parser(self) -> None:
+        from_path = parse_document(HANKOOK_TERMS)
+        from_bytes = parse_document_bytes(HANKOOK_TERMS.read_bytes(), ".htm")
+
+        self.assertEqual(from_bytes, from_path)
 
 
 if __name__ == "__main__":

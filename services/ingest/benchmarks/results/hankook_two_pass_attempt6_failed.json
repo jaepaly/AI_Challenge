@@ -1,0 +1,143 @@
+{
+  "status": "failed",
+  "created_at": "2026-08-16T17:52:10.043336+00:00",
+  "endpoint": "POST /ingest",
+  "http_status": 422,
+  "detail": "역할별 최소 native citation이 부족합니다: ratio_rules, execution_schedule",
+  "model": "claude-sonnet-5",
+  "document_sha256": "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
+  "document_sha256_scope": "submitted_bytes",
+  "document_lf_sha256": "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
+  "prompt_sha256": "6dd349c067b4d2e428f791aeeef381249779a82f94bfa1b91e172da03956674a",
+  "approved_max_cost_krw": 650.0,
+  "estimated_max_cost_krw": 601.01,
+  "timing_ms": {
+    "parse": 14.0,
+    "pass1": 16918.2,
+    "pass2": 0.0,
+    "total": 16933.7
+  },
+  "usage": {
+    "pass1-input-tokens": 80,
+    "pass1-output-tokens": 1332,
+    "pass1-cache-write-tokens": 43715,
+    "pass1-cache-read-tokens": 0,
+    "pass2-input-tokens": 0,
+    "pass2-output-tokens": 0
+  },
+  "standard_price_usage_estimated_cost_krw": 276.23,
+  "introductory_price_usage_estimated_cost_krw": 184.15,
+  "introductory_price_ends_on": "2026-08-31",
+  "console_billed_cost_krw": null,
+  "citation_candidates": [
+    {
+      "citation_id": 0,
+      "char_start": 4444,
+      "char_end": 6065,
+      "length": 1621,
+      "percent_values": [
+        0.1,
+        1.4,
+        2.05,
+        2.85,
+        4.5,
+        4.7,
+        4.9,
+        6.0,
+        8.3,
+        8.5,
+        9.1,
+        9.3,
+        9.95,
+        14.0,
+        20.0,
+        30.0,
+        40.0,
+        45.0,
+        50.0,
+        60.0,
+        100.0,
+        105.0,
+        120.0,
+        140.0
+      ],
+      "eligible_roles": []
+    },
+    {
+      "citation_id": 1,
+      "char_start": 7475,
+      "char_end": 7717,
+      "length": 242,
+      "percent_values": [],
+      "eligible_roles": []
+    },
+    {
+      "citation_id": 2,
+      "char_start": 3342,
+      "char_end": 3457,
+      "length": 115,
+      "percent_values": [
+        15.0
+      ],
+      "eligible_roles": [
+        "disposal_price_rules"
+      ]
+    },
+    {
+      "citation_id": 3,
+      "char_start": 3514,
+      "char_end": 3585,
+      "length": 71,
+      "percent_values": [],
+      "eligible_roles": []
+    },
+    {
+      "citation_id": 4,
+      "char_start": 7717,
+      "char_end": 7769,
+      "length": 52,
+      "percent_values": [],
+      "eligible_roles": []
+    },
+    {
+      "citation_id": 5,
+      "char_start": 0,
+      "char_end": 98,
+      "length": 98,
+      "percent_values": [],
+      "eligible_roles": []
+    },
+    {
+      "citation_id": 6,
+      "char_start": 9068,
+      "char_end": 9271,
+      "length": 203,
+      "percent_values": [
+        68.0,
+        88.0,
+        98.0,
+        100.0
+      ],
+      "eligible_roles": []
+    },
+    {
+      "citation_id": 7,
+      "char_start": 1382,
+      "char_end": 2671,
+      "length": 1289,
+      "percent_values": [
+        15.0,
+        103.0,
+        121.0,
+        135.0,
+        138.0,
+        140.0,
+        142.0,
+        167.0
+      ],
+      "eligible_roles": [
+        "disposal_price_rules"
+      ]
+    }
+  ]
+}
