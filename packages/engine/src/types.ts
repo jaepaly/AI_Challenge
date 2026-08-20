@@ -67,7 +67,7 @@ export interface RatioRule {
   symbol_group: string;
   /** 1.05 ~ 1.70 */
   ratio: number;
-  evidence?: EvidenceSpan;
+  evidence: EvidenceSpan;
 }
 
 export interface DisposalPriceRule {
@@ -78,7 +78,7 @@ export interface DisposalPriceRule {
   /** discount_basis가 prev_close_pct일 때의 h (0.15 = −15%) */
   discount_rate?: number;
   source_confidence: SourceConfidence;
-  evidence?: EvidenceSpan;
+  evidence: EvidenceSpan;
 }
 
 export interface ExecutionScheduleRule {
@@ -86,16 +86,24 @@ export interface ExecutionScheduleRule {
   threshold_ratio: number;
   /** 예: "D일 15:40 평가 → D+2 미해소 시 D+3 개장 집행" */
   day_counting: string;
-  evidence?: EvidenceSpan;
+  evidence: EvidenceSpan;
 }
 
-export interface DocVersion {
-  /** 심사필 번호 (우선) */
-  review_no?: string;
-  /** 번호가 없는 회사(미래에셋·유진 등)의 폴백 */
-  content_sha256?: string;
-  revised_at?: string;
-}
+/**
+ * 문서 버전 식별자 — **둘 중 하나는 반드시 있어야 한다.**
+ *
+ * 심사필 번호가 있는 회사는 그것이 정본 식별자이고, 없는 회사(미래에셋·유진
+ * 확인됨)는 원문 바이트의 sha256이 그 역할을 한다. 둘 다 없으면 "어느 판본을
+ * 읽고 만든 카드인가"에 답할 수 없어 개정 diff도 신선도 판정도 근거를 잃는다.
+ *
+ * 판별 유니온으로 쓴 것은 JSON Schema의 `anyOf: [required review_no,
+ * required content_sha256]`·Pydantic `require_document_identifier`와 같은
+ * 규약을 타입에서도 강제하기 위해서다. 이전에는 세 필드가 전부 선택이라
+ * `doc_version: {}`이 타입체크를 통과하면서 스키마를 위반했다.
+ */
+export type DocVersion =
+  | { review_no: string; content_sha256?: string; revised_at?: string }
+  | { review_no?: string; content_sha256: string; revised_at?: string };
 
 /** 조건 카드 v2. status가 verified인 카드만 계산에 사용한다(2단 상태). */
 export interface ConditionCard {
@@ -160,13 +168,52 @@ export interface RiskResult {
   /**
    * liquidation이 null인 사유. 값이 있으면 이 필드는 없다
    * (ResolutionPaths.voluntarySellReason과 같은 규약 — 화면이 판정을 재현하지 않는다).
-   *  NO_SHORTFALL     = 관통하지 않음 — 산정할 것이 없다
-   *  CARD_NOT_FRESH   = STALE·NO_VERIFIED_AT — 재검증 전에는 정식 산출을 내지 않는다
-   *  NO_DISCOUNT_RATE = 카드에 산정 기준가 규칙(h)이 없다
-   * 우선순위: NO_SHORTFALL > CARD_NOT_FRESH > NO_DISCOUNT_RATE
+   *  RATIO_NOT_CONFIRMED = 카드의 유지비율과 원장의 유지비율을 하나로 맞추지 못했다
+   *  NO_SHORTFALL        = 관통하지 않음 — 산정할 것이 없다
+   *  CARD_NOT_FRESH      = STALE·NO_VERIFIED_AT — 재검증 전에는 정식 산출을 내지 않는다
+   *  NO_DISCOUNT_RATE    = 카드에 산정 기준가 규칙(h)이 없다
+   * 우선순위: RATIO_NOT_CONFIRMED > NO_SHORTFALL > CARD_NOT_FRESH > NO_DISCOUNT_RATE
    * (신선하지 않고 h도 없으면 재검증이 선행 조치라 CARD_NOT_FRESH를 먼저 말한다)
+   *
+   * ── RATIO_NOT_CONFIRMED를 맨 앞에 둔 이유 ─────────────────────────────
+   * 이 사유만 **다른 사유의 전제를 무너뜨린다.** NO_SHORTFALL은 "원장 r로 재면
+   * 관통하지 않는다"는 말인데, r을 하나로 맞추지 못한 상태에서는 그 말 자체가
+   * 미정이다. 실측(원장 1.2 · 카드 1.4 · 융자 600만 · 1,000주):
+   *     전일종가 7,300 → 원장 기준 D=0 → NO_SHORTFALL, 카드 기준이면 D=1,100,000
+   *     전일종가 8,000 → 원장 기준 D=0 → NO_SHORTFALL, 카드 기준이면 D=  400,000
+   * NO_SHORTFALL이 먼저 나가면 화면은 "여유가 있다"고 말하고 어긋남의 흔적이
+   * 사유코드에서 통째로 사라진다. 앞에 두는 비용은 0이다 — 두 경우 모두
+   * liquidation은 이미 null이라 가려지는 산출값이 없다.
+   * CARD_NOT_FRESH가 뒤로 밀려도 정보는 사라지지 않는다: 화면의 재검증 배너는
+   * 사유코드와 무관하게 신선도 판정에서 따로 뜬다(apps/web freshness-view).
+   *
+   * ── 이 게이트가 보증하는 것 / 보증하지 않는 것 ─────────────────────────
+   * 보증: **처분 수량**을 카드 r과 원장 r이 갈린 채로 내지 않는다. 실측 편차가
+   *   195주 ↔ 583주(카드 1.7 / 원장 1.4)라 이 하나만 확실히 틀린다.
+   * 보증 안 함 —
+   *   ① **어느 r이 옳은가.** 카드 r은 문서 근거를 통과한 값이고 원장 r은 리터럴이다.
+   *      엔진은 둘 중 하나를 고르지 않는다. 말할 수 있는 것은 "같지 않다"까지다.
+   *   ② **둘이 같이 틀린 경우.** 검사하는 것은 "두 값이 같은가"이지 "그 값이 맞는가"가
+   *      아니다. 메리츠 C∙D군 150% 과소평가(apps/web snapshot.ts 주석)가 그 사례다.
+   *      ⚠ 그래서 통과를 "검증됨/확인됨" 배지로 내면 안 된다 — 거짓 안심이다.
+   *   ③ **부족액·담보비율·λ*·해소 4경로.** 어긋나도 그대로 낸다. 원장 r만으로
+   *      정해지는 값들이고, 원장이 맞다면 여전히 참이다(#33 "셋을 접지 않는다").
+   *   ④ **대주(product_type).** CreditLedger에 상품유형 필드가 없어 단일 대주 카드
+   *      1.2 + 원장 1.2는 통과하고, 엔진은 융자 산식 D=max(0,r·L−V)로 계산한다.
+   *      '융자가 아니면 거부'는 별도 항목이다.
+   *   ⑤ **execution_schedule[].threshold_ratio.** 이 대조의 범위 밖이다 — 넣으면
+   *      2단 임계(위 threshold_ratio 주석이 정상으로 계약한 것)를 위반으로 판정하고,
+   *      합집합이 원장 값을 삼켜 진짜 어긋남을 가린다(카드 1.7/thr 1.2/원장 1.2).
+   *   ⑥ **소수 셋째 자리.** 비교 격자가 centi(Math.round(r*100))라 카드 1.404와
+   *      원장 1.400은 통과한다. shortfall·kMicro·equalShockLambda가 쓰는 그 격자와
+   *      같으므로 수량은 증명 가능하게 동일하지만, 근거 배지 문자열은 보호하지 않는다.
+   *   ⑦ **replay·replayPortfolio.** 아직 이 게이트가 걸리지 않는다.
    */
-  liquidationSkipped?: "NO_SHORTFALL" | "CARD_NOT_FRESH" | "NO_DISCOUNT_RATE";
+  liquidationSkipped?:
+    | "RATIO_NOT_CONFIRMED"
+    | "NO_SHORTFALL"
+    | "CARD_NOT_FRESH"
+    | "NO_DISCOUNT_RATE";
 }
 
 /* ── A(엔진) → D(UI) : replay 경로 시뮬 (신규 — 기존 3계약 무변경) ── */

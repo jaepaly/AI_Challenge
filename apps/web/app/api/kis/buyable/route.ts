@@ -1,12 +1,16 @@
 import { kisGet } from "@/lib/kis/client";
 import { getKisAccountConfig } from "@/lib/kis/config";
 import { getKisRequestTarget } from "@/lib/kis/guard";
+import { assertKisAccountProxyAuthorized } from "@/lib/kis/proxy-auth";
+import { sanitizeKisBuyableResponse } from "@/lib/kis/proxy-response";
 import { kisError, kisJson } from "../_response";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 10;
 
 export async function GET(request: Request) {
   try {
+    assertKisAccountProxyAuthorized(request);
     getKisRequestTarget("buyable", process.env.KIS_ENV);
     const config = getKisAccountConfig();
     const { searchParams } = new URL(request.url);
@@ -29,7 +33,7 @@ export async function GET(request: Request) {
       },
     });
 
-    return kisJson(data);
+    return kisJson(sanitizeKisBuyableResponse(data));
   } catch (error) {
     return kisError(error);
   }

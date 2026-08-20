@@ -7,6 +7,7 @@ EvidenceSpan으로 바꾸는 정책은 HTML 근거 좌표 방식이 합의된 �
 from dataclasses import dataclass
 from hashlib import sha256
 from html.parser import HTMLParser
+from io import BytesIO
 from pathlib import Path
 import re
 from typing import Literal
@@ -117,9 +118,9 @@ def _normalize_pdf_text(text: str) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def parse_html(path: Path) -> ParsedDocument:
+def parse_html_bytes(data: bytes) -> ParsedDocument:
     parser = _HTMLTextParser()
-    parser.feed(path.read_text(encoding="utf-8"))
+    parser.feed(data.decode("utf-8-sig"))
     text = _normalize_html_text(parser.parts)
     return ParsedDocument(
         source_type="html",
@@ -129,10 +130,17 @@ def parse_html(path: Path) -> ParsedDocument:
     )
 
 
-def parse_pdf_text(path: Path) -> ParsedDocument:
+def parse_html(path: Path) -> ParsedDocument:
+    return parse_html_bytes(path.read_bytes())
+
+
+def parse_pdf_bytes(data: bytes) -> ParsedDocument:
     """PDF를 pypdf 텍스트로 평탄화해 char_location 입력을 만든다."""
 
-    pages = [_normalize_pdf_text(page.extract_text() or "") for page in PdfReader(path).pages]
+    pages = [
+        _normalize_pdf_text(page.extract_text() or "")
+        for page in PdfReader(BytesIO(data)).pages
+    ]
     text = "\n\f\n".join(pages)
     return ParsedDocument(
         source_type="text",
@@ -141,9 +149,18 @@ def parse_pdf_text(path: Path) -> ParsedDocument:
     )
 
 
+def parse_pdf_text(path: Path) -> ParsedDocument:
+    return parse_pdf_bytes(path.read_bytes())
+
+
+def parse_document_bytes(data: bytes, suffix: str) -> ParsedDocument:
+    suffix = suffix.lower()
+    if suffix in {".htm", ".html"}:
+        return parse_html_bytes(data)
+    if suffix == ".pdf":
+        return parse_pdf_bytes(data)
+    raise ValueError(f"지원하지 않는 문서 형식: {suffix}")
+
+
 def parse_document(path: Path) -> ParsedDocument:
-    if path.suffix.lower() in {".htm", ".html"}:
-        return parse_html(path)
-    if path.suffix.lower() == ".pdf":
-        return parse_pdf_text(path)
-    raise ValueError(f"지원하지 않는 문서 형식: {path.suffix}")
+    return parse_document_bytes(path.read_bytes(), path.suffix)

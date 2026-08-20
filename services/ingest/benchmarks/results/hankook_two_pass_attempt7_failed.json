@@ -1,0 +1,104 @@
+{
+  "status": "failed",
+  "created_at": "2026-08-18T11:20:20.701007+00:00",
+  "endpoint": "POST /ingest",
+  "http_status": 422,
+  "detail": "JSON Schema 검증 실패 (broker): '' should be non-empty",
+  "model": "claude-sonnet-5",
+  "document_sha256": "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
+  "document_sha256_scope": "submitted_bytes",
+  "document_lf_sha256": "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
+  "prompt_sha256": "1d96758fe43b515fe05ee629e48fbd2297f94892dd21b7e4bf50ccea6577da5e",
+  "approved_max_cost_krw": 700.0,
+  "estimated_max_cost_krw": 601.01,
+  "timing_ms": {
+    "parse": 32.5,
+    "pass1": 15998.8,
+    "pass2": 15738.9,
+    "total": 31783.5
+  },
+  "usage": {
+    "pass1-input-tokens": 80,
+    "pass1-output-tokens": 1216,
+    "pass1-cache-write-tokens": 43748,
+    "pass1-cache-read-tokens": 0,
+    "pass2-input-tokens": 3944,
+    "pass2-output-tokens": 800
+  },
+  "standard_price_usage_estimated_cost_krw": 309.55,
+  "introductory_price_usage_estimated_cost_krw": 206.37,
+  "introductory_price_ends_on": "2026-08-31",
+  "console_billed_cost_krw": null,
+  "evidence_spans": {
+    "max_length": 192,
+    "min_length": 20,
+    "duplicate_spans": 0,
+    "ambiguous_percent_spans": 1,
+    "ambiguous_bound_percent_spans": 0,
+    "derived_span_count": 3,
+    "character_span_count": 3,
+    "non_character_span_count": 0,
+    "unmeasurable_span_count": 0,
+    "coordinate_mode": "character",
+    "all_spans_single_percent_candidate": false,
+    "all_numeric_bindings_single_percent_candidate": true,
+    "spans": [
+      {
+        "role": "ratio_rules",
+        "index": 0,
+        "source_format": "html",
+        "char_start": 5252,
+        "char_end": 5272,
+        "length": 20,
+        "percent_values": [
+          140.0
+        ],
+        "bound_percent_values": [
+          140.0
+        ],
+        "numeric_binding_required": true,
+        "parent_char_start": 4444,
+        "parent_char_end": 6065,
+        "derived_from_parent": true
+      },
+      {
+        "role": "disposal_price_rules",
+        "index": 0,
+        "source_format": "html",
+        "char_start": 3342,
+        "char_end": 3456,
+        "length": 114,
+        "percent_values": [
+          15.0
+        ],
+        "bound_percent_values": [
+          15.0
+        ],
+        "numeric_binding_required": true,
+        "parent_char_start": 3342,
+        "parent_char_end": 3457,
+        "derived_from_parent": true
+      },
+      {
+        "role": "execution_schedule",
+        "index": 0,
+        "source_format": "html",
+        "char_start": 5252,
+        "char_end": 5444,
+        "length": 192,
+        "percent_values": [
+          105.0,
+          120.0,
+          140.0
+        ],
+        "bound_percent_values": [
+          140.0
+        ],
+        "numeric_binding_required": true,
+        "parent_char_start": 4444,
+        "parent_char_end": 6065,
+        "derived_from_parent": true
+      }
+    ]
+  }
+}

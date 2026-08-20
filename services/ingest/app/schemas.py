@@ -190,7 +190,10 @@ class DocVersion(BaseModel):
 
 
 class ConditionCard(BaseModel):
-    broker: str
+    # min_length=1 — JSON Schema가 이미 요구하는 것(condition_card.schema.json:14)을
+    # Pydantic에 맞춘다. 계약 변경이 아니라 미러 정렬이다. 7차 실행(#47)에서 모델이
+    # broker=""를 냈고 세 층 중 JSON Schema 하나만 막았다.
+    broker: str = Field(min_length=1)
     ratio_rules: list[RatioRule] = Field(min_length=1)
     account_aggregation: Literal["max", "weighted_average"]
     disposal_price_rules: list[DisposalPriceRule] = Field(min_length=1)

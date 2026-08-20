@@ -12,8 +12,16 @@
  */
 import type { ConditionCard } from "./types";
 
-/** 신선 판정 허용 한도(만 일수) — 30일까지 계산 허용, 31일째부터 차단 */
-const MAX_FRESH_AGE_DAYS = 30;
+/**
+ * 신선 판정 허용 한도(만 일수) — 30일까지 계산 허용, 31일째부터 차단.
+ *
+ * **export하는 이유**: 화면이 이 숫자를 문장으로 말한다("허용 30일"). 그 문구가
+ * 리터럴이면 여기를 바꿔도 문구만 조용히 낡는다 — 게이트는 15일에 막는데 배너는
+ * 30일이라고 말하는 상태가 실제로 재현됐다(#56 리뷰, 상수를 14로 바꿔 실측).
+ * `apps/web`의 readiness 예보가 상수를 베끼지 않고 `assessCardFreshness`를 직접
+ * 호출하는 것과 같은 규약을 배너에도 적용한다: **판정도 문구도 출처는 여기 하나다.**
+ */
+export const MAX_FRESH_AGE_DAYS = 30;
 
 /** verified_at 표기 강제 — ISO 날짜(YYYY-MM-DD)만. 시간 성분·자유 서식 거부 */
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

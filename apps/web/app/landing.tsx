@@ -19,9 +19,10 @@ import {
   shortfall,
   type PortfolioReplayStep,
   type ReplayStep,
+  disposalDiscountRate,
 } from "@marginguard/engine";
-import { cardH } from "../lib/marginguard/card";
 import { freshnessView, todayISO } from "../lib/marginguard/freshness-view";
+import { ratioView } from "../lib/marginguard/ratio-view";
 import type { BuildInfo } from "../lib/build-info";
 import {
   buildOptions,
@@ -29,8 +30,10 @@ import {
   forcedDisposal,
   fullDisposalLabel,
 } from "../lib/marginguard/options";
+import EvidencePanel from "./evidence-panel";
 import OptionsCompare from "./options-compare";
 import PortfolioView from "./portfolio-view";
+import { evidenceView } from "../lib/marginguard/evidence-view";
 import { portfolioLambdaView, weakestRow } from "../lib/marginguard/portfolio";
 import {
   ACCOUNT,
@@ -90,25 +93,73 @@ export default function Landing({ build }: { build: BuildInfo }) {
   );
 
   const preset = CARDS.find((c) => c.key === cardKey)!;
-  const h = cardH(preset.card);
+  const h = disposalDiscountRate(preset.card);
   const hUnknown = h === null; // 조건카드 불완전 — 수량을 추정하지 않는다
 
   /** 신선도 게이트 — 판정은 엔진, 화면 규약은 lib/marginguard/freshness-view */
   const fresh = asOf ? freshnessView(preset.card, asOf) : null;
   /**
+   * 유지비율 대조 게이트 — 판정은 엔진(ratioAgreement), 화면 규약은 lib/marginguard/ratio-view.
+   *
+   * ⚠ **asOf에 묶지 않는다.** r 비교는 시계와 무관하다 — 신선도처럼 useSyncExternalStore
+   *   경로에 얹으면 SSR 첫 페인트에서 표식이 사라진다.
+   * ⚠ **breached에 묶지 않는다.** 원장 r이 낡아 관통이 안 잡히는 구간이 어긋남이 가장
+   *   위험한 자리다(원장 1.2 · 카드 1.4 · 7,300원 → 원장 기준 D=0인데 카드 기준이면
+   *   D=1,100,000). 그래서 배너는 아래 #cardBanner 옆에서 관통과 무관하게 뜬다.
+   *
+   * 종목군은 포지션에서 온다 — 카드가 종목군별로 다른 유지비율을 실어 오면 그중 어느
+   * 조항이 이 계좌에 걸리는지가 그것으로 좁혀진다. 가격은 대조에 관여하지 않으므로
+   * 슬라이더를 끌어도 이 값은 변하지 않는다(포지션을 넘기는 것은 종목군 때문이다).
+   */
+  const pos = positions(price)[0]!;
+  const ratio = ratioView(preset.card, ACCOUNT.requiredRatio, pos);
+  /**
    * 수량·배수를 낼 수 있는가.
    * draft는 **낸다**(참고 모드 라벨만) — 인제스트 출력이 무조건 draft이므로
    * 여기서 막으면 라이브 데모의 출력 화면이 "산정 불가"가 된다(#30 리뷰).
-   * 막는 것은 blocked(STALE·NO_VERIFIED_AT)와 h 부재뿐이다.
+   * 막는 것은 blocked(STALE·NO_VERIFIED_AT)와 h 부재, 그리고 유지비율 어긋남뿐이다.
    */
-  const quantOk = !hUnknown && fresh?.mode !== "blocked";
-  /** 수량을 못 내는 사유 — 계기판과 선택지 비교가 같은 문장을 쓴다(두 곳에 쓰면 갈라진다) */
+  const quantOk = !hUnknown && fresh?.mode !== "blocked" && ratio.confirmed;
+  /**
+   * 수량을 못 내는 사유 — 계기판과 선택지 비교가 같은 문장을 쓴다(두 곳에 쓰면 갈라진다).
+   *
+   * 유지비율 어긋남을 **맨 앞**에 둔다. 엔진의 liquidationSkipped 우선순위와 같은
+   * 이유다 — 이 사유만 다른 사유의 전제를 무너뜨린다. r을 하나로 맞추지 못한 상태에서
+   * "재검증하면 수량이 나온다"고 말하면 사용자를 헛수고로 보낸다(재검증 배너는
+   * fresh.banner가 이 사유와 무관하게 따로 낸다 — 정보는 사라지지 않는다).
+   * ※ 아래 두 사유의 상대 순서는 손대지 않았다. 엔진은 CARD_NOT_FRESH를 먼저 말하고
+   *   화면은 h 부재를 먼저 말하는 기존 어긋남이 있으나, 이 PR의 범위 밖이다.
+   */
   const quantBlockReason = quantOk
     ? null
-    : hUnknown
-      ? "조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다"
-      : "이 카드는 재검증이 필요합니다 — 낡은 값을 정식 산출로 내지 않습니다";
+    : (ratio.blockReason ??
+      (hUnknown
+        ? "조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다"
+        : "이 카드는 재검증이 필요합니다 — 낡은 값을 정식 산출로 내지 않습니다"));
   const pStar = useMemo(() => thresholdPrice(), []);
+
+  /**
+   * 근거 좌표 뷰모델. **신선도 게이트를 걸지 않는다** — 근거는 h 유래 파생값이 아니라
+   * 문서 사실이고, blocked는 "왜 계산을 못 하나"를 묻는 화면이라 재검증하러 가려면
+   * 어느 판본의 어느 문장인지가 오히려 더 필요하다(freshness-view.ts:55-59).
+   *
+   * **가리지 않는 것과 만료를 숨기는 것은 다르다.** 그래서 판정(fresh)은 패널에
+   * 넘긴다 — 넘기지 않으면 blocked 화면에서 "이 카드는 재검증이 필요합니다" 바로
+   * 아래에 근거 머리글이 calculated일 때와 바이트 단위로 같은 검수 표시를 낸다.
+   *
+   * useMemo를 걸지 않는다 — 순수 조립(문자열 라벨링)이라 비용이 없고, React Compiler가
+   * `[preset.card]`를 `preset`으로 추론해 수동 메모이제이션을 보존하지 못한다며
+   * 이 컴포넌트의 최적화를 통째로 건너뛴다(react-hooks/preserve-manual-memoization).
+   *
+   * ratio.applicableRule을 넘기는 이유: 이 패널은 카드의 유지비율을 좌표·해시와 함께
+   * 크게 찍는데, 그 자리를 `ratio_rules[0]`으로 고정하면 룰이 여럿인 카드에서
+   * **게이트와 화면이 서로 다른 조항을 본다.** 실측(카드 [대주 1.7, 융자 1.4] ·
+   * 원장 1.4): 게이트는 융자 140으로 통과해 배너도 행 문구도 뜨지 않는데 패널은
+   * 좌표를 달고 170%를 찍어, 이 PR이 없애려던 "근거 있는 170% + 140%로 낸 부족액"이
+   * 무표식으로 복원된다. 반대 방향에서는 행 문구가 "옆 값 170%"라고 쓰는데 옆에
+   * 찍힌 값이 120%가 된다. 상세는 evidence-view.ts의 evidenceView 머리글.
+   */
+  const evidence = evidenceView(preset.card, ratio.applicableRule ?? undefined);
 
   // 언마운트 시 재현 타이머 정리
   useEffect(
@@ -155,12 +206,32 @@ export default function Landing({ build }: { build: BuildInfo }) {
   // 회사별 비교도 카드마다 게이트를 건다 — 선택된 카드만 막고 비교 행에 수량을
   // 남기면, 같은 카드가 한 화면에서 "산정 불가"와 "전량"을 동시에 말하게 된다
   const compare = CARDS.map((c) => {
-    const ch = cardH(c.card);
-    const ok = ch !== null && (asOf === null || freshnessView(c.card, asOf).mode !== "blocked");
+    const ch = disposalDiscountRate(c.card);
+    // 유지비율 대조도 카드마다 건다 — 비교 행은 **같은 원장**에 회사만 갈아 끼운
+    // 것이라, 어떤 카드의 r이 이 원장과 어긋나면 그 행의 수량만 틀린다. 선택된
+    // 카드만 막고 비교 행을 남기면 화면이 한 자리에서 두 말을 하게 된다
+    const cRatio = ratioView(c.card, ACCOUNT.requiredRatio, pos);
+    const cBlocked = asOf !== null && freshnessView(c.card, asOf).mode === "blocked";
+    const ok = ch !== null && !cBlocked && cRatio.confirmed;
+    /**
+     * 이 행이 빠진 **사유**. 캡션이 "같은 부족액, 회사만 다를 때"라고 단언하는데,
+     * 사유 없는 "산정 불가"만 놓이면 사용자는 그것을 그 회사의 산정 방식 특성으로
+     * 읽는다 — 실제 이유가 유지비율 충돌이어도 그렇다. 선택된 카드가 멀쩡하면
+     * #ratioBanner도 .evRatioGap도 뜨지 않아 화면 어디에도 사유가 남지 않는다.
+     * 우선순위는 quantBlockReason과 같게 둔다(유지비율 → h 부재 → 재검증).
+     */
+    const why = ok
+      ? null
+      : !cRatio.confirmed
+        ? cRatio.blockReason
+        : ch === null
+          ? "조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다"
+          : "이 카드는 재검증이 필요합니다 — 낡은 값을 정식 산출로 내지 않습니다";
     return {
       key: c.key,
       label: c.label,
       unusable: !ok,
+      why,
       qty:
         breached && ok
           ? liquidationQty({ D, prevClose: price, r: ACCOUNT.requiredRatio, h: ch, held: ACCOUNT.qty })
@@ -301,7 +372,22 @@ export default function Landing({ build }: { build: BuildInfo }) {
           </div>
           <p id="cardSource">{preset.source}</p>
           {fresh?.banner && <div id="cardBanner">{fresh.banner}</div>}
+          {/* 신선도 배너와 **따로** 낸다 — 성질이 다르고 조치도 다르다(재검증 ↔ 값 대조).
+              한 문장으로 합치면 사용자는 재검증만 하고 어긋남은 그대로 남는다.
+              breached·asOf 어디에도 걸지 않는다: 관통 전에도 SSR 첫 페인트에도 뜬다 */}
+          {ratio.banner && <div id="ratioBanner">{ratio.banner}</div>}
         </section>
+
+        {/* 바로 위 #cardSource가 "심사필 제2026-0265호" 같은 출처 주장을 산문으로
+            하고 있고, 사용자가 확인할 방법이 없었다. 그 문장 바로 아래에 좌표를 놓는다.
+            결론 블록(#liqBox)에 붙이지 않은 이유: 기본 가격 10,000원 > 임계가 8,400원이라
+            첫 페인트에서 breached=false이고 #liqBox는 DOM에 없다 — 슬라이더를 끌지 않은
+            사람은 제품의 핵심 주장을 한 번도 보지 못한다 */}
+        {/* ratio를 넘기는 이유: 이 패널이 카드의 유지비율을 근거 좌표·해시와 함께 크게
+            찍는데, 바로 위 #headline의 부족액은 계좌 원장의 유지비율로 산출된다. 원장을
+            안 넘기면 패널은 둘이 어긋난 것을 볼 수단이 없어 "근거 있는 170%"와
+            "140%로 낸 부족액"을 모순 없어 보이게 나란히 낸다 */}
+        <EvidencePanel view={evidence} fresh={fresh} ratio={ratio} />
 
         <section className="grid" aria-label="계기판">
           <div className="panel">
@@ -335,9 +421,20 @@ export default function Landing({ build }: { build: BuildInfo }) {
           <section id="liqBox" aria-label="반대매매 산정">
             <h2>이대로면 — 산정 불가</h2>
             <span className="mode full">{quantBlockReason}</span>
+            {/* 유지비율이 어긋난 경우에는 "부족액은 확정입니다"라고 쓸 수 없다 — 그 문장은
+                유지비율이 정해져 있다는 전제 위에 서 있고, 지금은 그 전제가 미정이다.
+                대신 **어느 값으로 낸 숫자인지**를 밝힌다. 어느 쪽이 맞는지는 말하지 않는다 */}
             <div className="note">
-              담보부족액 {won(D)}은 확정입니다. 부족액은 유지비율만으로 정해지고, 처분 수량만 회사별
-              산정 기준가에 달려 있습니다. {hUnknown ? "카드를 검증해 채운 뒤" : "카드를 재검증한 뒤"} 다시 보세요.
+              {ratio.confirmed ? (
+                <>
+                  담보부족액 {won(D)}은 확정입니다. 부족액은 유지비율만으로 정해지고, 처분 수량만 회사별
+                  산정 기준가에 달려 있습니다. {hUnknown ? "카드를 검증해 채운 뒤" : "카드를 재검증한 뒤"} 다시 보세요.
+                </>
+              ) : (
+                <>
+                  담보부족액 {won(D)}은 {ratio.detail}
+                </>
+              )}
             </div>
           </section>
         )}
@@ -371,6 +468,20 @@ export default function Landing({ build }: { build: BuildInfo }) {
               ))}
               <span style={{ borderStyle: "dashed" }}>같은 부족액, 회사만 다를 때</span>
             </div>
+            {/* 빠진 행의 사유. 캡션은 "회사만 다르다"고 말하는데 실제로 빠진 이유가
+                유지비율 충돌·h 부재·재검증이면 그것은 회사 차이가 아니다. 선택된
+                카드가 멀쩡하면 이 사유가 화면 어디에도 남지 않으므로 여기 적는다 */}
+            {compare.some((c) => c.unusable) && (
+              <div className="cmpWhy">
+                {compare
+                  .filter((c) => c.unusable)
+                  .map((c) => (
+                    <p key={c.key}>
+                      <b>{c.label}</b> {c.why}
+                    </p>
+                  ))}
+              </div>
+            )}
           </section>
         )}
 
@@ -382,6 +493,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
             forced={quantOk ? forcedRow : null}
             verdict={quantOk ? verdict : null}
             forcedUnavailable={quantBlockReason}
+            ratioUnconfirmed={!ratio.confirmed}
             shortfallAmount={D}
             cardStatus={preset.card.status}
           />
@@ -416,9 +528,13 @@ export default function Landing({ build }: { build: BuildInfo }) {
           </button>
           {!quantOk && (
             <span className="note">
-              {hUnknown
-                ? "이 조건카드는 산정 기준가 규칙이 불완전해 재현할 수 없습니다 — 값을 추정하지 않습니다"
-                : "이 카드는 재검증이 필요해 재현하지 않습니다"}
+              {!ratio.confirmed
+                ? // 재현은 매일의 처분 수량을 원장에 되먹이므로 첫날 수량이 미정이면
+                  // 그 뒤 20일이 전부 미정이다 — 한 줄도 내지 않는다
+                  "유지비율이 하나로 확인되지 않아 재현하지 않습니다 — 처분 수량을 추정하지 않습니다"
+                : hUnknown
+                  ? "이 조건카드는 산정 기준가 규칙이 불완전해 재현할 수 없습니다 — 값을 추정하지 않습니다"
+                  : "이 카드는 재검증이 필요해 재현하지 않습니다"}
             </span>
           )}
 

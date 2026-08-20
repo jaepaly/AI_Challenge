@@ -12,7 +12,11 @@
  * ⚠ 클라이언트 시계는 사용자가 바꿀 수 있다. 이것은 보안 경계가 아니다 —
  *   시계를 조작한 사람만 잘못된 화면을 본다. 서버 권위가 필요한 값이 아니다.
  */
-import { assessCardFreshness, type FreshnessVerdict } from "@marginguard/engine";
+import {
+  assessCardFreshness,
+  MAX_FRESH_AGE_DAYS,
+  type FreshnessVerdict,
+} from "@marginguard/engine";
 import type { ConditionCard } from "@marginguard/engine";
 
 /** YYYY-MM-DD — 엔진이 verified_at에 요구하는 것과 같은 표기 */
@@ -72,7 +76,7 @@ export function freshnessView(card: ConditionCard, asOf: string): FreshnessView 
 
   const banner =
     verdict.reason === "STALE"
-      ? `⚠ 참고 모드 — 검증일로부터 ${verdict.ageDays}일 경과(허용 30일). 카드를 재검증해야 정식 산출로 돌아옵니다`
+      ? `⚠ 참고 모드 — 검증일로부터 ${verdict.ageDays}일 경과(허용 ${MAX_FRESH_AGE_DAYS}일). 카드를 재검증해야 정식 산출로 돌아옵니다`
       : "⚠ 참고 모드 — 이 카드에 검증일(verified_at)이 없습니다. 모르는 것을 신선하다고 보지 않습니다";
 
   return { verdict, mode: "blocked", banner };

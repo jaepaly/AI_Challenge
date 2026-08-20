@@ -1,7 +1,10 @@
 export class KisGuardError extends Error {
-  constructor(message: string) {
+  readonly status: number;
+
+  constructor(message: string, status = 400) {
     super(message);
     this.name = "KisGuardError";
+    this.status = status;
   }
 }
 

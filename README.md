@@ -98,12 +98,60 @@ uvicorn app.main:app --reload --port 8000        # http://localhost:8000/health 
 
 **게이트 3항목이 전부 여기 하나에 걸려 있다.** 다른 트랙이 다 통과해도 이게 없으면 *"AI가 어디 있나"* 에 답할 화면이 없다.
 
-현재 `POST /ingest`는 **501**이다. 파싱·근거 검증·경로 비교는 #26에서 들어왔고(전각 정규화·처분 문맥어 확인까지), **남은 것은 추출 그 자체**다.
+`POST /ingest`의 2패스 추출 경로를 구현했다. ①평탄화 문서를 citations와
+`cache_control`로 보내 native `char_location`을 확보하고, ②검증된 citation
+목록만 structured output에 넘겨 `ConditionCard(draft)`를 만든다. 원문 전체는
+2패스에 다시 보내지 않는다.
 
-- [ ] 한투 약관 → `ConditionCard(draft)` JSON **1건 생성** — 4중 방어(§6-2) 4개 전부 통과
-- [ ] `h=0.15`가 정확히 잡히는지 `data/golden/golden_cases.json` 대조
-- [ ] **60초 마일스톤 실측** (1패스 / 2패스 각각) → 보류 중이던 결정(§6-4)을 이날 확정
-- [ ] 세 경로 중 ⓒ(PDF 원본)를 첫 API 실행에 같이 잰다 — 비용 근거는 이미 닫혔고(#28) **남은 변수는 재현율뿐**
+반환 전에 반드시 다음을 모두 통과한다.
+
+1. citation의 `cited_text`가 평탄화 원문의 `char_start:char_end`와 축자로 일치
+2. 2패스의 모든 evidence가 1패스 citation과 필드 전체가 일치
+3. JSON Schema Draft 7 검증
+4. `ConditionCard.model_validate` 수치·좌표·해시 검증
+5. 설명 필드의 산식·계산 결과 혼입 거부 및 `status=draft` 강제
+6. 심사필 번호는 native citation에서 서버가 추출하고, 없으면 업로드 원문
+   바이트 SHA-256을 `content_sha256`으로 주입 (`doc_version`은 LLM 출력 금지)
+
+실행 시간과 토큰 사용량은 `X-Ingest-*` 응답 헤더로 기록한다. 실제 한투 1건
+유료 종단 실행은 2026-08-16에 완료했고, 재현 가능한 결과를
+`services/ingest/benchmarks/results/hankook_two_pass.json`에 기록했다.
+
+```powershell
+cd services/ingest
+# dry-run: 네트워크 0회, 원문·프롬프트 해시와 예상 최대 비용만 출력
+.\.venv\Scripts\python.exe -m benchmarks.hankook_two_pass
+
+# 실제 실행: dry-run의 estimated_max_cost_krw 이상을 명시해야만 호출
+.\.venv\Scripts\python.exe -m benchmarks.hankook_two_pass `
+  --execute --approve-max-krw <승인금액>
+```
+
+승인 상한은 가격 인하 종료 뒤에도 과소 추정되지 않도록 표준가 `$3/$15`
+(입력/출력, MTok당)로 계산한다. 실행 결과에는 usage를 표준가와 2026-08-31까지의
+도입가 `$2/$10`으로 각각 환산해 기록한다. Messages API는 실제 청구액을 반환하지
+않으므로 콘솔에서 확인하기 전 `console_billed_cost_krw`는 `null`이다.
+
+`cache_control`은 같은 문서와 같은 `prompt_sha256`을 5분 안에 다시 호출할 때만
+절감 효과가 있다. 프롬프트가 바뀐 최초 실행은 cache write이고, 결과의
+cache read 토큰이 0이면 절감이 발생했다고 보고하지 않는다.
+
+| 2026-08-16 한투 실측 | 결과 |
+|---|---:|
+| 카드 | `ConditionCard(draft)` 생성 성공 |
+| 4중 방어 | 4/4 통과 |
+| 골든 | `h=0.15` 일치 |
+| 1패스 / 2패스 / 전체 | 25.10초 / 43.02초 / 68.14초 |
+| 60초 마일스톤 | **미충족** |
+| cache write / read | 43,456 / 0 토큰 |
+| 표준가 / 도입가 추정 | 416.00원 / 277.33원 |
+| 콘솔 실청구액 | 확인 전(`null`) |
+
+- [x] 한투 약관 → `ConditionCard(draft)` JSON **1건 생성** — 4중 방어(§6-2) 4개 전부 통과
+- [x] `h=0.15`가 정확히 잡히는지 `data/golden/golden_cases.json` 대조
+- [x] **60초 마일스톤 실측** — 68.14초로 미충족
+- [ ] 60초 미충족에 따라 1패스 근거 선표시 후 2패스 카드를 채우는 분기 결정
+- [ ] 세 경로 중 ⓒ(PDF 원본) 결과는 [#43](https://github.com/jaepaly/AI_Challenge/pull/43)의 8,192토큰 정본을 반영해 닫는다
 
 > ⚠ **8/17이 '재는 날'인지 '처음 써보는 날'인지가 이 게이트의 실제 리스크다.** §6-3이 *"프롬프트 개발·반복은 CLI로, 작업량의 90%"* 라고 잡아둔 이유가 이것이다. CLI 작업물은 거칠어도 커밋할 것 — repo에 있으면 골든 대조를 미리 붙일 수 있다.
 > 미달 시 축소 경로: **임의 업로드 대신 사전 수집 미등록 5~10사 풀에서 선택.** 정적 DB가 아니라는 증명은 유지된다.

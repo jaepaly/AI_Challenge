@@ -28,6 +28,7 @@ export default function OptionsCompare({
   forced,
   verdict,
   forcedUnavailable,
+  ratioUnconfirmed = false,
   shortfallAmount,
   cardStatus,
 }: {
@@ -38,6 +39,16 @@ export default function OptionsCompare({
   verdict: ComparisonVerdict | null;
   /** forced가 null인 사유. 빈칸으로 두지 않고 이 문장을 그대로 보여준다 */
   forcedUnavailable?: string | null;
+  /**
+   * 카드 r과 원장 r을 하나로 맞추지 못했는가.
+   *
+   * 아래 "위 해소 경로는 그대로입니다" 문장을 갈아 끼우기 위한 것이다. 그 문장은
+   * 4경로가 **담보유지비율과 가격만으로** 정해진다는 것을 안심의 근거로 삼는데,
+   * 바로 위 사유 줄이 "그 유지비율이 하나로 확인되지 않았다"고 말하는 상황에서는
+   * 두 문장이 같은 상자 안에서 정면으로 부딪힌다. 4경로를 내리지는 않는다
+   * (내리면 화면 정지가 된다) — 대신 **어느 값으로 낸 것인지**를 밝힌다.
+   */
+  ratioUnconfirmed?: boolean;
   shortfallAmount: number;
   /** draft면 이 섹션에도 참고 모드를 표시한다 — 배너가 화면 위쪽에만 있으면
    *  여기까지 스크롤한 사람은 미검수 카드인 줄 모른 채 숫자만 본다 */
@@ -86,8 +97,18 @@ export default function OptionsCompare({
           <div className="optNa">산정 안 함</div>
           <div className="optWhy">{forcedUnavailable}</div>
           <div className="optBasis">
-            위 해소 경로는 그대로입니다 — <b>담보유지비율과 가격만으로 정해지고 조건카드를 쓰지
-            않습니다.</b> 회사별 산정 기준가에 달린 것은 강제 처분 수량뿐입니다.
+            {ratioUnconfirmed ? (
+              <>
+                위 해소 경로는 그대로 둡니다 — <b>계좌 원장의 담보유지비율과 가격으로 산출했고
+                조건카드를 쓰지 않습니다.</b> 다만 그 유지비율이 카드의 값과 같은지는 확인되지
+                않았습니다 — 위 금액은 원장 기준입니다.
+              </>
+            ) : (
+              <>
+                위 해소 경로는 그대로입니다 — <b>담보유지비율과 가격만으로 정해지고 조건카드를 쓰지
+                않습니다.</b> 회사별 산정 기준가에 달린 것은 강제 처분 수량뿐입니다.
+              </>
+            )}
           </div>
         </div>
       ) : (
