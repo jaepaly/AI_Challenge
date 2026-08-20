@@ -54,8 +54,20 @@
  *    **대신 만료 사실을 이 섹션에도 적는다** — 가리지 않는 것과 만료를 숨기는 것은 다르다.
  *    "이 카드는 못 쓴다"는 배너 바로 아래에서 근거 머리글이 검수 표시를 자격 없이 내면
  *    사용자는 그것을 "그래도 이 인용은 검증된 것"으로 읽는다.
+ *
+ *  - **화면의 계산이 옆 값과 다른 유지비율을 썼으면 그 사실을 그 행에 적는다.**
+ *    이 패널은 카드의 `ratio`를 근거 좌표·해시와 함께 크게 찍는데, 담보부족액은
+ *    계좌 원장의 유지비율로 산출된다. 둘이 어긋나면 "근거 있는 170%"와 "140%로 낸
+ *    부족액"이 한 스크롤 안에 **모순 없어 보이게** 놓인다. 기존 두 경고 경로는 이걸
+ *    못 잡는다 — figureInQuote·otherFigures는 **인용문 vs 카드값**만 보고 원장을
+ *    보지 않는다. 오히려 인제스트가 조항을 정확히 뽑을수록(인용문에 "170%"가 글자로
+ *    있을수록) 둘 다 침묵한다. 그래서 원장 값을 새 입력으로 받아 적는다.
+ *    ⚠ 이것도 **부정 방향**이다 — "카드가 틀렸다"도 "원장이 틀렸다"도 아니고
+ *      "화면에 나란히 놓인 두 숫자가 같지 않다"는 사실 진술이다. 일치하면 아무 말도
+ *      하지 않는다(통과에 "확인됨" 배지를 만들지 않는다 — 비대칭이 규약이다).
  */
 import type { FreshnessView } from "../lib/marginguard/freshness-view";
+import type { RatioView } from "../lib/marginguard/ratio-view";
 import type { EvidenceRow, EvidenceView } from "../lib/marginguard/evidence-view";
 
 function Quote({ row }: { row: EvidenceRow }) {
@@ -135,12 +147,26 @@ function staleNote(fresh: FreshnessView): string | null {
 export default function EvidencePanel({
   view,
   fresh = null,
+  ratio = null,
 }: {
   view: EvidenceView;
   /** 신선도 판정. 없으면(SSR 등) 자격 문장을 지어내지 않고 아무것도 적지 않는다 */
   fresh?: FreshnessView | null;
+  /**
+   * 카드 r ↔ 원장 r 대조. 없으면 아무것도 적지 않는다 — 원장을 못 받은 화면이
+   * "맞다"고도 "다르다"고도 말할 수 없다. 신선도와 달리 시계에 묶이지 않으므로
+   * SSR 첫 페인트에서도 넘어온다.
+   */
+  ratio?: RatioView | null;
 }) {
   const stale = fresh === null ? null : staleNote(fresh);
+  /** 일치하면 null — 통과에 배지를 만들지 않는다 */
+  const ratioNote = ratio === null || ratio.confirmed ? null : ratio.evidenceNote;
+  /**
+   * 유지비율 행이 있으면 그 행에 붙인다(큰 숫자 바로 아래). 행이 없는 카드
+   * (ratio_rules가 빈 경우)에서도 침묵하면 안 되므로 그때는 머리글 아래로 올린다.
+   */
+  const hasRatioRow = view.rows.some((r) => r.role === "ratio");
 
   return (
     <section className="ev" aria-label="약관 근거">
@@ -179,6 +205,11 @@ export default function EvidencePanel({
 
       {stale !== null && <p className="evStale">{stale}</p>}
 
+      {/* 유지비율 행이 없는 카드에서도 침묵하지 않는다 — 행에 붙일 자리가 없을 뿐,
+          "화면의 부족액은 원장 값으로 냈고 카드에는 맞춰 볼 조항이 없다"는 사실은
+          여전히 사용자가 알아야 한다 */}
+      {ratioNote !== null && !hasRatioRow && <p className="evRatioGap">⚠ {ratioNote}</p>}
+
       {view.empty !== null && <p className="evEmpty">{view.empty}</p>}
 
       {view.rows.map((row) => (
@@ -191,6 +222,16 @@ export default function EvidencePanel({
               <span className="evNoFigure">인용문에 이 표기 없음</span>
             )}
           </div>
+
+          {/* 접기 **밖**이고, 이 행의 다른 문단들보다 **먼저** 온다.
+              ① 이 행의 큰 숫자를 화면의 부족액이 쓰지 않았다는 것은 옆 인용문 이야기보다
+                 앞선 사실이다 — 뒤에 두면 사용자는 "출처는 확인됐고 세부만 남았다"로 읽는다.
+              ② 아래 otherFigures 문단이 "카드가 값으로 두는 것은 옆의 하나뿐"이라고 단언하는데,
+                 어긋난 상태에서 화면의 부족액을 만든 값은 그 하나가 아니다. 두 문장이 정면으로
+                 부딪히지 않게 **계산이 쓴 값을 먼저** 밝힌다. */}
+          {ratioNote !== null && row.role === "ratio" && (
+            <p className="evRatioGap">⚠ {ratioNote}</p>
+          )}
 
           {/* 접기 **밖**이다 — 펼치지 않아도 보여야 한다. 값과 인용문이 한 행에 있는
               것 자체가 출처 주장으로 읽히므로, 그 주장이 성립하지 않는 행은 접힌

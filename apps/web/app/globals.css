@@ -59,6 +59,10 @@
   .cardBtn .h{opacity:.75; font-size:11.5px; margin-left:4px}
   #cardSource{text-align:center; font-size:11.5px; color:var(--ink3); margin:2px 0 0}
   #cardBanner{margin:10px auto 0; max-width:520px; background:var(--warn-soft); color:var(--warn); font-size:12.5px; font-weight:600; text-align:center; border-radius:8px; padding:7px 12px}
+  /* 유지비율 대조 — #cardBanner와 같은 모양이되 **별개의 줄**이다. 둘은 성질도
+     조치도 다르다(재검증 ↔ 값 대조). 합치면 사용자는 재검증만 하고 어긋남은 남는다.
+     두 배너가 함께 서는 경우가 있으므로(STALE + 어긋남) 위쪽 여백만 좁힌다 */
+  #ratioBanner{margin:6px auto 0; max-width:520px; background:var(--warn-soft); color:var(--warn); font-size:12.5px; font-weight:600; text-align:center; border-radius:8px; padding:7px 12px; line-height:1.55}
 
   /* 계기판 */
   .grid{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:20px 0}
@@ -77,6 +81,12 @@
   .cmp{display:flex; gap:10px; flex-wrap:wrap; margin:12px 0 2px; font-size:13px}
   .cmp span{background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:6px 11px}
   .cmp b{font-family:var(--serif)}
+  /* 비교 스트립에서 빠진 행의 사유. 캡션("같은 부족액, 회사만 다를 때")이 이 행에서
+     변하는 것은 회사뿐이라고 단언하므로, 회사 차이가 아닌 이유로 빠진 행은 그 이유가
+     같은 상자 안에 있어야 한다 — 선택된 카드가 멀쩡하면 배너도 근거 문구도 안 뜬다 */
+  .cmpWhy{margin:6px 0 0; font-size:11.5px; color:var(--ink3); line-height:1.6}
+  .cmpWhy p{margin:2px 0 0}
+  .cmpWhy b{font-family:var(--serif); color:var(--ink2)}
   .paths{width:100%; border-collapse:collapse; margin-top:12px; font-size:13.5px}
   .paths td{padding:7px 4px; border-top:1px dashed var(--line2)}
   .paths td:last-child{text-align:right; font-weight:700; font-variant-numeric:tabular-nums}
@@ -154,6 +164,15 @@
      경고색을 쓰면 근거가 잘못됐다는 뜻으로 읽힌다. */
   .evOtherFig,.evOverlap{margin:7px 0 0; font-size:11.5px; color:var(--ink2); line-height:1.7; border-left:2px dashed var(--line2); padding-left:9px}
   .evOtherFig b,.evOverlap b{font-family:var(--serif); color:var(--ink)}
+
+  /* 화면의 부족액이 이 행의 값과 다른 유지비율로 산출됐을 때. 위 두 문단(.evOtherFig
+     계열)과 달리 --warn 실선을 쓴다 — 저쪽은 "인용 구간이 값 하나보다 넓다"는 서지
+     사실이지만, 여기서 어긋난 것은 **화면에 함께 떠 있는 두 수치**이고 그중 하나가
+     바로 위 부족액을 만들었다. 같은 파선 계열로 두면 곁가지 주석으로 읽힌다.
+     ⚠ 그래도 배너 배경은 주지 않는다: 인용문도 좌표도 정상이고, 화면이 아는 것은
+     "둘이 같지 않다"까지라 행 전체를 경보로 칠하면 어느 쪽이 틀렸다는 주장이 된다. */
+  .evRatioGap{margin:7px 0 0; font-size:11.5px; color:var(--ink2); line-height:1.7; border-left:2px solid var(--warn); padding-left:9px}
+  .evRatioGap b{font-family:var(--serif); color:var(--ink)}
 
   /* 접기는 CSS로 한다 — 접힌 상태에서도 인용문 전문이 DOM에 남는다.
      Tailwind preflight가 summary{display:list-item}을 넣으므로 기본 마커를 끄고
