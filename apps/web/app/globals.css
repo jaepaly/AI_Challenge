@@ -111,6 +111,96 @@
   .optPunch b{font-family:var(--serif); font-size:19px; color:var(--danger)}
   .optFoot{margin:12px 0 0; font-size:11px; color:var(--ink3); line-height:1.7; border-top:1px solid var(--line); padding-top:10px}
 
+  /* ── 약관 근거 (조건카드 EvidenceSpan 렌더) ─────────────────────────────
+     위험색(--danger)을 쓰지 않는다. 약관 인용문은 경보가 아니다 — 그 색조합은
+     #liqBox(위험)와 .optForced(강제 처분)가 이미 점유했고, 중립적 인용문을
+     거기 넣으면 "약관 자체가 위험"으로 읽힌다. --warn-soft도 참고 모드 배너
+     (#cardBanner)와 스냅숏 배너가 쓴다.
+     새 색 토큰도 만들지 않는다 — 다크는 prefers-color-scheme 한 벌뿐이라(16~26)
+     :root에만 추가하면 다크에서 흰 상자가 뜬다. 정의만 되고 쓰이지 않던
+     --accent-soft를 쓴다(라이트 #F0E7DC / 다크 #2B2318, 양쪽 다 정의돼 있다). */
+  .ev{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin:16px 0}
+  .ev h2{margin:0 0 4px; font-family:var(--serif); font-size:17px}
+  .evLead{margin:0 0 12px; font-size:12.5px; color:var(--ink2); line-height:1.6}
+  .evDoc{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; font-size:11.5px; color:var(--ink3); border-bottom:1px solid var(--line); padding-bottom:11px}
+  .evDoc b{color:var(--ink2); font-weight:700}
+  .evEmpty{margin:12px 0 0; font-size:12.5px; color:var(--ink3)}
+  /* 신선도 만료 자격 — 근거를 가리지 않고 머리글에만 붙는다. #cardBanner와 같은
+     경고색을 쓰되 배너처럼 꽉 채우지 않는다(같은 화면에 두 배너가 서면 어느 쪽이
+     무엇에 대한 경고인지 흐려진다) */
+  .evStale{margin:11px 0 0; font-size:11.5px; color:var(--warn); line-height:1.65}
+
+  .evRow{padding:13px 0}
+  .evRow + .evRow{border-top:1px dashed var(--line)}
+  .evRowHead{display:flex; gap:8px; align-items:baseline; flex-wrap:wrap}
+  .evTitle{font-size:11.5px; letter-spacing:.06em; color:var(--ink3); font-weight:700}
+  .evField{font-size:11.5px; color:var(--ink3)}
+  .evVal{font-family:var(--serif); font-size:19px; font-weight:800}
+
+  /* 표기가 인용문에 없는 행 — **부정만 표시한다.** 반대쪽(있는 행)에 대응하는
+     긍정 배지를 만들지 말 것. 있다는 것은 글자가 겹친다는 뜻뿐이고, 배지를 달면
+     화면이 갖지 않은 대조 보증을 주장한다(evidence-view.ts 머리글의 비대칭 규약).
+     경고색(--warn)을 쓰되 배너 배경은 주지 않는다 — 인용문 자체는 정상이고
+     틀린 것은 수치와 문장의 관계뿐이라, 행 전체를 경보로 칠하면 과장이 된다 */
+  .evNoFigure{font-size:10.5px; color:var(--warn); border:1px solid var(--warn); border-radius:999px; padding:1px 7px; white-space:nowrap}
+  .evNoFigureWhy{margin:7px 0 0; font-size:11.5px; color:var(--ink2); line-height:1.7; border-left:2px solid var(--warn); padding-left:9px}
+  .evNoFigureWhy b{font-family:var(--serif); color:var(--ink)}
+
+  /* 인용문에 옆 수치 말고 다른 값도 있을 때 / 앞 행의 근거 구간과 겹칠 때.
+     둘 다 **접기 밖**이라 요약줄(.evPreview)의 nowrap 말줄임에 잘리지 않는다 —
+     인용문 뒤쪽에 있는 사실을 접힌 화면에 도달시키는 것이 이 문단의 목적이다.
+     .evNoFigureWhy와 같은 파선 계열이되 --warn을 쓰지 않는다: 좌표도 인용문도
+     정상이고 여기서 말하는 것은 "인용 구간이 옆 값 하나보다 넓다"는 사실뿐이라,
+     경고색을 쓰면 근거가 잘못됐다는 뜻으로 읽힌다. */
+  .evOtherFig,.evOverlap{margin:7px 0 0; font-size:11.5px; color:var(--ink2); line-height:1.7; border-left:2px dashed var(--line2); padding-left:9px}
+  .evOtherFig b,.evOverlap b{font-family:var(--serif); color:var(--ink)}
+
+  /* 접기는 CSS로 한다 — 접힌 상태에서도 인용문 전문이 DOM에 남는다.
+     Tailwind preflight가 summary{display:list-item}을 넣으므로 기본 마커를 끄고
+     ▸/▾를 직접 그린다(브라우저별 마커 편차 제거). */
+  .evQuote{margin-top:9px}
+  .evQuoteSum{display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; cursor:pointer; list-style:none; background:var(--ground); border:1px solid var(--line); border-radius:8px; padding:7px 11px}
+  .evQuoteSum::-webkit-details-marker{display:none}
+  .evQuoteSum:hover{border-color:var(--line2)}
+  .evMark{flex:none; font-size:10px; color:var(--ink3)}
+  .evMark::before{content:"▸"}
+  .evQuote[open] .evMark::before{content:"▾"}
+  /* 요약줄은 어떤 인용문이 와도 한 줄이어야 한다 — previewLine이 공백을 접고,
+     여기서 남은 넘침을 말줄임으로 자른다(표시만 자르고 원문은 아래에 온전하다) */
+  .evPreview{flex:1 1 240px; min-width:0; font-size:12.5px; color:var(--ink2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  /* 접힌 줄이 원문이 아님을 밝히는 라벨. 공백만 접힌 90자 미만 인용문은 말줄임도
+     자수 차이도 없어, 이 라벨이 없으면 접힌 문자열이 원문으로 읽힌다 */
+  .evFold{flex:none; font-size:10.5px; color:var(--ink3); border:1px dashed var(--line2); border-radius:999px; padding:1px 6px; white-space:nowrap}
+  .evMeta{flex:none; font-size:11px; color:var(--ink3); white-space:nowrap}
+  .evLoc{font-family:var(--font-geist-mono,ui-monospace),ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px; color:var(--ink2); border:1px solid var(--line2); border-radius:999px; padding:1px 7px}
+  /* 좌표가 인용문을 설명하지 못하는 행은 접힌 상태에서도 정상 행과 달라야 한다 —
+     펼침 본문에만 경고를 두면 요약이 펼친 내용보다 단정적이 된다 */
+  .evLoc.bad{color:var(--warn); border-color:var(--warn)}
+  .evLocWarn{color:var(--warn)}
+
+  /* 실측 최장 인용문은 2,462자다(개행 27·탭 37짜리 표 덤프). 그대로 펼치면
+     아래 #liqBox·선택지 비교·다종목이 전부 화면 밖으로 밀린다 → max-height +
+     내부 스크롤. height가 아니라 max-height여야 190자 인용문이 빈 상자를 만들지 않는다.
+     pre-wrap으로 개행·탭을 원문 그대로 두되, 표 한 줄이 본문 폭(최대 840px,
+     모바일 약 335px)을 넘으면 페이지가 아니라 이 상자 안에서 접히도록
+     overflow-wrap:anywhere를 건다 — 64자 sha 같은 단일 토큰이 여기 걸린다.
+     표 정렬은 그만큼 흐트러지지만, 원문 보존과 레이아웃 붕괴 방지가 우선이다. */
+  .evFull{margin:9px 0 0; max-height:260px; overflow:auto; overscroll-behavior:contain; background:var(--accent-soft); border:1px solid var(--line); border-radius:8px; padding:11px 13px; font-size:12.5px; line-height:1.75; color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; tab-size:2}
+  .evHash{margin:8px 0 0; font-size:11px; color:var(--ink3); line-height:1.65; overflow-wrap:anywhere}
+  .evMono{font-family:var(--font-geist-mono,ui-monospace),ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--ink2)}
+  .evWarn{margin:6px 0 0; font-size:11.5px; color:var(--warn); line-height:1.6}
+  .evSame{margin:9px 0 0; font-size:12px; color:var(--ink3); line-height:1.6}
+
+  /* 근거 대조가 없는 필드 — 위 인용 블록과 **시각적으로 달라야 한다.**
+     좌표 pill도 인용 상자도 해시도 붙이지 않는다(이유: evidence-view.ts의
+     DAY_COUNTING_WHY). 실선 대신 파선, 값은 작게, 배지는 검증색 없이 --ink3.
+     "일관성"을 이유로 여기에 .evLoc을 옮겨 붙이지 말 것. */
+  .evUnbacked{margin-top:13px; background:var(--ground); border:1px dashed var(--line2); border-radius:10px; padding:12px 14px}
+  .evUnbackedHead{display:flex; gap:8px; align-items:baseline; flex-wrap:wrap}
+  .evUnbacked .evVal{font-size:16px}
+  .evNoEv{font-size:10.5px; color:var(--ink3); border:1px dashed var(--line2); border-radius:999px; padding:1px 7px; white-space:nowrap}
+  .evUnbackedWhy{margin:7px 0 0; font-size:11.5px; color:var(--ink3); line-height:1.7}
+
   /* 7월 연쇄 */
   .july{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:16px 0}
   .july h2{margin:0 0 4px; font-size:15px}
