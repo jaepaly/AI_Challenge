@@ -23,7 +23,7 @@ from benchmarks.path_comparison import PDF_TEXT_FACTS, _normalize_for_match
 
 
 DEFAULT_MODEL = "claude-sonnet-5"
-DEFAULT_MAX_TOKENS = 2048
+DEFAULT_MAX_TOKENS = 8192
 DEFAULT_INPUT_USD_PER_MTOK = 3.0
 DEFAULT_OUTPUT_USD_PER_MTOK = 15.0
 DEFAULT_KRW_PER_USD = 1500.0
@@ -143,6 +143,16 @@ def _usage_dict(message: Any) -> dict[str, int]:
     return {key: int(usage.get(key, 0) or 0) for key in keys}
 
 
+def _stop_reason(message: Any) -> str | None:
+    """Anthropic의 종료 사유를 결과 사료에 그대로 남긴다."""
+    value = (
+        message.get("stop_reason")
+        if isinstance(message, Mapping)
+        else getattr(message, "stop_reason", None)
+    )
+    return str(value) if value is not None else None
+
+
 def _score_document(filename: str, citations: list[dict[str, Any]]) -> dict[str, Any]:
     facts = _facts_by_file()[filename]
     cited_text = "\n".join(citation["cited_text"] for citation in citations)
@@ -192,6 +202,7 @@ def build_dry_run_plan(
         "network_requests": 0,
         "model": model,
         "max_tokens_per_document": max_tokens,
+        "thinking": "disabled",
         "cache_control": "ephemeral_5m",
         "prompt_sha256": sha256(EXTRACTION_PROMPT.encode("utf-8")).hexdigest(),
         "documents": documents,
@@ -229,6 +240,8 @@ def run_comparison(
         response = client.messages.create(
             model=model,
             max_tokens=max_tokens,
+            # Sonnet 5의 적응형 사고가 citation 출력 예산을 나눠 먹지 않게 고정한다.
+            thinking={"type": "disabled"},
             messages=[
                 {
                     "role": "user",
@@ -245,6 +258,8 @@ def run_comparison(
             (terms_dir / filename).read_bytes()
         ).hexdigest()
         usage = _usage_dict(response)
+        scored["stop_reason"] = _stop_reason(response)
+        scored["output_limit_reached"] = usage["output_tokens"] >= max_tokens
         scored["usage"] = usage
         document_results.append(scored)
         for key, value in usage.items():
@@ -258,11 +273,15 @@ def run_comparison(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "max_tokens_per_document": max_tokens,
+        "thinking": "disabled",
         "cache_control": "ephemeral_5m",
         "prompt_sha256": sha256(EXTRACTION_PROMPT.encode("utf-8")).hexdigest(),
         "approved_max_cost_krw": approved_max_krw,
         "estimated_max_cost_krw": estimated_max,
         "documents": document_results,
+        "saturated_document_count": sum(
+            bool(item["output_limit_reached"]) for item in document_results
+        ),
         "recovered": recovered,
         "total": total,
         "rate": recovered / total,

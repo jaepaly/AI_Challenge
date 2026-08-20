@@ -5,6 +5,7 @@ import unittest
 
 from benchmarks.path_comparison import PDF_TEXT_FACTS
 from benchmarks.raw_pdf_comparison import (
+    DEFAULT_MAX_TOKENS,
     RAW_PDF_INPUT_TOKENS,
     build_document_message,
     build_dry_run_plan,
@@ -38,6 +39,7 @@ class FakeMessages:
             for fact in facts
         ]
         return SimpleNamespace(
+            stop_reason="end_turn",
             content=[{"type": "text", "text": "근거", "citations": citations}],
             usage={
                 "input_tokens": 10,
@@ -73,6 +75,8 @@ class RawPdfComparisonTest(unittest.TestCase):
 
         self.assertEqual(plan["status"], "dry_run")
         self.assertEqual(plan["network_requests"], 0)
+        self.assertEqual(plan["max_tokens_per_document"], 8192)
+        self.assertEqual(plan["thinking"], "disabled")
         self.assertEqual(len(plan["documents"]), 5)
         self.assertGreater(plan["estimated_max_cost_krw"], 0)
         self.assertNotIn("ANTHROPIC_API_KEY", str(plan["documents"]))
@@ -92,7 +96,7 @@ class RawPdfComparisonTest(unittest.TestCase):
         client = FakeClient()
         ceiling = estimate_max_cost_krw(
             RAW_PDF_INPUT_TOKENS,
-            max_tokens=2048,
+            max_tokens=DEFAULT_MAX_TOKENS,
         )
 
         result = run_comparison(
@@ -105,11 +109,16 @@ class RawPdfComparisonTest(unittest.TestCase):
         self.assertEqual(result["recovered"], 13)
         self.assertEqual(result["verbatim_recovered"], 13)
         self.assertEqual(result["missing_fact_ids"], [])
+        self.assertEqual(result["saturated_document_count"], 0)
         self.assertEqual(len(client.messages.calls), 5)
         self.assertEqual(result["usage"]["cache_creation_input_tokens"], 100)
         for call in client.messages.calls:
             self.assertNotIn("temperature", call)
+            self.assertEqual(call["thinking"], {"type": "disabled"})
             self.assertEqual(call["timeout"], 120.0)
+        self.assertTrue(
+            all(document["stop_reason"] == "end_turn" for document in result["documents"])
+        )
 
     def test_non_page_citation_is_rejected(self) -> None:
         message = SimpleNamespace(

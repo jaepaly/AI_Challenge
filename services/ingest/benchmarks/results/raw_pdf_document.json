@@ -5,12 +5,15 @@
   "batch_id": "msgbatch_01F5ZsAwchgMmtAyH9azvDRy",
   "model": "claude-sonnet-5",
   "max_tokens_per_document": 2048,
+  "thinking": "not_recorded_historical_run",
   "cache_control": "disabled_distinct_documents",
   "batch_discount": 0.5,
   "prompt_sha256": "7d9c5ccf898dfa59a548bf78a328ba5903c41f07db372daa6cc4cb151b70821e",
   "approved_max_cost_krw": 1500.0,
   "estimated_max_cost_krw": 877.08,
   "actual_cost_krw": 880.2112,
+  "saturated_document_count": 5,
+  "measurement_status": "truncated_output_limit",
   "documents": [
     {
       "filename": "메리츠_신용거래설명서_20250421.pdf",
@@ -77,6 +80,9 @@
         "meritz-required-309"
       ],
       "document_sha256": "a27102eda3e1a70984bfc30b7fa97871500633124164b963622c4350262d4d0e",
+      "stop_reason": "max_tokens",
+      "stop_reason_source": "inferred_from_output_tokens_equal_max_tokens",
+      "output_limit_reached": true,
       "usage": {
         "input_tokens": 78226,
         "cache_creation_input_tokens": 0,
@@ -155,6 +161,9 @@
         "mirae-required-195"
       ],
       "document_sha256": "fb2708429cd1e03aa86027623013370774e42c8f009d762f61b734028eff9c90",
+      "stop_reason": "max_tokens",
+      "stop_reason_source": "inferred_from_output_tokens_equal_max_tokens",
+      "output_limit_reached": true,
       "usage": {
         "input_tokens": 68767,
         "cache_creation_input_tokens": 0,
@@ -259,6 +268,9 @@
         "samsung-second-stage"
       ],
       "document_sha256": "60751bb8e00fb1351d1071ed82a1f30585558111993ab6c2f675e5b758cad5b9",
+      "stop_reason": "max_tokens",
+      "stop_reason_source": "inferred_from_output_tokens_equal_max_tokens",
+      "output_limit_reached": true,
       "usage": {
         "input_tokens": 54764,
         "cache_creation_input_tokens": 0,
@@ -379,6 +391,9 @@
         "shinhan-grade-discounts"
       ],
       "document_sha256": "916e78f4e47300b3a63643673ff7561afe8ae7f226532d70354baef41a04c9fc",
+      "stop_reason": "max_tokens",
+      "stop_reason_source": "inferred_from_output_tokens_equal_max_tokens",
+      "output_limit_reached": true,
       "usage": {
         "input_tokens": 87717,
         "cache_creation_input_tokens": 0,
@@ -417,6 +432,9 @@
         "kiwoom-next-open"
       ],
       "document_sha256": "8fd195fe7426ab66afca2ff131a08153afd114a2c0912b32e0924ba2434095af",
+      "stop_reason": "max_tokens",
+      "stop_reason_source": "inferred_from_output_tokens_equal_max_tokens",
+      "output_limit_reached": true,
       "usage": {
         "input_tokens": 50531,
         "cache_creation_input_tokens": 0,

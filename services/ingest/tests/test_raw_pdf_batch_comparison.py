@@ -11,7 +11,7 @@ from benchmarks.raw_pdf_batch_comparison import (
     estimate_batch_max_cost_krw,
     submit_batch,
 )
-from benchmarks.raw_pdf_comparison import RAW_PDF_INPUT_TOKENS
+from benchmarks.raw_pdf_comparison import DEFAULT_MAX_TOKENS, RAW_PDF_INPUT_TOKENS
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -62,6 +62,7 @@ class FakeBatches:
                 "result": {
                     "type": "succeeded",
                     "message": {
+                        "stop_reason": "end_turn",
                         "content": [
                             {"type": "text", "text": "근거", "citations": citations}
                         ],
@@ -82,7 +83,7 @@ class FakeClient:
 
 
 class RawPdfBatchComparisonTest(unittest.TestCase):
-    def test_batch_cost_ceiling_is_below_1500_won(self) -> None:
+    def test_historical_2048_batch_cost_matches_recorded_ceiling(self) -> None:
         ceiling = estimate_batch_max_cost_krw(
             RAW_PDF_INPUT_TOKENS,
             max_tokens=2048,
@@ -91,11 +92,22 @@ class RawPdfBatchComparisonTest(unittest.TestCase):
         self.assertEqual(ceiling, 877.08)
         self.assertLess(ceiling, 1500)
 
+    def test_default_8192_batch_stays_below_1500_won(self) -> None:
+        ceiling = estimate_batch_max_cost_krw(
+            RAW_PDF_INPUT_TOKENS,
+            max_tokens=DEFAULT_MAX_TOKENS,
+        )
+
+        self.assertEqual(DEFAULT_MAX_TOKENS, 8192)
+        self.assertLess(ceiling, 1500)
+
     def test_dry_run_has_no_network_and_no_cache_writes(self) -> None:
         plan = build_batch_dry_run_plan(REPO_ROOT)
 
         self.assertEqual(plan["status"], "dry_run")
         self.assertEqual(plan["network_requests"], 0)
+        self.assertEqual(plan["max_tokens_per_document"], 8192)
+        self.assertEqual(plan["thinking"], "disabled")
         self.assertEqual(plan["cache_control"], "disabled_distinct_documents")
         self.assertEqual(len(plan["documents"]), 5)
 
@@ -106,6 +118,7 @@ class RawPdfBatchComparisonTest(unittest.TestCase):
         self.assertEqual(len(mapping), 5)
         for request in requests:
             self.assertNotIn("temperature", request["params"])
+            self.assertEqual(request["params"]["thinking"], {"type": "disabled"})
             document = request["params"]["messages"][0]["content"][0]
             self.assertEqual(document["citations"], {"enabled": True})
             self.assertNotIn("cache_control", document)
@@ -141,6 +154,10 @@ class RawPdfBatchComparisonTest(unittest.TestCase):
         self.assertEqual(result["recovered"], 13)
         self.assertEqual(result["verbatim_recovered"], 13)
         self.assertEqual(result["missing_fact_ids"], [])
+        self.assertEqual(result["saturated_document_count"], 0)
+        self.assertTrue(
+            all(document["stop_reason"] == "end_turn" for document in result["documents"])
+        )
         self.assertLess(result["actual_cost_krw"], 1500)
 
     def test_pending_batch_does_not_fetch_results(self) -> None:

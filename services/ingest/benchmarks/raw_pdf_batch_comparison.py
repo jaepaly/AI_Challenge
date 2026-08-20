@@ -27,6 +27,7 @@ from benchmarks.raw_pdf_comparison import (
     RAW_PDF_INPUT_TOKENS,
     _score_document,
     _selected_files,
+    _stop_reason,
     _usage_dict,
     build_document_message,
     extract_page_citations,
@@ -97,6 +98,7 @@ def build_batch_requests(
                 "params": {
                     "model": model,
                     "max_tokens": max_tokens,
+                    "thinking": {"type": "disabled"},
                     "messages": [
                         {
                             "role": "user",
@@ -138,6 +140,7 @@ def build_batch_dry_run_plan(
         "network_requests": 0,
         "model": model,
         "max_tokens_per_document": max_tokens,
+        "thinking": "disabled",
         "cache_control": "disabled_distinct_documents",
         "batch_discount": BATCH_DISCOUNT_MULTIPLIER,
         "prompt_sha256": sha256(EXTRACTION_PROMPT.encode("utf-8")).hexdigest(),
@@ -181,6 +184,7 @@ def submit_batch(
         "processing_status": batch.processing_status,
         "model": model,
         "max_tokens_per_document": max_tokens,
+        "thinking": "disabled",
         "cache_control": "disabled_distinct_documents",
         "batch_discount": BATCH_DISCOUNT_MULTIPLIER,
         "approved_max_cost_krw": approved_max_krw,
@@ -253,6 +257,10 @@ def collect_batch(
         scored = _score_document(filename, citations)
         scored["document_sha256"] = submission["document_sha256"][filename]
         usage = _usage_dict(message)
+        scored["stop_reason"] = _stop_reason(message)
+        scored["output_limit_reached"] = (
+            usage["output_tokens"] >= int(submission["max_tokens_per_document"])
+        )
         scored["usage"] = usage
         document_results.append(scored)
         for key, value in usage.items():
@@ -282,6 +290,7 @@ def collect_batch(
         "batch_id": batch_id,
         "model": submission["model"],
         "max_tokens_per_document": submission["max_tokens_per_document"],
+        "thinking": submission.get("thinking", "not_recorded"),
         "cache_control": submission["cache_control"],
         "batch_discount": submission["batch_discount"],
         "prompt_sha256": submission["prompt_sha256"],
@@ -289,6 +298,9 @@ def collect_batch(
         "estimated_max_cost_krw": submission["estimated_max_cost_krw"],
         "actual_cost_krw": actual_batch_cost_krw(usage),
         "documents": document_results,
+        "saturated_document_count": sum(
+            bool(item["output_limit_reached"]) for item in document_results
+        ),
         "recovered": recovered,
         "total": total,
         "rate": recovered / total,
