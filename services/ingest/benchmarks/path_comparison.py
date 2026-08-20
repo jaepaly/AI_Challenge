@@ -21,6 +21,11 @@ from app.parsing import ParsedDocument, parse_html, parse_pdf_text
 RAW_PDF_RESULT_PATH = (
     Path(__file__).resolve().parent / "results" / "raw_pdf_document.json"
 )
+RAW_PDF_UNTRUNCATED_SUMMARY_PATH = (
+    Path(__file__).resolve().parent
+    / "results"
+    / "raw_pdf_document_8192_summary.json"
+)
 
 
 @dataclass(frozen=True)
@@ -222,11 +227,33 @@ def _load_raw_pdf_result() -> dict[str, object]:
     return result
 
 
+def _load_raw_pdf_untruncated_summary() -> dict[str, object]:
+    if not RAW_PDF_UNTRUNCATED_SUMMARY_PATH.exists():
+        return {
+            "status": "not_run",
+            "reason": "출력 상한에 닿지 않은 PDF document 비교 결과가 없음",
+        }
+    result = json.loads(
+        RAW_PDF_UNTRUNCATED_SUMMARY_PATH.read_text(encoding="utf-8")
+    )
+    if result.get("status") != "completed_summary":
+        raise ValueError(
+            "raw_pdf_document_8192_summary.json은 completed_summary만 허용됩니다"
+        )
+    return result
+
+
 def _pdf_branch_decision(
     pdf_text_result: PathResult, raw_pdf_result: dict[str, object]
 ) -> str:
-    if raw_pdf_result.get("status") != "completed":
-        return "pending: raw PDF document 실제 결과 생성 전에는 pypdf와 최종 비교 불가"
+    if raw_pdf_result.get("status") != "completed_summary":
+        return "pending: 출력 상한에 닿지 않은 PDF document 결과 생성 전에는 최종 비교 불가"
+    max_tokens = int(raw_pdf_result["max_tokens_per_document"])
+    documents = list(raw_pdf_result["documents"])
+    if int(raw_pdf_result.get("saturated_document_count", 0)) != 0 or any(
+        int(document["output_tokens"]) >= max_tokens for document in documents
+    ):
+        return "pending: 출력 상한에 닿은 결과로는 경로 분기를 결정하지 않음"
     raw_recovered = int(raw_pdf_result["recovered"])
     raw_verbatim = int(raw_pdf_result["verbatim_recovered"])
     if (raw_recovered, raw_verbatim) > (
@@ -238,7 +265,11 @@ def _pdf_branch_decision(
         pdf_text_result.recovered,
         pdf_text_result.verbatim_recovered,
     ):
-        return "pypdf_text + char_location + flattened_sha256 권고"
+        return (
+            "pypdf_text + char_location + flattened_sha256 권고 — "
+            "8192 비절단 재현율은 13/13 동률이고 축자는 11/13 대 9/13으로 우위이며, "
+            "원본 PDF API 비용과 현행 문자 좌표·평탄화 해시 계약에도 맞음"
+        )
     return "재현율 동률: 표 구조와 근거 좌표 품질을 사람이 최종 확인"
 
 
@@ -266,6 +297,7 @@ def compare_local_paths(repo_root: Path) -> dict[str, object]:
         "공백 정규화 재현과 축자 재현을 구분해 측정하며 pypdf 출력에는 명시적인 셀 탭 경계가 없다.",
     )
     raw_pdf_result = _load_raw_pdf_result()
+    raw_pdf_untruncated = _load_raw_pdf_untruncated_summary()
 
     return {
         "environment": {
@@ -275,9 +307,38 @@ def compare_local_paths(repo_root: Path) -> dict[str, object]:
         },
         "results": [asdict(html_result), asdict(pdf_text_result)],
         "raw_pdf_document": raw_pdf_result,
+        "raw_pdf_document_untruncated": raw_pdf_untruncated,
         "branch_decision": {
             "html": "html_flatten + char_location + flattened_sha256",
-            "pdf": _pdf_branch_decision(pdf_text_result, raw_pdf_result),
+            "pdf": _pdf_branch_decision(pdf_text_result, raw_pdf_untruncated),
+            "pdf_conditions": {
+                "pypdf": {
+                    "recovered": pdf_text_result.recovered,
+                    "total": pdf_text_result.total,
+                    "verbatim_recovered": pdf_text_result.verbatim_recovered,
+                    "coordinate_kind": "char_location + flattened_sha256",
+                },
+                "raw_pdf_document": {
+                    "source_commit": raw_pdf_untruncated.get("source_commit"),
+                    "model": raw_pdf_untruncated.get("model"),
+                    "max_tokens_per_document": raw_pdf_untruncated.get(
+                        "max_tokens_per_document"
+                    ),
+                    "thinking": raw_pdf_untruncated.get("thinking"),
+                    "transport": raw_pdf_untruncated.get("transport"),
+                    "recovered": raw_pdf_untruncated.get("recovered"),
+                    "total": raw_pdf_untruncated.get("total"),
+                    "verbatim_recovered": raw_pdf_untruncated.get(
+                        "verbatim_recovered"
+                    ),
+                    "coordinate_kind": "page_location",
+                },
+                "selection_basis": [
+                    "비절단 재현율 동률에서 pypdf 축자 일치 우위",
+                    "pypdf 로컬 평탄화의 원본 PDF API 대비 비용 우위",
+                    "char_location + flattened_sha256 현행 계약 정합",
+                ],
+            },
         },
     }
 
