@@ -4,5 +4,6 @@ python-multipart>=0.0.9    # UploadFile(multipart form) 필수 — 없으면 앱
 pydantic>=2.8
 pypdf>=4.3
 anthropic>=0.40
+httpx>=0.27               # 테스트가 직접 import 한다 — anthropic transitive 에 기대지 않는다
 jsonschema>=4.23
 python-dotenv>=1.0
