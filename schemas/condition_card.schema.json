@@ -24,8 +24,7 @@
           "collateral_type": { "type": "string" },
           "symbol_group": { "type": "string" },
           "ratio": { "type": "number", "minimum": 1.0, "maximum": 2.0, "description": "담보유지비율. evidence.quote에는 ×100 퍼센트 표기가 숫자 경계에 맞게 포함되어야 하며 Pydantic 최종 검증기가 강제한다." },
-          "evidence": { "$ref": "#/definitions/evidence_span" },
-          "evidence_product_binding": { "enum": ["explicit", "unspecified"], "description": "서버가 결정한 근거 문장 내 상품 명시 여부. LLM은 생성하지 않는다." }
+          "evidence": { "$ref": "#/definitions/evidence_span" }
         }
       }
     },

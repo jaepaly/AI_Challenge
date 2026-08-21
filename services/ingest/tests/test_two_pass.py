@@ -21,8 +21,8 @@ from app.two_pass import (
     TwoPassIngestService,
     _broker_from_filename,
     _example_intervals,
-    _inject_ratio_evidence_product_bindings,
     _is_example_span,
+    _maintenance_citation_bindings,
     _maintenance_row_bindings,
     _role_citations,
     _structured_output_schema,
@@ -247,10 +247,6 @@ class TwoPassIngestTest(unittest.TestCase):
         )
         self.assertEqual(
             response.json()["doc_version"], {"review_no": "2026-0265"}
-        )
-        self.assertEqual(
-            response.json()["ratio_rules"][0]["evidence_product_binding"],
-            "explicit",
         )
         self.assertEqual(len(fake.messages.calls), 2)
         self.assertEqual(response.headers["x-ingest-model"], "claude-sonnet-5")
@@ -673,33 +669,36 @@ class TwoPassIngestTest(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("상품 종류", response.json()["detail"])
 
-    def test_eugene_unspecified_product_evidence_passes_and_is_recorded(self) -> None:
-        card = copy.deepcopy(self.card)
-        ratio = card["ratio_rules"][0]
-        ratio["evidence"] = {
-            "source_format": "html",
-            "char_start": 473,
-            "char_end": 502,
-            "flattened_sha256": self.document.flattened_sha256,
-            "quote": "담보유지비율이 일정비율(140%)미만으로 하락한 경우",
-        }
-
-        injected = _inject_ratio_evidence_product_bindings(card)
-
-        self.assertEqual(
-            injected["ratio_rules"][0]["evidence_product_binding"],
-            "unspecified",
+    def test_eugene_narrow_citation_binds_product_from_source_row(self) -> None:
+        document = parse_document(EUGENE_TERMS)
+        text = document.units[0].text
+        quote = "담보유지비율이 일정비율(140%)미만으로 하락한 경우"
+        start = text.index(quote)
+        citation = CitationSpan(
+            source_format="html",
+            char_start=start,
+            char_end=start + len(quote),
+            flattened_sha256=document.flattened_sha256 or "",
+            quote=quote,
         )
-        self.assertEqual(
-            _maintenance_row_bindings(
-                injected["ratio_rules"][0]["evidence"]["quote"]
-            ),
-            ((None, 140.0),),
-        )
-        parsed, roles = self._parsed_card_and_roles(injected)
-        _validate_evidence_role_binding(parsed, roles)
 
-    def test_eugene_actual_document_returns_unspecified_draft_card(self) -> None:
+        self.assertEqual(_maintenance_row_bindings(quote), ())
+        self.assertEqual(
+            _maintenance_citation_bindings(citation, text),
+            (("융자", 140.0),),
+        )
+        self.assertEqual(text[citation.char_start : citation.char_end], quote)
+
+        tampered = CitationSpan(
+            source_format="html",
+            char_start=start,
+            char_end=start + len(quote),
+            flattened_sha256=document.flattened_sha256 or "",
+            quote=quote.replace("140", "120"),
+        )
+        self.assertEqual(_maintenance_citation_bindings(tampered, text), ())
+
+    def test_eugene_actual_document_binds_loan_and_rejects_short_sale(self) -> None:
         raw = EUGENE_TERMS.read_bytes()
         document = parse_document(EUGENE_TERMS)
         text = document.units[0].text
@@ -777,54 +776,41 @@ class TwoPassIngestTest(unittest.TestCase):
             "ratio_source": "website_notice",
             "status": "draft",
         }
-        fake = FakeAnthropicClient(pass1, card)
-        service = TwoPassIngestService(fake)
-        app.dependency_overrides[get_ingest_service] = lambda: service
+        def post(product_type: str):
+            candidate = copy.deepcopy(card)
+            candidate["ratio_rules"][0]["product_type"] = product_type
+            fake = FakeAnthropicClient(pass1, candidate)
+            app.dependency_overrides[get_ingest_service] = (
+                lambda: TwoPassIngestService(fake)
+            )
+            response = TestClient(app).post(
+                "/ingest",
+                files={"file": (EUGENE_TERMS.name, raw, "text/html")},
+            )
+            return response, fake
 
-        response = TestClient(app).post(
-            "/ingest",
-            files={"file": (EUGENE_TERMS.name, raw, "text/html")},
-        )
+        for product_type in ("신용융자", "융자"):
+            with self.subTest(product_type=product_type):
+                response, fake = post(product_type)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["broker"], "유진투자증권")
+                self.assertEqual(response.json()["status"], "draft")
+                self.assertNotIn(
+                    "evidence_product_binding",
+                    response.json()["ratio_rules"][0],
+                )
+                self.assertEqual(
+                    response.json()["doc_version"],
+                    {"content_sha256": sha256(raw).hexdigest()},
+                )
+                self.assertEqual(len(fake.messages.calls), 2)
 
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["broker"], "유진투자증권")
-        self.assertEqual(response.json()["status"], "draft")
-        self.assertEqual(
-            response.json()["ratio_rules"][0]["evidence_product_binding"],
-            "unspecified",
-        )
-        self.assertEqual(
-            response.json()["doc_version"],
-            {"content_sha256": sha256(raw).hexdigest()},
-        )
-        self.assertEqual(len(fake.messages.calls), 2)
-
-    def test_eugene_unspecified_product_is_a_ratio_candidate(self) -> None:
-        ratio = CitationSpan(
-            source_format="html",
-            char_start=473,
-            char_end=502,
-            flattened_sha256="0" * 64,
-            quote="담보유지비율이 일정비율(140%)미만으로 하락한 경우",
-        )
-        disposal = CitationSpan(
-            source_format="html",
-            char_start=700,
-            char_end=718,
-            flattened_sha256="0" * 64,
-            quote="반대매매 기준가격은 하한가로 계산",
-        )
-        execution = CitationSpan(
-            source_format="html",
-            char_start=800,
-            char_end=850,
-            flattened_sha256="0" * 64,
-            quote="담보유지비율 140% 미만이면 추가납부기한 익일 자동반대매매",
-        )
-
-        roles = _role_citations((ratio, disposal, execution))
-
-        self.assertEqual(roles["ratio_rules"], (ratio,))
+        for product_type in ("신용대주", "대주"):
+            with self.subTest(product_type=product_type):
+                response, fake = post(product_type)
+                self.assertEqual(response.status_code, 422)
+                self.assertIn("상품 종류", response.json()["detail"])
+                self.assertEqual(len(fake.messages.calls), 2)
 
     def test_two_product_words_are_rejected_before_second_pass(self) -> None:
         ambiguous_ratio = CitationSpan(
@@ -863,7 +849,7 @@ class TwoPassIngestTest(unittest.TestCase):
         }
         parsed, roles = self._parsed_card_and_roles(card)
 
-        with self.assertRaisesRegex(IngestPipelineError, "결속 하나"):
+        with self.assertRaisesRegex(IngestPipelineError, "상품 종류"):
             _validate_evidence_role_binding(parsed, roles)
 
     def test_meritz_multi_axis_table_stays_fail_closed(self) -> None:
@@ -874,40 +860,6 @@ class TwoPassIngestTest(unittest.TestCase):
         )
 
         self.assertEqual(_maintenance_row_bindings(quote), ())
-
-    def test_rejects_unspecified_evidence_reused_for_multiple_products(self) -> None:
-        card = copy.deepcopy(self.card)
-        card["ratio_rules"][0]["evidence"] = {
-            "source_format": "html",
-            "char_start": 473,
-            "char_end": 502,
-            "flattened_sha256": self.document.flattened_sha256,
-            "quote": "담보유지비율이 일정비율(140%)미만으로 하락한 경우",
-        }
-        second = copy.deepcopy(card["ratio_rules"][0])
-        second["product_type"] = "신용대주"
-        card["ratio_rules"].append(second)
-        injected = _inject_ratio_evidence_product_bindings(card)
-        parsed, roles = self._parsed_card_and_roles(injected)
-
-        with self.assertRaisesRegex(IngestPipelineError, "여러 상품 규칙"):
-            _validate_evidence_role_binding(parsed, roles)
-
-    def test_rejects_model_supplied_evidence_product_binding(self) -> None:
-        card = copy.deepcopy(self.card)
-        card["ratio_rules"][0]["evidence_product_binding"] = "explicit"
-
-        with self.assertRaisesRegex(
-            IngestPipelineError, "2패스는 evidence_product_binding"
-        ):
-            _inject_ratio_evidence_product_bindings(card)
-
-    def test_structured_output_excludes_server_owned_product_binding(self) -> None:
-        ratio_properties = _structured_output_schema("html")["$defs"][
-            "RatioRule"
-        ]["properties"]
-
-        self.assertNotIn("evidence_product_binding", ratio_properties)
 
     def test_rejects_execution_not_bound_to_declared_ratio_product(self) -> None:
         card = copy.deepcopy(self.card)
