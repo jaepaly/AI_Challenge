@@ -342,7 +342,9 @@ def _credit_product_kind(text: str) -> str | None:
     return next(iter(kinds)) if len(kinds) == 1 else None
 
 
-def _maintenance_row_bindings(quote: str) -> tuple[tuple[str, float], ...]:
+def _maintenance_row_bindings(
+    quote: str,
+) -> tuple[tuple[str, float], ...]:
     """담보유지비율 행에서 상품과 단일 비율이 함께 있는 결속만 반환한다."""
 
     bindings: list[tuple[str, float]] = []
@@ -358,6 +360,50 @@ def _maintenance_row_bindings(quote: str) -> tuple[tuple[str, float], ...]:
         ):
             bindings.append((product_kind, percentages[0]))
     return tuple(dict.fromkeys(bindings))
+
+
+def _citation_source_lines(
+    citation: CitationSpan,
+    source_text: str | None,
+) -> str:
+    """인용문이 걸친 원문 행을 검증용 문맥으로 반환한다.
+
+    EvidenceSpan의 quote·좌표는 최소 native citation 그대로 유지한다. 상품어가
+    인용 시작점 직전에 있는 표/문장만 판정에서 놓치지 않도록, 원문 대조가 되는
+    문자형 citation에 한해 행 경계까지 넓혀 읽는다. 좌표나 quote가 원문과 다르면
+    문맥을 만들지 않아 fail-closed로 남긴다.
+    """
+
+    if source_text is None:
+        return citation.quote
+    if (
+        citation.char_start < 0
+        or citation.char_end <= citation.char_start
+        or citation.char_end > len(source_text)
+        or source_text[citation.char_start : citation.char_end] != citation.quote
+    ):
+        return ""
+    line_start = source_text.rfind("\n", 0, citation.char_start) + 1
+    line_end = source_text.find("\n", citation.char_end)
+    if line_end < 0:
+        line_end = len(source_text)
+    return source_text[line_start:line_end]
+
+
+def _maintenance_citation_bindings(
+    citation: CitationSpan,
+    source_text: str | None,
+) -> tuple[tuple[str, float], ...]:
+    """인용 수치가 속한 원문 행에서 명시적 상품·비율 결속을 찾는다."""
+
+    cited_percentages = set(_percent_values(citation.quote))
+    return tuple(
+        binding
+        for binding in _maintenance_row_bindings(
+            _citation_source_lines(citation, source_text)
+        )
+        if binding[1] in cited_percentages
+    )
 
 
 def _example_intervals(source_text: str) -> tuple[tuple[int, int], ...]:
@@ -441,7 +487,9 @@ def _native_backed_subspans(citation: CitationSpan) -> tuple[CitationSpan, ...]:
     candidates: list[CitationSpan] = [citation]
     line_ranges = _line_ranges(citation.quote)
 
-    # ratio·disposal은 해당 문맥과 수치 하나가 함께 있는 최소 행을 후보로 만든다.
+    # ratio는 유지비율 문맥부터, disposal은 해당 행 전체를 최소 인용 후보로 만든다.
+    # ratio 상품어가 문맥 시작점 앞에 있으면 _maintenance_citation_bindings가
+    # EvidenceSpan을 넓히지 않고 같은 원문 행에서 결속만 검증한다.
     for start, end in line_ranges:
         line = citation.quote[start:end]
         percentages = _percent_values(line)
@@ -522,6 +570,9 @@ def _role_citations(
             has_maintenance = bool(_MAINTENANCE_CONTEXT_PATTERN.search(quote))
             has_disposal = bool(_DISPOSAL_CONTEXT_PATTERN.search(quote))
             has_execution = bool(_EXECUTION_CONTEXT_PATTERN.search(quote))
+            maintenance_bindings = _maintenance_citation_bindings(
+                citation, source_text
+            )
 
             # ratio는 한 행 안의 단일 값으로 결속한다. execution은 서로 다른
             # 행의 threshold와 day_counting을 하나의 연속 조항 근거로 묶으므로
@@ -531,6 +582,7 @@ def _role_citations(
                 and not has_execution
                 and len(percentages) == 1
                 and len(maintenance_values) == 1
+                and len(maintenance_bindings) == 1
             ):
                 selected["ratio_rules"].append(citation)
                 eligible_roles[parent].append("ratio_rules")
@@ -544,6 +596,7 @@ def _role_citations(
                 has_maintenance
                 and has_execution
                 and len(_maintenance_row_values(quote)) == 1
+                and len(maintenance_bindings) == 1
             ):
                 selected["execution_schedule"].append(citation)
                 eligible_roles[parent].append("execution_schedule")
@@ -793,6 +846,7 @@ def _validate_evidence_provenance(
 def _validate_evidence_role_binding(
     card: ConditionCard,
     role_citations: Mapping[str, tuple[CitationSpan, ...]],
+    source_text: str | None = None,
 ) -> None:
     """수치와 citation을 모델이 다른 규칙 역할 사이에서 바꿔 끼우지 못하게 한다."""
 
@@ -804,9 +858,18 @@ def _validate_evidence_role_binding(
             raise IngestPipelineError(
                 "ratio_rules.product_type은 융자 또는 대주 상품을 특정해야 합니다"
             )
-        if (product_kind, expected_percent) not in _maintenance_row_bindings(
-            ratio_rule.evidence.quote
-        ):
+        evidence = ratio_rule.evidence
+        evidence_bindings = _maintenance_citation_bindings(
+            CitationSpan(
+                source_format=evidence.source_format,
+                char_start=evidence.char_start,
+                char_end=evidence.char_end,
+                flattened_sha256=evidence.flattened_sha256,
+                quote=evidence.quote,
+            ),
+            source_text,
+        )
+        if (product_kind, expected_percent) not in evidence_bindings:
             raise IngestPipelineError(
                 "ratio_rules의 상품 종류와 담보유지비율 evidence 행이 일치하지 않습니다"
             )
@@ -842,13 +905,29 @@ def _validate_evidence_role_binding(
                     raise IngestPipelineError(
                         "execution_schedule의 threshold_ratio가 담보유지비율 행과 일치하지 않습니다"
                     )
-                matching_products = {
-                    product_kind
-                    for product_kind, percent in _maintenance_row_bindings(
-                        evidence.quote
+                expected_bindings = tuple(
+                    binding
+                    for binding in _maintenance_citation_bindings(
+                        CitationSpan(
+                            source_format=evidence.source_format,
+                            char_start=evidence.char_start,
+                            char_end=evidence.char_end,
+                            flattened_sha256=evidence.flattened_sha256,
+                            quote=evidence.quote,
+                        ),
+                        source_text,
                     )
-                    if (product_kind, percent) in declared_ratio_bindings
-                    and percent == expected_percent
+                    if binding[1] == expected_percent
+                )
+                if len(expected_bindings) != 1:
+                    raise IngestPipelineError(
+                        "execution_schedule의 근거가 임계비율 상품 결속 하나를 특정해야 합니다"
+                    )
+                evidence_product_kind, _ = expected_bindings[0]
+                matching_products = {
+                    evidence_product_kind
+                    for binding in declared_ratio_bindings
+                    if binding == (evidence_product_kind, expected_percent)
                 }
                 if len(matching_products) != 1:
                     raise IngestPipelineError(
@@ -951,6 +1030,7 @@ def _reject_formula_contamination(card_data: Mapping[str, object]) -> None:
 def _validate_card(
     card_data: Mapping[str, object],
     role_citations: Mapping[str, tuple[CitationSpan, ...]],
+    source_text: str | None = None,
 ) -> ConditionCard:
     if card_data.get("status") != "draft":
         raise IngestPipelineError("인제스트 직후 status는 draft여야 합니다")
@@ -978,7 +1058,7 @@ def _validate_card(
         )
     )
     _validate_evidence_provenance(card, allowed_citations)
-    _validate_evidence_role_binding(card, role_citations)
+    _validate_evidence_role_binding(card, role_citations, source_text)
     return card
 
 
@@ -1150,7 +1230,9 @@ class TwoPassIngestService:
             evidence_spans = evidence_span_lengths(
                 normalized_card_data, role_citations
             )
-            card = _validate_card(normalized_card_data, role_citations)
+            card = _validate_card(
+                normalized_card_data, role_citations, flattened_text
+            )
         except IngestPipelineError as error:
             if error.timing is not None:
                 raise

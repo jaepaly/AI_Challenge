@@ -22,7 +22,10 @@ from app.two_pass import (
     _broker_from_filename,
     _example_intervals,
     _is_example_span,
+    _maintenance_citation_bindings,
+    _maintenance_row_bindings,
     _role_citations,
+    _structured_output_schema,
     _validate_evidence_role_binding,
     prompt_sha256,
 )
@@ -30,6 +33,7 @@ from app.two_pass import (
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 HANKOOK_TERMS = REPO_ROOT / "data/terms/한국투자_신용거래설명서_20260707.htm"
+EUGENE_TERMS = REPO_ROOT / "data/terms/유진_반대매매안내_수집20260805.html"
 ATTEMPT6_RESULT = (
     REPO_ROOT
     / "services"
@@ -205,6 +209,32 @@ class TwoPassIngestTest(unittest.TestCase):
             files={"file": (HANKOOK_TERMS.name, self.raw, "text/html")},
         )
         return response, fake
+
+    def _parsed_card_and_roles(self, card: dict[str, object]):
+        complete = copy.deepcopy(card)
+        complete.setdefault("broker", "테스트증권")
+        complete.setdefault("doc_version", {"content_sha256": "0" * 64})
+        parsed = ConditionCard.model_validate(complete)
+
+        def citation_for(rule) -> CitationSpan:
+            evidence = rule.evidence
+            return CitationSpan(
+                source_format=evidence.source_format,
+                char_start=evidence.char_start,
+                char_end=evidence.char_end,
+                flattened_sha256=evidence.flattened_sha256,
+                quote=evidence.quote,
+            )
+
+        return parsed, {
+            "ratio_rules": tuple(citation_for(rule) for rule in parsed.ratio_rules),
+            "disposal_price_rules": tuple(
+                citation_for(rule) for rule in parsed.disposal_price_rules
+            ),
+            "execution_schedule": tuple(
+                citation_for(rule) for rule in parsed.execution_schedule
+            ),
+        }
 
     def test_hankook_runs_two_passes_and_returns_valid_draft_card(self) -> None:
         response, fake = self._post()
@@ -638,6 +668,198 @@ class TwoPassIngestTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 422)
         self.assertIn("상품 종류", response.json()["detail"])
+
+    def test_eugene_narrow_citation_binds_product_from_source_row(self) -> None:
+        document = parse_document(EUGENE_TERMS)
+        text = document.units[0].text
+        quote = "담보유지비율이 일정비율(140%)미만으로 하락한 경우"
+        start = text.index(quote)
+        citation = CitationSpan(
+            source_format="html",
+            char_start=start,
+            char_end=start + len(quote),
+            flattened_sha256=document.flattened_sha256 or "",
+            quote=quote,
+        )
+
+        self.assertEqual(_maintenance_row_bindings(quote), ())
+        self.assertEqual(
+            _maintenance_citation_bindings(citation, text),
+            (("융자", 140.0),),
+        )
+        self.assertEqual(text[citation.char_start : citation.char_end], quote)
+
+        tampered = CitationSpan(
+            source_format="html",
+            char_start=start,
+            char_end=start + len(quote),
+            flattened_sha256=document.flattened_sha256 or "",
+            quote=quote.replace("140", "120"),
+        )
+        self.assertEqual(_maintenance_citation_bindings(tampered, text), ())
+
+    def test_eugene_actual_document_binds_loan_and_rejects_short_sale(self) -> None:
+        raw = EUGENE_TERMS.read_bytes()
+        document = parse_document(EUGENE_TERMS)
+        text = document.units[0].text
+        ratio_quote = "담보유지비율이 일정비율(140%)미만으로 하락한 경우"
+        execution_quote = (
+            "담보유지비율이 일정비율(140%)미만으로 하락한 경우에는 추가로 담보를 징구, "
+            "추가납부기한 익일 자동반대매매"
+        )
+        disposal_quote = "반대매매수량 계산시 기준가격은 하한가로 계산"
+
+        def citation(quote: str):
+            start = text.index(quote)
+            return SimpleNamespace(
+                type="char_location",
+                start_char_index=start,
+                end_char_index=start + len(quote),
+                cited_text=quote,
+                document_index=0,
+                document_title=EUGENE_TERMS.name,
+            )
+
+        pass1 = SimpleNamespace(
+            stop_reason="end_turn",
+            content=[
+                SimpleNamespace(
+                    type="text",
+                    text="유진 규칙 근거",
+                    citations=[
+                        citation(ratio_quote),
+                        citation(disposal_quote),
+                        citation(execution_quote),
+                    ],
+                )
+            ],
+            usage=_usage(3000, 300),
+        )
+
+        def evidence(quote: str) -> dict[str, object]:
+            start = text.index(quote)
+            return {
+                "source_format": "html",
+                "char_start": start,
+                "char_end": start + len(quote),
+                "flattened_sha256": document.flattened_sha256,
+                "quote": quote,
+            }
+
+        card = {
+            "ratio_rules": [
+                {
+                    "product_type": "신용융자",
+                    "collateral_type": "주식",
+                    "symbol_group": "전체",
+                    "ratio": 1.4,
+                    "evidence": evidence(ratio_quote),
+                }
+            ],
+            "account_aggregation": "max",
+            "disposal_price_rules": [
+                {
+                    "trigger": "담보부족 미해소",
+                    "symbol_group": "전체",
+                    "discount_basis": "lower_limit",
+                    "source_confidence": "explicit",
+                    "evidence": evidence(disposal_quote),
+                }
+            ],
+            "execution_schedule": [
+                {
+                    "threshold_ratio": 1.4,
+                    "day_counting": "추가납부기한 익일 자동반대매매",
+                    "evidence": evidence(execution_quote),
+                }
+            ],
+            "ratio_source": "website_notice",
+            "status": "draft",
+        }
+        def post(product_type: str):
+            candidate = copy.deepcopy(card)
+            candidate["ratio_rules"][0]["product_type"] = product_type
+            fake = FakeAnthropicClient(pass1, candidate)
+            app.dependency_overrides[get_ingest_service] = (
+                lambda: TwoPassIngestService(fake)
+            )
+            response = TestClient(app).post(
+                "/ingest",
+                files={"file": (EUGENE_TERMS.name, raw, "text/html")},
+            )
+            return response, fake
+
+        for product_type in ("신용융자", "융자"):
+            with self.subTest(product_type=product_type):
+                response, fake = post(product_type)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["broker"], "유진투자증권")
+                self.assertEqual(response.json()["status"], "draft")
+                self.assertNotIn(
+                    "evidence_product_binding",
+                    response.json()["ratio_rules"][0],
+                )
+                self.assertEqual(
+                    response.json()["doc_version"],
+                    {"content_sha256": sha256(raw).hexdigest()},
+                )
+                self.assertEqual(len(fake.messages.calls), 2)
+
+        for product_type in ("신용대주", "대주"):
+            with self.subTest(product_type=product_type):
+                response, fake = post(product_type)
+                self.assertEqual(response.status_code, 422)
+                self.assertIn("상품 종류", response.json()["detail"])
+                self.assertEqual(len(fake.messages.calls), 2)
+
+    def test_two_product_words_are_rejected_before_second_pass(self) -> None:
+        ambiguous_ratio = CitationSpan(
+            source_format="html",
+            char_start=473,
+            char_end=498,
+            flattened_sha256="0" * 64,
+            quote="담보유지비율 융자·대주 140%",
+        )
+        disposal = CitationSpan(
+            source_format="html",
+            char_start=700,
+            char_end=718,
+            flattened_sha256="0" * 64,
+            quote="반대매매 기준가격은 하한가로 계산",
+        )
+        execution = CitationSpan(
+            source_format="html",
+            char_start=800,
+            char_end=850,
+            flattened_sha256="0" * 64,
+            quote="담보유지비율 140% 미만이면 추가납부기한 익일 자동반대매매",
+        )
+
+        with self.assertRaisesRegex(IngestPipelineError, "ratio_rules"):
+            _role_citations((ambiguous_ratio, disposal, execution))
+
+    def test_rejects_two_product_words_even_with_one_ratio(self) -> None:
+        card = copy.deepcopy(self.card)
+        card["ratio_rules"][0]["evidence"] = {
+            "source_format": "html",
+            "char_start": 473,
+            "char_end": 495,
+            "flattened_sha256": self.document.flattened_sha256,
+            "quote": "담보유지비율 융자·대주 140%",
+        }
+        parsed, roles = self._parsed_card_and_roles(card)
+
+        with self.assertRaisesRegex(IngestPipelineError, "상품 종류"):
+            _validate_evidence_role_binding(parsed, roles)
+
+    def test_meritz_multi_axis_table_stays_fail_closed(self) -> None:
+        quote = (
+            "구분 담보유지비율"
+            "신용거래융자기본형∙투자형A∙B군 140% C∙D군 150%"
+            "신용거래대주A∙B군 120%"
+        )
+
+        self.assertEqual(_maintenance_row_bindings(quote), ())
 
     def test_rejects_execution_not_bound_to_declared_ratio_product(self) -> None:
         card = copy.deepcopy(self.card)
