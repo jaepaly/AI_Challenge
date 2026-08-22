@@ -19,3 +19,6 @@ coverage/
 *.log
 .DS_Store
 Thumbs.db
+
+# Anthropic Message Batch 제출 상태는 로컬 재수집용 운영 파일이다.
+services/ingest/benchmarks/results/raw_pdf_batch_submission.json

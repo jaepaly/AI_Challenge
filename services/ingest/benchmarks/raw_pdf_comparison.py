@@ -23,7 +23,7 @@ from benchmarks.path_comparison import PDF_TEXT_FACTS, _normalize_for_match
 
 
 DEFAULT_MODEL = "claude-sonnet-5"
-DEFAULT_MAX_TOKENS = 2048
+DEFAULT_MAX_TOKENS = 8192
 DEFAULT_INPUT_USD_PER_MTOK = 3.0
 DEFAULT_OUTPUT_USD_PER_MTOK = 15.0
 DEFAULT_KRW_PER_USD = 1500.0
@@ -78,20 +78,24 @@ def estimate_max_cost_krw(
     return round((input_usd + output_usd) * krw_per_usd, 2)
 
 
-def build_document_message(pdf_path: Path) -> list[dict[str, Any]]:
+def build_document_message(
+    pdf_path: Path, *, use_cache_control: bool = True
+) -> list[dict[str, Any]]:
     encoded = base64.standard_b64encode(pdf_path.read_bytes()).decode("ascii")
-    return [
-        {
-            "type": "document",
-            "source": {
-                "type": "base64",
-                "media_type": "application/pdf",
-                "data": encoded,
-            },
-            "title": pdf_path.name,
-            "citations": {"enabled": True},
-            "cache_control": {"type": "ephemeral"},
+    document: dict[str, Any] = {
+        "type": "document",
+        "source": {
+            "type": "base64",
+            "media_type": "application/pdf",
+            "data": encoded,
         },
+        "title": pdf_path.name,
+        "citations": {"enabled": True},
+    }
+    if use_cache_control:
+        document["cache_control"] = {"type": "ephemeral"}
+    return [
+        document,
         {"type": "text", "text": EXTRACTION_PROMPT},
     ]
 
@@ -106,7 +110,8 @@ def _to_mapping(value: Any) -> Mapping[str, Any]:
 
 def extract_page_citations(message: Any) -> list[dict[str, Any]]:
     citations: list[dict[str, Any]] = []
-    for block_value in getattr(message, "content", []):
+    content = message.get("content", []) if isinstance(message, Mapping) else getattr(message, "content", [])
+    for block_value in content:
         block = _to_mapping(block_value)
         if block.get("type") != "text":
             continue
@@ -127,7 +132,7 @@ def extract_page_citations(message: Any) -> list[dict[str, Any]]:
 
 
 def _usage_dict(message: Any) -> dict[str, int]:
-    usage_value = getattr(message, "usage", {})
+    usage_value = message.get("usage", {}) if isinstance(message, Mapping) else getattr(message, "usage", {})
     usage = _to_mapping(usage_value) if usage_value else {}
     keys = (
         "input_tokens",
@@ -136,6 +141,16 @@ def _usage_dict(message: Any) -> dict[str, int]:
         "output_tokens",
     )
     return {key: int(usage.get(key, 0) or 0) for key in keys}
+
+
+def _stop_reason(message: Any) -> str | None:
+    """Anthropic의 종료 사유를 결과 사료에 그대로 남긴다."""
+    value = (
+        message.get("stop_reason")
+        if isinstance(message, Mapping)
+        else getattr(message, "stop_reason", None)
+    )
+    return str(value) if value is not None else None
 
 
 def _score_document(filename: str, citations: list[dict[str, Any]]) -> dict[str, Any]:
@@ -187,6 +202,7 @@ def build_dry_run_plan(
         "network_requests": 0,
         "model": model,
         "max_tokens_per_document": max_tokens,
+        "thinking": "disabled",
         "cache_control": "ephemeral_5m",
         "prompt_sha256": sha256(EXTRACTION_PROMPT.encode("utf-8")).hexdigest(),
         "documents": documents,
@@ -224,7 +240,8 @@ def run_comparison(
         response = client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            temperature=0,
+            # Sonnet 5의 적응형 사고가 citation 출력 예산을 나눠 먹지 않게 고정한다.
+            thinking={"type": "disabled"},
             messages=[
                 {
                     "role": "user",
@@ -241,6 +258,8 @@ def run_comparison(
             (terms_dir / filename).read_bytes()
         ).hexdigest()
         usage = _usage_dict(response)
+        scored["stop_reason"] = _stop_reason(response)
+        scored["output_limit_reached"] = usage["output_tokens"] >= max_tokens
         scored["usage"] = usage
         document_results.append(scored)
         for key, value in usage.items():
@@ -254,11 +273,15 @@ def run_comparison(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model": model,
         "max_tokens_per_document": max_tokens,
+        "thinking": "disabled",
         "cache_control": "ephemeral_5m",
         "prompt_sha256": sha256(EXTRACTION_PROMPT.encode("utf-8")).hexdigest(),
         "approved_max_cost_krw": approved_max_krw,
         "estimated_max_cost_krw": estimated_max,
         "documents": document_results,
+        "saturated_document_count": sum(
+            bool(item["output_limit_reached"]) for item in document_results
+        ),
         "recovered": recovered,
         "total": total,
         "rate": recovered / total,
