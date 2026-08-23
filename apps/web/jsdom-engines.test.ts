@@ -92,6 +92,13 @@ describe("jsdom 은 CI 의 node 에서 설치된다", () => {
     expect(entries).toEqual(["node_modules/jsdom"]);
   });
 
+  /**
+   * ⚠ **이 검사는 메이저까지밖에 못 본다.** `ci.yml` 이 `node-version: 20` 이라
+   *   애초에 범위이고, setup-node 가 그 중 어느 20.x 를 받아올지는 실행 시점에
+   *   정해진다(오늘은 20.20.2). 그래서 `^20.19.0` 대 `20` 비교는 *"20 계열이
+   *   허용되는가"* 까지다 — **20.18 에서도 돈다는 뜻이 아니다.**
+   *   실제 로드는 바로 아래 import 검사가 본다.
+   */
   it("설치된 jsdom 의 engines 가 ci.yml 의 node 메이저를 전부 받아 준다", () => {
     const engines = readJson("node_modules", "jsdom", "package.json").engines as
       | { node?: string }
@@ -111,12 +118,36 @@ describe("jsdom 은 CI 의 node 에서 설치된다", () => {
     ).toEqual([]);
   });
 
-  it("지금 도는 node 도 그 engines 안에 있다", () => {
-    const engines = readJson("node_modules", "jsdom", "package.json").engines as { node: string };
-    const major = Number(process.version.replace(/^v/, "").split(".")[0]);
-    expect(
-      admitsMajor(engines.node, major),
-      `이 node(${process.version})는 jsdom engines "${engines.node}" 밖이다`,
-    ).toBe(true);
+  it("jsdom 이 이 node 에서 실제로 로드된다", async () => {
+    /**
+     * ⚠ **파싱이 아니라 실행으로 본다.** 원래 여기는 `admitsMajor(engines.node,
+     * process.version 의 메이저)` 였는데, A 가 자기 node 22.11.0 에서 잡았다 —
+     * 그 검사는 **통과하면서** 신선도 8건은 안 돌고 있었다::
+     *
+     *     jsdom-engines.test.ts        6 passed          ← 초록
+     *     landing-freshness.test.tsx   no tests, 1 error ← ERR_REQUIRE_ESM
+     *     (전체) 204 passed, Errors 1                    ← 212 가 아니다
+     *
+     * `^22.13.0` 은 `>=22.13.0 <23` 인데 메이저만 보면 22.11.0 을 받아 준다.
+     * `^20.19.0` 도 같아서 node 20.0~20.18 이면 통과하고 실행은 깨진다
+     * (`require(esm)` 이 20.19 에서 들어왔다). **가드가 막으려던 실패가 일어나는
+     * 중에 초록이었다** — 없는 것보다 나쁘다.
+     *
+     * import 한 줄이 engines·호이스팅·optional 건너뛰기·ESM/require 비호환을
+     * 한꺼번에 덮는다. 범위 문자열을 해석할 필요가 없다.
+     *
+     * 이 파일이 jsdom **환경**을 쓰지 않는다는 원칙은 그대로다 — 환경으로 쓰는 것과
+     * 모듈을 import 하는 것은 다르다. 환경으로 쓰면 로드 실패가 이 검사 자신을
+     * 죽여서 침묵한다.
+     */
+    /**
+     * ⚠ 지정자를 변수로 두는 이유는 **타입 때문이지 취향이 아니다.** 리터럴로 쓰면
+     *   `next build` 의 타입체크가 `@types/jsdom` 을 찾다가 TS7016 으로 넘어진다
+     *   (jsdom 은 타입을 동봉하지 않는다). 타입 선언 패키지를 하나 더 들이는 것보다,
+     *   **여기서 필요한 것이 타입이 아니라 로드 성공 여부**라는 것을 코드로 말하는
+     *   편이 맞다. 변수 지정자는 TS 가 해석을 포기하고 `any` 로 둔다.
+     */
+    const specifier = "jsdom";
+    await expect(import(/* @vite-ignore */ specifier)).resolves.toBeDefined();
   });
 });
