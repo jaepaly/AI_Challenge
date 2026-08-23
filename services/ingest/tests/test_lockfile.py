@@ -227,8 +227,12 @@ class LockfileTest(unittest.TestCase):
             bare,
             [],
             f"CI 가 선언 파일 밖에서 맨 패키지를 깐다: {bare}. 그 패키지에는 상한이 "
-            "없고, 상한 가드는 declaration 만 보므로 발화하지 않는다. "
-            "requirements 계열 파일에 적고 `-r` 로 깔아라.",
+            "없고, 상한 가드는 declaration 만 보므로 발화하지 않는다.\n"
+            "고치는 법: **런타임 의존이든 도구든** requirements 계열 파일에 버전 "
+            "범위와 함께 적고 `-r` 로 깔아라. 도구(uv·ruff 같은 것)도 예외가 아니다 "
+            "— 상류가 메이저를 올리면 도구도 똑같이 CI 를 깬다. 잡용 도구라 "
+            "requirements-dev.txt 에 넣기 어색하면 파일을 하나 더 만들고 "
+            "REQUIREMENT_FILES 에 추가해라(#71 리뷰, A).",
         )
         missing = [path.name for path in REQUIREMENT_FILES if path not in installed]
         self.assertEqual(
