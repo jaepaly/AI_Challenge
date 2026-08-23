@@ -79,3 +79,35 @@ jobs:
       # .gitattributes의 `-text`로 개행 정규화가 막혀 있어(#27) Linux 러너도
       # 같은 바이트를 받는다. 그 규칙이 풀리면 이 잡이 먼저 깨진다.
       - run: python -m pytest services/ingest -q
+
+  e2e:
+    name: E2E (브라우저)
+    runs-on: ubuntu-latest
+    # 다른 잡이 못 보는 것만 본다 — jsdom 은 브라우저가 아니다. 2026-08-23 #73
+    # 리뷰에서 A 가 짚었다: "브라우저 매트릭스·E2E·수동 점검 기록은 저장소 전체에
+    # 없다." 첨부2 §5 ③절이 브라우저 범위를 적어야 하는데 잰 것이 없었다.
+    #
+    # 신선도 판정의 입력이 **브라우저 시계**라(freshness-view.ts) 이 축은 진짜
+    # 브라우저에서만 잴 수 있다. page.clock 으로 심사 기간 날짜를 넣어, 카드가
+    # 만료된 날 화면이 수량 대신 사유를 내는지 본다.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # 브라우저는 캐시하지 않는다. 캐시 키가 어긋난 채로 맞았다고 믿는 것보다
+      # 매번 2분 받는 편이 싸다 — 이 잡이 지키는 것이 "진짜 브라우저"다.
+      - run: npx playwright install --with-deps chromium firefox
+        working-directory: apps/web
+      # webServer 가 next build && next start 를 돈다(playwright.config.ts).
+      # dev 서버로 재면 심사자가 보는 것과 다른 것을 재게 된다.
+      - run: npm run test:e2e
+        working-directory: apps/web
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-trace
+          path: apps/web/test-results/
+          retention-days: 7

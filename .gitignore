@@ -22,3 +22,10 @@ Thumbs.db
 
 # Anthropic Message Batch 제출 상태는 로컬 재수집용 운영 파일이다.
 services/ingest/benchmarks/results/raw_pdf_batch_submission.json
+
+# playwright E2E 산출물 — 실행할 때마다 생기고, 커밋 대상이 아니다.
+# trace.zip 은 실패 재현용이라 수 MB 씩 나온다.
+test-results/
+playwright-report/
+blob-report/
+.playwright/
