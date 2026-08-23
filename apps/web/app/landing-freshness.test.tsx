@@ -47,7 +47,7 @@ const BUILD: BuildInfo = {
   sha: "0".repeat(40),
   shortSha: "0000000",
   branch: "main",
-  source: "test",
+  source: "local",
 };
 
 /** 심사위원 시계는 KST다 — 그날 오전으로 잡는다(#56 readiness와 같은 기준). */
