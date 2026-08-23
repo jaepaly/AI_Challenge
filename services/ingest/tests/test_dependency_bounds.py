@@ -46,7 +46,15 @@ import unittest
 
 
 INGEST_ROOT = Path(__file__).resolve().parents[1]
-REQUIREMENTS = INGEST_ROOT / "requirements.txt"
+
+# 직접 의존을 선언하는 파일 전부. 규칙(하한=실측 / 상한=다음 메이저)은 두 파일에 똑같이 적용된다.
+# ⚠ dev 를 여기 넣지 않으면 `pytest` 가 무방비가 된다 — 실제로 그럴 뻔했다(D).
+#   규칙을 두 곳에 나눠 적는 대신 목록을 늘린다.
+REQUIREMENT_FILES = (
+    INGEST_ROOT / "requirements.txt",
+    INGEST_ROOT / "requirements-dev.txt",
+)
+REQUIREMENTS = REQUIREMENT_FILES[0]  # 기존 참조 호환
 
 UPPER_BOUND_OPERATORS = ("<", "<=", "==", "~=")
 
@@ -105,10 +113,19 @@ def _next_major(value: str) -> tuple[int, ...]:
 
 def _declarations() -> list[_Declared]:
     found: list[_Declared] = []
-    for line in REQUIREMENTS.read_text(encoding="utf-8").splitlines():
-        if not line.split("#", 1)[0].strip():
-            continue
-        found.append(_Declared(line))
+    for path in REQUIREMENT_FILES:
+        # ⚠ `exists()` 스킵을 넣지 마라. 이 PR 이 고친 것이 바로 '선언 파일이
+        #   가드 밖에 있는 상태'인데, 스킵은 같은 상태로 돌아가는 문이다 —
+        #   파일이 사라지면 조용히 목록만 줄고 전부 통과한다(#71 리뷰, A).
+        #   없으면 여기서 넘어지는 것이 맞다.
+        for line in path.read_text(encoding="utf-8").splitlines():
+            body = line.split("#", 1)[0].strip()
+            if not body:
+                continue
+            # `-r requirements.txt` 는 포함 지시어다 — 그 파일은 이미 위에서 읽는다.
+            if body.startswith("-"):
+                continue
+            found.append(_Declared(line))
     return found
 
 
