@@ -12,6 +12,10 @@
     "node": ">=20",
     "npm": "^10"
   },
+  "//devDependencies": "jsdom 은 apps/web 이 쓰는데 선언은 루트에도 둔다. 이유는 호이스팅이다 — vitest 가 루트 node_modules 로 올라가고, vitest 가 jsdom 을 resolve 하는 기준점이 자기 위치(루트)다. 루트를 비워 두면 npm 이 그 자리를 vitest 의 optional peer (`jsdom: \"*\"`)로 채우면서 **최신 메이저**를 깐다. 30.x 의 engines 는 node ^22.22.2 || ^24.15.0 || >=26.0.0 이고 optional 이라, node 20 에서 npm 이 경고 없이 건너뛴다 → 루트에 jsdom 이 아예 없고 jsdom 환경 테스트가 통째로 안 돈다 (2026-08-23 #72: CI 가 ERR_MODULE_NOT_FOUND 하나만 남기고 198 개만 셌다. apps/web 에 ^29 를 적어도 그건 apps/web/node_modules 에만 들어가서 소용없었다). 루트에 실제 의존으로 박으면 그 자리를 npm 이 건너뛸 수 없다. ci.yml 이 node 20 인 한 이 범위를 올리지 마라 — jsdom-engines.test.ts 가 그 순서를 지킨다.",
+  "devDependencies": {
+    "jsdom": "^29.1.1"
+  },
   "scripts": {
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
