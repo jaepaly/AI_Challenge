@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { disposalDiscountRate } from "@marginguard/engine";
 import { CARDS } from "./snapshot";
 import { freshnessView, todayISO } from "./freshness-view";
 
@@ -54,6 +55,33 @@ describe("신선도 게이트 — 화면 규약", () => {
     expect(v.mode).toBe("reference"); // 화면은 값을 낸다
     expect(v.banner).toContain("검수 전(draft)");
     expect(v.banner).not.toContain("경과");
+  });
+
+  /**
+   * 배너가 화면보다 많이 약속하면 안 된다.
+   *
+   * 원래 문구가 "정식 한계선 산출에 **사용하지 않습니다**"였는데 거짓이었다 —
+   * `quantOk`가 `mode !== "blocked"`라 draft는 통과하고, 하한가형 카드의
+   * h=0.3이 처분 수량을 만들어 같은 화면에 찍힌다. 팀원 외부 점검에서 발견됐다.
+   *
+   * 값을 내는 동작 자체는 #30에서 검토해 정한 것이라 그대로 둔다. 이 검사가 막는
+   * 것은 **동작과 어긋나는 문구가 다시 들어오는 것**이다. 근거 없는 안심을 주지
+   * 않는 것이 이 제품의 규율이고, 근거 없는 면책도 같은 종류다.
+   */
+  it("draft 배너가 '안 쓴다'고 말하지 않는다 — 실제로 그 카드로 계산한다", () => {
+    const v = freshnessView(lower, "2026-08-09");
+
+    // 이 카드는 실제로 수량 산출에 쓰인다 — h가 읽히고 blocked가 아니다
+    expect(v.mode).not.toBe("blocked");
+    expect(disposalDiscountRate(lower)).not.toBeNull();
+
+    // 그러므로 배너가 비사용을 주장하면 안 된다
+    expect(v.banner).not.toMatch(/사용하지\s*않/);
+    expect(v.banner).not.toMatch(/쓰지\s*않습니다/);
+
+    // 대신 값의 출처를 밝히고, 무엇이 아직 안 됐는지 말한다
+    expect(v.banner).toContain("이 카드로 산출");
+    expect(v.banner).toContain("대조");
   });
 
   it("blocked와 reference를 섞지 않는다 — 배너 문구가 사유를 구분한다", () => {
