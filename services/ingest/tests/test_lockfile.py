@@ -86,6 +86,53 @@ def _release(value: str) -> tuple[int, ...]:
     return tuple(parts) or (0,)
 
 
+def _ci_yaml() -> str:
+    return (INGEST_ROOT.parents[1] / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+
+def _expand_includes(path: Path, seen: set[Path]) -> None:
+    """`-r other.txt` 를 따라가며 실제로 읽히는 선언 파일을 모은다."""
+    path = path.resolve()
+    if path in seen or not path.exists():
+        return
+    seen.add(path)
+    for line in path.read_text(encoding="utf-8").splitlines():
+        body = line.split("#", 1)[0].strip()
+        match = re.match(r"^-r\s+(\S+)", body)
+        if match:
+            _expand_includes(path.parent / match.group(1), seen)
+
+
+def _ci_pip_install() -> tuple[set[Path], list[str]]:
+    """ci.yml 의 `pip install` 이 실제로 무엇을 읽고 무엇을 맨손으로 까는가.
+
+    돌려주는 것은 (읽히는 선언 파일 집합, 파일 밖에서 깔리는 맨 패키지 목록).
+    """
+    repo_root = INGEST_ROOT.parents[1]
+    read: set[Path] = set()
+    bare: list[str] = []
+    for line in _ci_yaml().splitlines():
+        body = line.split("#", 1)[0]
+        if "pip install" not in body:
+            continue
+        tokens = body.split("pip install", 1)[1].split()
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if token in ("-r", "--requirement"):
+                index += 1
+                if index < len(tokens):
+                    _expand_includes(repo_root / tokens[index], read)
+            elif token.startswith("-"):
+                pass  # 그 밖의 플래그(-U, --quiet …)
+            else:
+                bare.append(token)
+            index += 1
+    return read, bare
+
+
 class LockfileTest(unittest.TestCase):
     def test_lockfile_exists_and_records_how_it_was_made(self) -> None:
         """헤더가 없으면 다시 만드는 방법을 아무도 모른다."""
@@ -144,12 +191,51 @@ class LockfileTest(unittest.TestCase):
 
         CI 가 락으로 설치하기 시작하면 상류가 깨지는 것을 영영 모르게 된다.
         바꾸려면 이 검사를 함께 고치고 **왜 바꾸는지**를 적어야 한다.
+
+        ⚠ **텍스트 전체가 아니라 `pip install` 줄만 본다.** 파일 어딘가에
+        `requirements.lock.txt` 라는 글자가 있는 것은 문제가 아니다 — 왜 락을 안
+        쓰는지 주석으로 적어 두는 것이 오히려 맞다. 막아야 하는 것은 **설치**다.
         """
-        ci = (INGEST_ROOT.parents[1] / ".github" / "workflows" / "ci.yml").read_text(
-            encoding="utf-8"
+        installed, _ = _ci_pip_install()
+        self.assertIn(
+            INGEST_ROOT / "requirements-dev.txt",
+            {path.resolve() for path in installed},
+            "CI 가 requirements-dev.txt 로 깔지 않는다 — pytest 상한이 효력을 잃는다.",
         )
-        self.assertIn("pip install -r services/ingest/requirements.txt", ci)
-        self.assertNotIn("requirements.lock.txt", ci)
+        self.assertEqual(
+            [path.name for path in installed if path.name == LOCKFILE.name],
+            [],
+            "CI 가 락으로 설치한다. 그러면 상류가 깨지는 것을 영영 모른다 — "
+            "심사 기간 동결만 락으로 하고, 그 전후로는 범위 설치로 상류를 계속 본다.",
+        )
+
+    def test_ci_install_reads_every_declaration_file(self) -> None:
+        """선언에 상한을 걸어도 **CI 가 그 파일을 안 읽으면 효력이 없다.**
+
+        2026-08-23 에 실제로 그 상태였다(#71 리뷰, A)::
+
+            ci.yml   pip install -r services/ingest/requirements.txt pytest
+                                                                     ^^^^^^
+
+        `requirements-dev.txt` 의 `pytest>=9.1,<10` 이 **어느 설치 경로에도 적용되지
+        않았다.** 상한 가드도 발화하지 않는다 — 선언은 `<10` 이라 만족하고, 어긋난
+        것은 declaration 이 아니라 install 이기 때문이다. 지키는 것처럼 보이는 검사만
+        하나 늘어난 셈이라 오히려 더 나빴다.
+        """
+        installed, bare = _ci_pip_install()
+        self.assertEqual(
+            bare,
+            [],
+            f"CI 가 선언 파일 밖에서 맨 패키지를 깐다: {bare}. 그 패키지에는 상한이 "
+            "없고, 상한 가드는 declaration 만 보므로 발화하지 않는다. "
+            "requirements 계열 파일에 적고 `-r` 로 깔아라.",
+        )
+        missing = [path.name for path in REQUIREMENT_FILES if path not in installed]
+        self.assertEqual(
+            missing,
+            [],
+            f"CI 설치가 읽지 않는 선언 파일: {missing}. 여기 적힌 상한은 효력이 없다.",
+        )
 
 
 if __name__ == "__main__":

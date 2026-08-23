@@ -114,8 +114,10 @@ def _next_major(value: str) -> tuple[int, ...]:
 def _declarations() -> list[_Declared]:
     found: list[_Declared] = []
     for path in REQUIREMENT_FILES:
-        if not path.exists():
-            continue
+        # ⚠ `exists()` 스킵을 넣지 마라. 이 PR 이 고친 것이 바로 '선언 파일이
+        #   가드 밖에 있는 상태'인데, 스킵은 같은 상태로 돌아가는 문이다 —
+        #   파일이 사라지면 조용히 목록만 줄고 전부 통과한다(#71 리뷰, A).
+        #   없으면 여기서 넘어지는 것이 맞다.
         for line in path.read_text(encoding="utf-8").splitlines():
             body = line.split("#", 1)[0].strip()
             if not body:
