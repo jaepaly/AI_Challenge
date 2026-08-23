@@ -1,0 +1,8 @@
+# 테스트 실행에만 필요한 것 — 앱 런타임에는 안 들어간다.
+# requirements.lock.txt 의 입력이다. 락은 "우리가 검증한 환경"을 재현하는 것이므로
+# 테스트 도구도 함께 고정한다(테스트가 도는 것까지가 검증이다).
+#
+# 하한·상한 규칙은 requirements.txt 와 같다 — 하한은 실제로 돌려 본 버전,
+# 상한은 검증하지 않은 메이저를 막는 선. tests/test_dependency_bounds.py 참조.
+-r requirements.txt
+pytest>=9.1,<10
