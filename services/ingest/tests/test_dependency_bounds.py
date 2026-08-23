@@ -203,6 +203,32 @@ class DependencyBoundsTest(unittest.TestCase):
         self.assertIn("#", line, "anthropic 상한의 사유 주석이 사라졌다")
         self.assertIn("httpx2", line, "무엇 때문에 묶었는지가 주석에 남아 있어야 한다")
 
+    def test_pypdf_stays_pinned_exactly(self) -> None:
+        """근거 좌표 전체가 이 추출기 출력에 묶여 있다 — 범위로 두면 안 된다.
+
+        2026-08-23 에 실제로 깨졌다. `pypdf>=6.16,<7` 인 상태에서 6.16.2 가 나왔고,
+        우리 코드 0줄 변경으로 main 이 빨간불이 됐다(#61 과 같은 모양)::
+
+            pypdf 6.16.1   메리츠 34,224자  키움 20,799자    ← 좌표를 기록한 추출
+            pypdf 6.16.2   메리츠 35,420자  키움 21,687자    ← 미래에셋·삼성·신한은 동일
+
+        내용이 아니라 **띄어쓰기·결합**이 달라져서 인용문 전체가 부분일치에 실패한다
+        ('A∙B군 140%' 자체는 6.16.2 에도 그대로 1회 있다). 그래서 *"6.16.2 가 더 낫다"*
+        가 참이더라도 **좌표 아홉 개를 다시 기록·검수하기 전에는 올릴 수 없다.**
+
+        축 A(상한 있음)만으로는 이걸 못 막는다. `<7` 은 6.16.2 를 허용한다.
+        """
+        pypdf = next((d for d in _declarations() if d.name == "pypdf"), None)
+        self.assertIsNotNone(pypdf, "pypdf 선언이 사라졌다")
+        assert pypdf is not None  # 타입 좁히기
+        self.assertEqual(
+            pypdf.specs,
+            [("==", "6.16.1")],
+            "pypdf 는 범위가 아니라 정확 고정이어야 한다. 근거 좌표(flattened_sha256, "
+            "char_start/char_end)가 추출기 출력의 함수라, 패치 릴리스 하나가 좌표 "
+            "아홉 개를 동시에 무효로 만든다(2026-08-23 6.16.2).",
+        )
+
     def test_exemptions_only_hold_dependencies_we_declare(self) -> None:
         """쓰지 않는 예외가 쌓이면 이 검사가 무엇을 지키는지 흐려진다."""
         declared = {d.name for d in _declarations()}
