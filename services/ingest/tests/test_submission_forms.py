@@ -31,6 +31,9 @@ HWPML_PARAGRAPH = "http://www.hancom.co.kr/hwpml/2011/paragraph"
 PLAN_FORM = "(첨부1) 2026 금융 AI Challenge 공모전 기획서.hwpx"
 SPEC_FORM = "(첨부2) 2026 금융 AI Challenge 기능명세서.hwpx"
 
+# 우리가 쓰는 초안. 양식이 바뀌면 초안도 함께 깨져야 한다.
+PLAN_DRAFT = "submission/attachment1-plan.md"
+
 # 첨부1 — 1~6 필수(*), 7 자유
 PLAN_SECTIONS = [
     "1. 서비스 명칭*",
@@ -129,6 +132,71 @@ class SubmissionFormTest(unittest.TestCase):
         lines = _paragraphs(SPEC_FORM)
         self.assertTrue(any("배포 URL 접속 후" in line for line in lines))
         self.assertTrue(any("배포 URL에서" in line for line in lines))
+
+
+class PlanDraftCoversTheFormTest(unittest.TestCase):
+    """초안이 양식의 절을 실제로 덮는가.
+
+    양식 구조 검사(`test_plan_form_sections_match_what_we_recorded`)는 **주최측이
+    바꿨는지**를 본다. 이 검사는 그 다음이다 — **우리가 그 구조대로 썼는지.**
+    둘을 갈라 두는 이유는 실패 원인이 다르기 때문이다: 앞은 양식이 갱신된 것이고,
+    뒤는 우리가 절을 빠뜨린 것이다.
+
+    ⚠ 내용의 질은 못 본다. **빠진 절이 없는지**만 본다 — 작년 유일한 부적격 사유가
+      "양식 미작성"이었고, 그건 기계가 지킬 수 있는 종류다.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.path = REPO_ROOT / PLAN_DRAFT
+        cls.text = cls.path.read_text(encoding="utf-8") if cls.path.exists() else ""
+
+    def test_the_draft_exists(self) -> None:
+        self.assertTrue(
+            self.path.exists(),
+            f"{PLAN_DRAFT} 이 없다. 첨부1은 1~6 이 전부 필수라 초안 없이는 제출할 수 없다.",
+        )
+
+    def test_every_required_section_appears_verbatim(self) -> None:
+        """필수 절(`*`)은 **양식의 제목 그대로** 있어야 한다.
+
+        제목을 바꿔 적으면 심사자가 절을 못 찾는다. 작년 부적격 사유가 그 종류다.
+        """
+        required = [s for s in PLAN_SECTIONS if s.endswith("*")]
+        self.assertEqual(len(required), 6, "첨부1 필수 절은 6개다")
+        missing = [s for s in required if s.rstrip("*") not in self.text]
+        self.assertEqual(
+            missing,
+            [],
+            f"초안이 덮지 않은 필수 절: {missing}. 양식이 갱신됐다면 초안도 함께 고쳐라.",
+        )
+
+    def test_the_free_section_exists_but_its_title_is_ours(self) -> None:
+        """7절은 양식이 `(자유타이틀 기재)` 라 제목을 우리가 정한다.
+
+        그래서 제목 정확일치로 보면 안 된다 — 번호만 본다. 비워 두는 것도 양식상
+        가능하지만, 우리는 한계를 적는 자리로 쓰기로 했다(§7).
+        """
+        free = [s for s in PLAN_SECTIONS if not s.endswith("*")]
+        self.assertEqual(free, ["7. (자유타이틀 기재)"], "자유 절 구조가 바뀌었다")
+        self.assertIn(
+            "## 7.",
+            self.text,
+            "7절이 초안에 없다. 비워 둘 거라면 이 검사를 지우고 왜인지 적어라.",
+        )
+
+    def test_the_draft_does_not_claim_the_upload_route_works(self) -> None:
+        """배포본에 없는 기능을 제출물이 있다고 말하지 않는지 본다.
+
+        2026-08-23 실측으로 `POST /api/ingest` 는 404 다(README §8). 인제스트
+        파이프라인은 저장소 안에서 돌지만 어디에도 배포돼 있지 않다. 이 구분이
+        흐려지면 심사자가 배포본을 열어 대조할 때 어긋난다.
+        """
+        self.assertIn(
+            "배포돼 있지 않다",
+            self.text,
+            "초안이 인제스트 미배포 사실을 적지 않는다 — §7 한계 목록을 확인하라.",
+        )
 
 
 if __name__ == "__main__":
