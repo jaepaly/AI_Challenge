@@ -150,3 +150,105 @@ jobs:
             exit 1
           fi
           echo "### 배포 확인 — \`${GITHUB_SHA:0:7}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 인제스트(FastAPI) ──────────────────────────────────────────────
+  #
+  # 웹과 **같은 경로**로 간다 — CLI + 토큰. 이유는 이 파일 머리글 그대로다.
+  # Git 연동을 쓰면 ⚠ 이중 배포가 되고, 비공개 저장소의 커밋 작성자 검사에 다시 걸린다.
+  #
+  # ⚠ **Vercel 대시보드의 "Add New → Project" 를 쓰지 마라.** 그 흐름은 GitHub import
+  #   를 요구하고, 저장소 소유자가 아닌 팀원에게는 *"내 계정에 새 repo 를 만들까요"* 로
+  #   빠진다(2026-08-24 C 가 실제로 그 화면에서 멈췄다). 우리는 애초에 import 를
+  #   쓰지 않으므로 그 화면에 갈 일이 없다. 프로젝트는 CLI 로 만든다 — 아래 참조.
+  #
+  # ## 최초 1회 (로컬에서, 토큰 가진 사람이)
+  #
+  #     cd services/ingest
+  #     npx vercel@latest link --yes --project marginguard-ingest   #         --token=$VERCEL_TOKEN --scope=<팀 슬러그>
+  #     npx vercel@latest deploy --token=$VERCEL_TOKEN     # 첫 배포로 프로젝트가 생긴다
+  #     cat .vercel/project.json                          # projectId 를 아래 Secret 에
+  #
+  #   `services/ingest` **안에서** 링크하는 것이 중요하다. 그래야 Vercel 이 이 디렉터리를
+  #   프로젝트 루트로 잡고, 대시보드의 Root Directory 설정에 기대지 않아도 된다 —
+  #   아래 job 도 같은 디렉터리에서 CLI 를 돌린다. 두 곳이 어긋날 자리를 안 만든다.
+  #
+  # ## 추가 Secret 1개
+  #
+  #     VERCEL_INGEST_PROJECT_ID   services/ingest/.vercel/project.json 의 projectId
+  #
+  #   없으면 조용히 건너뛴다. 웹 배포는 영향을 받지 않는다.
+  deploy-ingest:
+    name: Vercel 배포 (인제스트)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_INGEST_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Secret 유무 판정
+        id: pre
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "### 인제스트 배포 건너뜀 — VERCEL_INGEST_PROJECT_ID 미설정" >> "$GITHUB_STEP_SUMMARY"
+            echo "업로드 기능은 붙기 전까지 503 + 대안 문장으로 동작합니다(의도된 상태)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.pre.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.pre.outputs.ready == 'true'
+        with:
+          node-version: 20
+
+      - name: Vercel CLI 설치
+        if: steps.pre.outputs.ready == 'true'
+        run: npm i -g vercel@latest
+
+      # ⚠ working-directory 가 이 잡의 규약이다. 최초 링크도 같은 디렉터리에서 한다.
+      #   repo 루트에서 돌리면 Vercel 프로젝트의 Root Directory 설정에 의존하게 되고,
+      #   그 설정은 저장소에 없어서 어긋나도 아무도 모른다.
+      - name: 프로덕션 배포
+        if: steps.pre.outputs.ready == 'true' && github.ref == 'refs/heads/main'
+        working-directory: services/ingest
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+      - name: 프리뷰 배포
+        if: steps.pre.outputs.ready == 'true' && github.ref != 'refs/heads/main'
+        working-directory: services/ingest
+        run: |
+          vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
+          vercel build --token="$VERCEL_TOKEN"
+          URL=$(vercel deploy --prebuilt --token="$VERCEL_TOKEN")
+          echo "### 인제스트 프리뷰" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
+
+      # 배포됐다고 도는 것이 아니다. `/health` 는 키가 없어도 200 이어야 한다 —
+      # 키 검사는 `POST /ingest` 가 처음 불릴 때 일어난다(main.py:151).
+      # 여기서 200 이 아니면 함수가 아예 안 뜬 것이다(의존성·진입점·시간 한도).
+      - name: 살아 있는지 확인
+        if: steps.pre.outputs.ready == 'true' && github.ref == 'refs/heads/main'
+        working-directory: services/ingest
+        run: |
+          sleep 10
+          URL=$(vercel inspect --token="$VERCEL_TOKEN" 2>/dev/null | grep -oE 'https://[^ ]+\.vercel\.app' | head -1)
+          if [ -z "$URL" ]; then
+            echo "::notice::배포 URL 을 못 읽었다 — 수동 확인 필요"
+            exit 0
+          fi
+          CODE=$(curl -s -o /tmp/h.json -w '%{http_code}' "$URL/health" || echo 000)
+          echo "인제스트 $URL/health → $CODE"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::인제스트 /health 가 $CODE 다. 함수가 안 떴을 수 있다."
+            exit 1
+          fi
+          echo "### 인제스트 배포 확인 — \`${GITHUB_SHA:0:7}\`" >> "$GITHUB_STEP_SUMMARY"

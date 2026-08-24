@@ -21,7 +21,32 @@ from .schemas import CharacterEvidenceSpan, ConditionCard
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SCHEMA_PATH = REPO_ROOT / "schemas" / "condition_card.schema.json"
+
+#: 정본. 세 미러(`types.ts` / 이 파일 / `schemas.py`) 중 하나이고 저장소 루트에 있다.
+CANONICAL_SCHEMA_PATH = REPO_ROOT / "schemas" / "condition_card.schema.json"
+
+#: 배포 번들용 사본. **정본이 아니다.**
+#:
+#: 배포 루트가 `services/ingest` 라 번들에 저장소 루트가 들어오지 않는다 — 그러면
+#: `CANONICAL_SCHEMA_PATH` 가 런타임에 없고, 4중 방어 ②(JSON Schema 검증)가
+#: **프로덕션에서만** 터진다. 로컬·CI 에서는 루트가 있어 끝까지 안 보이는 종류다.
+#:
+#: 두 파일이 갈라지면 `test_bundled_schema_matches_canonical` 이 먼저 넘어진다.
+#: 사본을 손으로 고치지 마라 — 정본을 고치고 `scripts/sync_bundled_schema.py` 를 돌려라.
+BUNDLED_SCHEMA_PATH = Path(__file__).resolve().parent / "_bundled" / "condition_card.schema.json"
+
+
+def schema_path() -> Path:
+    """정본이 보이면 정본, 안 보이면(배포 번들) 사본.
+
+    순서가 중요하다 — 개발·CI 에서는 **항상 정본**을 읽어야 사본이 낡은 것을
+    검사가 잡을 수 있다. 사본을 먼저 읽으면 정본을 고쳐도 아무 일도 안 일어난다.
+    """
+    return CANONICAL_SCHEMA_PATH if CANONICAL_SCHEMA_PATH.exists() else BUNDLED_SCHEMA_PATH
+
+
+#: 기존 참조 호환 — 모듈 로드 시점에 고정하지 않는다(배포 번들에서 경로가 갈린다).
+SCHEMA_PATH = CANONICAL_SCHEMA_PATH
 DEFAULT_MODEL = "claude-sonnet-5"
 PASS1_MAX_TOKENS = 4096
 PASS2_MAX_TOKENS = 8192
@@ -1036,7 +1061,7 @@ def _validate_card(
         raise IngestPipelineError("인제스트 직후 status는 draft여야 합니다")
     _reject_formula_contamination(card_data)
 
-    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema = json.loads(schema_path().read_text(encoding="utf-8"))
     errors = sorted(
         Draft7Validator(schema).iter_errors(card_data),
         key=lambda error: tuple(str(part) for part in error.path),
