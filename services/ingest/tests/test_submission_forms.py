@@ -18,6 +18,8 @@ hwpx 는 XML 을 담은 zip 이고 본문은 `Contents/section0.xml` 의 `<hp:t>
 from __future__ import annotations
 
 from pathlib import Path
+import re
+import subprocess
 import unittest
 import xml.etree.ElementTree as ET
 import zipfile
@@ -183,6 +185,53 @@ class PlanDraftCoversTheFormTest(unittest.TestCase):
             "## 7.",
             self.text,
             "7절이 초안에 없다. 비워 둘 거라면 이 검사를 지우고 왜인지 적어라.",
+        )
+
+    def test_references_to_the_draft_point_at_sections_that_exist(self) -> None:
+        """저장소가 이 초안의 절을 가리킬 때, **그 절이 실제로 있어야 한다.**
+
+        2026-08-24 까지 두 곳이 존재하지 않는 문서를 절 번호로 참조하고 있었다::
+
+            apps/landing-proto/README.md   "기획서 4-2 표시 순서 규약"
+            data/terms/README.md           "기획서 §3-3과 같은 함정"
+
+        `README:6` 이 *"팀 공유 폴더가 정본"* 이라 적어 두었는데 **그 폴더가 없었다.**
+        가리키는 곳이 없는 참조는 다음 사람을 같은 자리로 보낸다. 이제 참조가 실재하는
+        파일을 가리키므로, **번호까지 실재하는지**를 여기서 지킨다.
+
+        절을 지우거나 번호를 바꾸면 참조가 먼저 빨간불이 된다 — 그게 의도다.
+        """
+        listing = subprocess.run(
+            ["git", "-c", "core.quotepath=false", "ls-files", "--cached", "--others",
+             "--exclude-standard"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout
+        anchors = set(re.findall(r"^### (\d+-\d+)\.", self.text, re.MULTILINE))
+        self.assertGreater(len(anchors), 5, f"초안에서 절 앵커를 {len(anchors)}개만 찾았다")
+
+        dangling: list[str] = []
+        for rel in listing.splitlines():
+            if not rel or rel == PLAN_DRAFT:
+                continue
+            try:
+                lines = (REPO_ROOT / rel).read_text(encoding="utf-8").splitlines()
+            except (UnicodeDecodeError, OSError):
+                continue
+            for lineno, line in enumerate(lines, start=1):
+                if "attachment1-plan.md" not in line:
+                    continue
+                for section in re.findall(r"§\s*(\d+-\d+)", line):
+                    if section not in anchors:
+                        dangling.append(f"{rel}:{lineno} → §{section}")
+        self.assertEqual(
+            dangling,
+            [],
+            "초안에 없는 절을 가리키는 참조:\n  " + "\n  ".join(dangling) +
+            f"\n초안에 있는 절: {sorted(anchors)}",
         )
 
     def test_the_draft_does_not_claim_the_upload_route_works(self) -> None:
