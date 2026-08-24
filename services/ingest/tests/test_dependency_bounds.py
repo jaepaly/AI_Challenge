@@ -111,6 +111,49 @@ def _next_major(value: str) -> tuple[int, ...]:
     return (major + 1,) if major > 0 else (1,)
 
 
+def _pad(left: tuple[int, ...], right: tuple[int, ...]) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """(6, 16) 과 (6, 16, 1) 을 자리수 맞춰 비교 가능하게 만든다."""
+    width = max(len(left), len(right))
+    return left + (0,) * (width - len(left)), right + (0,) * (width - len(right))
+
+
+def _unsatisfied(installed: str, specs: list[tuple[str, str]]) -> list[str]:
+    """설치본이 **만족하지 못하는** 절만 돌려준다.
+
+    ⚠ 모르는 연산자는 **위반으로 친다.** 해석 못 한 절을 통과시키면 이 검사가
+      조용해지는데, 이 파일이 존재하는 이유가 바로 조용한 통과다.
+    """
+    got = _release(installed)
+    bad: list[str] = []
+    for operator, value in specs:
+        want = _release(value)
+        left, right = _pad(got, want)
+        if operator == "==":
+            ok = left == right
+        elif operator == "!=":
+            ok = left != right
+        elif operator == ">=":
+            ok = left >= right
+        elif operator == "<=":
+            ok = left <= right
+        elif operator == ">":
+            ok = left > right
+        elif operator == "<":
+            ok = left < right
+        elif operator == "~=":
+            # PEP 440: `~=6.16.1` 은 `>=6.16.1, ==6.16.*`, `~=6.16` 은 `>=6.16, ==6.*`.
+            # 즉 마지막 자리를 떼고 그 위를 천장으로 삼는다.
+            head = want[:-1]
+            ceiling = (head[:-1] + (head[-1] + 1,)) if head else _next_major(value)
+            over, top = _pad(got, ceiling)
+            ok = left >= right and over < top
+        else:
+            ok = False
+        if not ok:
+            bad.append(f"{operator}{value}")
+    return bad
+
+
 def _declarations() -> list[_Declared]:
     found: list[_Declared] = []
     for path in REQUIREMENT_FILES:
@@ -171,29 +214,49 @@ class DependencyBoundsTest(unittest.TestCase):
                 )
         self.assertEqual(too_loose, {}, f"상한이 다음 메이저를 넘는다: {too_loose}")
 
-    def test_declared_floor_matches_the_installed_major(self) -> None:
-        """축 B — 검증한 적 없는 메이저를 선언에 남겨 두지 않는다.
+    def test_the_installed_version_satisfies_the_declaration(self) -> None:
+        """축 B — 선언이 참인지 **설치본으로** 확인한다.
 
-        `pypdf>=4.3`인데 실제로는 6.x만 돌려 본 상태가 이 검사가 잡는 것이다.
+        `pypdf>=4.3`인데 실제로는 6.x만 돌려 본 상태가 이 검사가 잡던 것이다.
+        그런데 **메이저만 보고 있었다.** 2026-08-24에 그 대가를 실측했다(#76 리뷰)::
+
+            fastapi        >=0.141,<1   설치 0.137.1     ✗
+            uvicorn        >=0.52,<1    설치 0.49.0      ✗
+            pypdf          ==6.16.1     설치 6.8.0       ✗
+            anthropic      >=0.125,<1   설치 0.122.0     ✗
+            jsonschema     >=4.26,<5    설치 4.25.1      ✗
+            python-dotenv  >=1.2,<2     설치 1.0.0       ✗
+
+        **열 중 여섯이 선언을 어긴 채 162건 전부 초록이었다**(그 환경에서 실측). 어긋남이 전부 같은
+        메이저 안이라 옛 축 B가 하나도 못 잡았다. 그래서 `pypdf` 사고(6.16.1 →
+        6.16.2)가 **CI에서만** 보였다 — 두 사람의 로컬은 6.8.0과 6.14.2였고,
+        그 두 버전이 6.16.1과 같은 해시를 내서 아무 신호도 없었다.
+
+        ⚠ **이 검사는 "선언이 옳은가"가 아니라 "지금 재는 환경이 선언대로인가"를
+          본다.** 둘은 다르다. 초록인 테스트가 무엇을 근거로 초록인지 말할 수
+          있으려면 뒤쪽이 먼저 참이어야 한다.
+
+        ⚠ 설치 안 된 패키지는 건너뛴다 — 그건 다른 검사가 볼 일이고, 여기서
+          넘어지면 부분 설치 환경에서 이 검사가 무엇을 말하는지 흐려진다.
         """
         mismatched: dict[str, str] = {}
         for declared in _declarations():
-            if declared.floor is None:
+            if not declared.specs:
                 continue
             try:
                 actual = installed_version(declared.name)
             except PackageNotFoundError:  # 설치 안 된 환경은 다른 검사가 잡는다
                 continue
-            if _major(declared.floor) != _major(actual):
-                mismatched[declared.name] = (
-                    f"선언 하한 {declared.floor}(메이저 {_major(declared.floor)}) / "
-                    f"설치본 {actual}(메이저 {_major(actual)})"
-                )
+            unsatisfied = _unsatisfied(actual, declared.specs)
+            if unsatisfied:
+                mismatched[declared.name] = f"설치본 {actual} 이 {', '.join(unsatisfied)} 를 만족하지 않는다"
         self.assertEqual(
             mismatched,
             {},
-            "선언 하한이 실제 설치본과 다른 메이저다. 돌려 본 적 없는 메이저를 "
-            f"호환된다고 주장하는 것이다: {mismatched}",
+            "설치본이 선언을 만족하지 않는다. **지금 이 초록은 선언한 환경에서 난 것이 "
+            "아니다** — 상류가 그 범위 안에서 바뀌어도 여기서는 안 보인다. "
+            f"{mismatched} — 고치는 법: "
+            "pip install -r services/ingest/requirements-dev.txt (런타임까지 함께 끌어온다)",
         )
 
     def test_anthropic_major_stays_bounded(self) -> None:
