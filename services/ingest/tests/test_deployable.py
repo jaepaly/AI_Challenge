@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -255,6 +256,87 @@ class DeployWorkflowTest(unittest.TestCase):
         web, ingest = "\n".join(lines[:split]), "\n".join(lines[split:])
         self.assertIn("secrets.VERCEL_PROJECT_ID", web)
         self.assertNotIn("secrets.VERCEL_PROJECT_ID }}", ingest.replace("VERCEL_INGEST_PROJECT_ID", ""))
+
+
+class WorkflowTimeoutTest(unittest.TestCase):
+    """**모든 잡에 `timeout-minutes` 가 있어야 한다.**
+
+    2026-08-24, 이게 없어서 CI 전체가 멈췄다. `vercel` CLI 가 완료되지 않는 배포를
+    기다렸고(Vercel Git 연동 때문에 Blocked 였다), 잡은 GitHub 기본값 **6시간**까지
+    매달렸다. PR 마다 하나씩 생겨 하루에 8건이 300분 넘게 돌았다 — 합계 2,954분::
+
+        02:43  배포  360.4분      02:58  배포  360.3분  ×2
+        03:34  배포  464.8분      04:05  배포  360.3분
+        04:19  배포  360.4분      …
+
+    private 저장소 무료 한도가 월 2,000분이다. 소진되자 잡이 아예 안 떴다::
+
+        The job was not started because recent account payments have failed
+        or your spending limit needs to be increased.
+
+    ⚠ **근본 원인은 매달린 것이지 타임아웃이 없는 것이 아니다.** 그건 Vercel 쪽에서
+      고친다(Git 연동 해제). 타임아웃은 **같은 일이 또 나도 6시간이 아니라 20분에서
+      끊기게** 하는 것이다 — 원인을 못 없앤 채로 심사 기간에 들어가지 않기 위해서다.
+    """
+
+    #: 잡별 상한(분). 넉넉하되 유한해야 한다 — 정상이면 전부 5분 안쪽이다.
+    MAX_MINUTES = 60
+
+    def _jobs(self, path: Path) -> dict[str, str]:
+        """워크플로 YAML 에서 잡 이름 → 그 잡의 블록 텍스트.
+
+        pyyaml 을 쓰지 않는다 — 선언 안 된 전이 의존이다(`test_dependency_bounds`
+        가 지키는 규약). 잡 키는 `jobs:` 아래 2칸 들여쓰기라 그것으로 자른다.
+        """
+        text = path.read_text(encoding="utf-8")
+        body = text[text.index("\njobs:") :]
+        starts = [m for m in re.finditer(r"^  ([A-Za-z][\w-]*):\s*$", body, re.MULTILINE)]
+        blocks: dict[str, str] = {}
+        for index, match in enumerate(starts):
+            end = starts[index + 1].start() if index + 1 < len(starts) else len(body)
+            blocks[match.group(1)] = body[match.start() : end]
+        return blocks
+
+    def test_every_job_has_a_timeout(self) -> None:
+        missing: list[str] = []
+        for path in (CI_YML, REPO_ROOT / ".github" / "workflows" / "deploy.yml"):
+            jobs = self._jobs(path)
+            self.assertGreater(len(jobs), 0, f"{path.name} 에서 잡을 하나도 못 읽었다")
+            for name, block in jobs.items():
+                if "timeout-minutes:" not in block:
+                    missing.append(f"{path.name}:{name}")
+        self.assertEqual(
+            missing,
+            [],
+            "timeout-minutes 가 없는 잡: " + ", ".join(missing) + "\n"
+            "없으면 GitHub 기본값 6시간이다. 매달린 잡 하나가 무료 한도를 통째로 태운다.",
+        )
+
+    def test_timeouts_are_bounded(self) -> None:
+        """`timeout-minutes: 360` 같은 값은 타임아웃이 아니다."""
+        too_long: dict[str, int] = {}
+        for path in (CI_YML, REPO_ROOT / ".github" / "workflows" / "deploy.yml"):
+            for name, block in self._jobs(path).items():
+                for value in re.findall(r"timeout-minutes:\s*(\d+)", block):
+                    if int(value) > self.MAX_MINUTES:
+                        too_long[f"{path.name}:{name}"] = int(value)
+        self.assertEqual(too_long, {}, f"상한이 너무 길다(>{self.MAX_MINUTES}분): {too_long}")
+
+    def test_deploy_does_not_run_on_every_pull_request(self) -> None:
+        """PR 마다 프리뷰 배포를 돌리지 않는다 — 사고의 전량이 거기서 나왔다.
+
+        프리뷰 URL 은 쓰지 않는다(`INGEST_BASE_URL` 은 프로덕션만, 프리뷰는 Deployment
+        Protection 으로 SSO 에 막힌다). PR 의 빌드 검증은 `ci.yml` 이 한다.
+        손으로 돌려야 하면 `workflow_dispatch` 가 있다.
+        """
+        text = (REPO_ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+        trigger = text[text.index("\non:") : text.index("\nconcurrency:")]
+        self.assertNotIn(
+            "\n  pull_request:",
+            trigger,
+            "deploy.yml 이 모든 PR 에서 돈다. 프리뷰 배포가 매달리면 그 수만큼 분이 탄다.",
+        )
+        self.assertIn("workflow_dispatch:", trigger, "손으로 돌릴 길은 남겨 둔다")
 
 
 class BuilderInputsTest(unittest.TestCase):

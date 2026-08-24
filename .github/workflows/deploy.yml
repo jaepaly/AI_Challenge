@@ -19,10 +19,26 @@
 ##   전환 순서: 이 워크플로로 배포 1회 성공 확인 → Git 연동 해제 → 그다음 Pro 해지.
 name: 배포
 
+## 🔴 **`pull_request` 를 뺐다 — 2026-08-24 사고의 전량이 거기서 나왔다.**
+##
+##   PR 마다 프리뷰 배포가 돌았는데, Vercel Git 연동 때문에 배포가 Blocked 라
+##   `vercel` CLI 가 **오지 않을 완료를 무한정 기다렸다.** 잡에 timeout-minutes 가
+##   없어 기본 6시간까지 매달렸고, 하루에 8건이 300분 넘게 돌아 합계 2,954분을
+##   태웠다. GitHub Actions 무료 한도(private 월 2,000분)가 소진돼 **CI 전체가
+##   멈췄다**::
+##
+##       The job was not started because recent account payments have failed
+##       or your spending limit needs to be increased.
+##
+##   ⚠ **프리뷰 URL 을 우리는 쓰지 않는다.** `INGEST_BASE_URL` 도 프로덕션만 쓰고,
+##     프리뷰는 Deployment Protection 때문에 열어도 SSO 로 막힌다. PR 의 빌드 검증은
+##     `ci.yml` 의 빌드·테스트 잡이 이미 한다 — 프리뷰 배포가 더해 주던 것은
+##     *"Vercel 이 이 산출물을 받아 주는가"* 하나였고, 그건 main 배포에서 확인된다.
+##
+##   손으로 돌려 볼 일이 있으면 `workflow_dispatch` 로 브랜치를 골라 돌린다.
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
@@ -33,6 +49,10 @@ concurrency:
 jobs:
   deploy:
     name: Vercel 배포
+    # ⚠ **반드시 있어야 한다.** 없으면 GitHub 기본값 6시간이고, `vercel` CLI 가
+    #   완료되지 않는 배포를 기다리면 그 6시간을 전부 태운다(2026-08-24). 배포는
+    #   정상이면 몇 분이다 — 넘으면 매달린 것이므로 끊는 편이 맞다.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -179,6 +199,10 @@ jobs:
   #   없으면 조용히 건너뛴다. 웹 배포는 영향을 받지 않는다.
   deploy-ingest:
     name: Vercel 배포 (인제스트)
+    # ⚠ **반드시 있어야 한다.** 없으면 GitHub 기본값 6시간이고, `vercel` CLI 가
+    #   완료되지 않는 배포를 기다리면 그 6시간을 전부 태운다(2026-08-24). 배포는
+    #   정상이면 몇 분이다 — 넘으면 매달린 것이므로 끊는 편이 맞다.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     permissions:
       contents: read
