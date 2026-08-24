@@ -161,6 +161,23 @@ jobs:
   #   빠진다(2026-08-24 C 가 실제로 그 화면에서 멈췄다). 우리는 애초에 import 를
   #   쓰지 않으므로 그 화면에 갈 일이 없다. 프로젝트는 CLI 로 만든다 — 아래 참조.
   #
+  # 🔴 **프로젝트에 Git 연동이 붙어 있으면 먼저 끊어라.**
+  #   Settings → Git → Disconnect. 안 끊으면 main 에 푸시할 때마다 Vercel 이 **자기
+  #   경로로** 배포를 시도하고, 그 경로에는 커밋 작성자 검사가 걸린다::
+  #
+  #       Deployment Blocked
+  #       The deployment was blocked because the commit author did not have
+  #       contributing access to the project on Vercel.
+  #       The Hobby Plan does not support collaboration for private repositories.
+  #
+  #   2026-08-24 `marginguard-ingest` 가 정확히 그렇게 막혔다(커밋 005f35f, 작성자
+  #   jaepaly). **이 파일 머리글이 예언한 그것이고, 팀에서 세 번째다.** Pro 를 해지한
+  #   뒤라 좌석으로 우회할 수도 없다 — 좌석은 1인당 월 $20 이고 팀 방침은 추가 비용 0 이다.
+  #
+  #   ⚠ 끊지 않으면 이 워크플로와 **같은 커밋을 두 번 배포**하기도 한다(위 경고 참조).
+  #     한쪽은 막히고 한쪽은 성공하는 상태라 "배포가 되긴 되는데 빨간 게 하나 뜬다"로
+  #     보이기 쉽다. 그 상태로 심사 기간에 들어가면 안 된다.
+  #
   # ## 최초 1회 (로컬에서, 토큰 가진 사람이)
   #
   #     cd services/ingest
