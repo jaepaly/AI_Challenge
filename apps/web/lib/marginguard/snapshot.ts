@@ -57,9 +57,15 @@ export const roundTick = (p: number) => Math.round(p / TICK) * TICK;
  *   **경계 계약**이라(README:27, C↔A) 바꾸려면 전원 승인이 필요하다. 값을 못 정한
  *   상태를 타입 변경 없이 표현하려면 `NaN` 뿐이다. `NaN` 은 모든 비교가 거짓이라
  *   조용히 통과하지 않고, 화면은 그 전에 `policyRatio(...).resolved` 로 먼저 막는다.
+ *
+ * ⚠ **`pos` 를 반드시 넘겨라.** `policyRatio` 는 `pos.group` 으로 조항을 좁힌다
+ *   (`policy-ratio.ts` narrowRatioRules ②). 안 넘기면 종목군 차등 카드에서
+ *   **화면과 원장이 갈린다** — 헤드라인은 1.5 로 정확히 읽고 원장만 `NaN` 이 되어,
+ *   화면이 *"유지비율을 숫자로 읽지 못했습니다"* 라고 **아는 것을 모른다고 말한다.**
+ *   인자를 선택적으로 둔 것은 기존 검사 때문이지 생략해도 된다는 뜻이 아니다.
  */
-export const ledger = (card: ConditionCard): CreditLedger => {
-  const p = policyRatio(card);
+export const ledger = (card: ConditionCard, pos?: Position): CreditLedger => {
+  const p = policyRatio(card, pos);
   return {
     loan: ACCOUNT.loan,
     cash: ACCOUNT.cash,
@@ -524,9 +530,15 @@ export const PORTFOLIO_POSITIONS: Position[] = [
 /**
  * 다종목 재생용 원장. `ledger()` 와 같은 이유로 카드에서 파생시킨다 —
  * 여기만 1.4 로 두면 **같은 화면에서 단일 종목과 다종목이 다른 r 로 계산**한다.
+ *
+ * ⚠ **원장 하나에 종목군 하나를 가정한다.** `CreditLedger.requiredRatio` 는 스칼라라
+ *   종목마다 다른 r 을 실을 자리가 없다. 지금은 `PORTFOLIO_POSITIONS` 가 전부 같은
+ *   종목군이라 아무 포지션으로 좁혀도 같은 답이 나오고, 그 전제를
+ *   `test_portfolio_single_group`(portfolio.test.ts)이 지킨다. 섞인 포트폴리오를
+ *   넣는 날 그 검사가 먼저 넘어진다 — 그때 이 함수가 아니라 **경계 계약**을 고쳐라.
  */
-export const portfolioLedger = (card: ConditionCard): CreditLedger => {
-  const p = policyRatio(card);
+export const portfolioLedger = (card: ConditionCard, pos?: Position): CreditLedger => {
+  const p = policyRatio(card, pos);
   return {
     loan: 6_000_000,
     cash: 0,

@@ -136,12 +136,15 @@ export default function Landing({ build }: { build: BuildInfo }) {
    */
   const policy = policyRatio(preset.card, pos);
   const r = policy.resolved ? policy.ratio : Number.NaN;
-  const led = ledger(preset.card);
+  const led = ledger(preset.card, pos);
   /**
    * 유지비율 대조 게이트(#55) — 판정은 엔진(ratioAgreement), 화면 규약은 ratio-view.
    *
    * ⚠ **합성 계좌에서는 구조적으로 항상 통과한다.** `led.requiredRatio` 가 같은 카드에서
-   *   파생되므로 카드를 자기 자신과 맞대 본다. 이건 게이트를 무력화한 것이 아니라
+   *   **같은 인자로**(`policyRatio(card, pos)`) 파생되므로 카드를 자기 자신과 맞대 본다.
+   *   A 가 리뷰에서 종목군 차등 카드는 `NON_FINITE` 로 실제로 걸린다고 지적했는데,
+   *   그건 게이트가 살아 있었던 것이 아니라 **원장이 `pos` 를 안 받던 결함**이었다.
+   *   그 결함을 닫은 지금 두 값은 정의상 같다 — 게이트는 다시 항상 통과한다. 이건 게이트를 무력화한 것이 아니라
    *   **비교할 두 번째 값이 없다는 사실**이다 — 가상 계좌에는 "브로커가 이 계좌에
    *   적용하는 실제 비율"이 없다. 리터럴 1.4 를 제2 의견인 척 두면 오히려 실제 약관
    *   대부분을 차단한다(실측: 1.5·1.2·1.05 전부 차단).
@@ -315,7 +318,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
   /* ── 7월 연쇄 — engine.replay() ─────────────────────────────── */
   function playJuly() {
     if (timer.current || !quantOk) return; // 불완전 카드면 replay가 throw / 신선하지 않으면 산출 안 함
-    const result = replay(positions(PRICE_START), ledger(preset.card), JULY_SEQ, preset.card);
+    const result = replay(positions(PRICE_START), ledger(preset.card, pos), JULY_SEQ, preset.card);
     setSteps(result);
     setCursor(0);
     setPlaying(true);
@@ -344,7 +347,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
    *   (*"Existing memoization could not be preserved"*), 포지션 3개 계산이라 메모할
    *   이유가 없다. 컴파일러와 다투는 대신 지운다.
    */
-  const pfView = portfolioLambdaView(PORTFOLIO_POSITIONS, portfolioLedger(preset.card));
+  const pfView = portfolioLambdaView(PORTFOLIO_POSITIONS, portfolioLedger(preset.card, PORTFOLIO_POSITIONS[0]));
   // pfView 가 매 렌더 새 객체라 `[pfView]` 메모는 의미가 없고, React Compiler 가
   // 그 의존성을 거부한다. 행 3개에서 최솟값을 고르는 것이라 그냥 계산한다.
   const pfWeakest = weakestRow(pfView);
@@ -353,7 +356,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
     if (pfTimer.current || !quantOk) return; // 처분 수량은 카드 h가 있어야 낸다
     const result = replayPortfolio(
       PORTFOLIO_POSITIONS,
-      portfolioLedger(preset.card),
+      portfolioLedger(preset.card, PORTFOLIO_POSITIONS[0]),
       portfolioJuly(),
       preset.card,
     );
