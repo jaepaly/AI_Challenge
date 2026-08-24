@@ -1,6 +1,7 @@
 from base64 import urlsafe_b64encode
 import json
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -9,6 +10,8 @@ import httpx
 from benchmarks.hankook_two_pass import (
     HANKOOK_FILENAME,
     _default_result_path,
+    _next_attempt_path,
+    _write_result,
     build_dry_run_plan,
     evidence_span_report,
     estimate_max_cost_krw,
@@ -75,6 +78,88 @@ class HankookTwoPassGateTest(unittest.TestCase):
                 _default_result_path(root, {"status": "failed"}),
                 results / "hankook_two_pass_attempt2_failed.json",
             )
+
+    def test_success_never_overwrites_an_existing_canonical_record(self) -> None:
+        """재실행이 성공해도 4차 성공 기록을 덮지 않는다.
+
+        이전 구현은 status=completed 면 무조건 정본 경로를 돌려줬다. 8차 유료
+        실행이 성공하는 순간 4차 기록이 사라지는데, 그 파일은 되돌릴 수 없다.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results = root / "services" / "ingest" / "benchmarks" / "results"
+            results.mkdir(parents=True)
+            canonical = results / "hankook_two_pass.json"
+            canonical.write_text("4차", encoding="utf-8")
+
+            chosen = _default_result_path(root, {"status": "completed"})
+
+            self.assertNotEqual(chosen, canonical)
+            self.assertFalse(chosen.exists())
+            self.assertTrue(chosen.name.endswith("_success.json"))
+            self.assertEqual(canonical.read_text(encoding="utf-8"), "4차")
+
+    def test_first_success_still_creates_the_canonical_record(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results = root / "services" / "ingest" / "benchmarks" / "results"
+            results.mkdir(parents=True)
+
+            self.assertEqual(
+                _default_result_path(root, {"status": "completed"}),
+                results / "hankook_two_pass.json",
+            )
+
+    def test_attempt_numbers_increase_instead_of_filling_gaps(self) -> None:
+        """빈 번호를 재사용하지 않는다 — 8차가 attempt1 로 기록되면 이력이 거짓이다.
+
+        저장소 실제 상태가 그 함정이다: 2·3·5·6·7 만 있어 1 과 4 가 비어 있다
+        (4 는 정본이 가져갔다). 첫 빈 자리를 쓰면 다음 실행이 attempt1 이 된다.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            results = Path(tmp)
+            for number in (2, 3, 5, 6, 7):
+                (results / f"hankook_two_pass_attempt{number}_failed.json").write_text(
+                    "x", encoding="utf-8"
+                )
+
+            self.assertEqual(
+                _next_attempt_path(results, "failed").name,
+                "hankook_two_pass_attempt8_failed.json",
+            )
+            self.assertEqual(
+                _next_attempt_path(results, "success").name,
+                "hankook_two_pass_attempt8_success.json",
+            )
+
+    def test_write_result_refuses_to_clobber(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "hankook_two_pass.json"
+            path.write_text("기존", encoding="utf-8")
+
+            with self.assertRaises(FileExistsError):
+                _write_result(path, {"status": "completed"})
+
+            self.assertEqual(path.read_text(encoding="utf-8"), "기존")
+
+    def test_canonical_record_is_still_the_fourth_success(self) -> None:
+        """정본이 **여전히 4차 성공인지** 파일끼리 대조한다.
+
+        위 가드는 이 실행기를 통한 덮어쓰기를 막는다. 이 테스트는 경로가 무엇이든
+        (수동 복사·다른 도구·되돌린 커밋) 정본이 바뀌면 빨간불이 되게 한다.
+        기존 test_frozen_engine_fixture_is_traceable_to_fourth_success 는 픽스처
+        안의 문자열끼리만 비교하므로, 정본이 덮여도 계속 통과한다 — 출처 주장이
+        조용히 거짓이 되는 구멍이 그 자리다.
+        """
+
+        recorded = json.loads(RECORDED_RESULT.read_text(encoding="utf-8"))
+        fixture = json.loads(ENGINE_FROZEN_FIXTURE.read_text(encoding="utf-8"))
+
+        self.assertEqual(recorded["status"], "completed")
+        self.assertEqual(recorded["prompt_sha256"], fixture["source_prompt_sha256"])
+        self.assertEqual(recorded["card"], fixture["card"])
 
     def test_first_pass_requests_minimal_claim_specific_citations(self) -> None:
         self.assertIn("최소 문장·표 행", PASS1_SYSTEM)
