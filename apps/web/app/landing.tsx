@@ -24,6 +24,8 @@ import {
 import { freshnessView, todayISO } from "../lib/marginguard/freshness-view";
 import { ratioView } from "../lib/marginguard/ratio-view";
 import type { BuildInfo } from "../lib/build-info";
+import UploadPanel from "./upload-panel";
+import type { CardPreset } from "../lib/marginguard/snapshot";
 import {
   buildOptions,
   comparisonVerdict,
@@ -69,6 +71,12 @@ function thresholdPrice(): number {
 export default function Landing({ build }: { build: BuildInfo }) {
   const [price, setPrice] = useState(PRICE_START);
   const [cardKey, setCardKey] = useState(CARDS[0]!.key);
+  /**
+   * 업로드로 만든 카드. 하나만 들고 있는다 — 여러 장을 쌓으면 화면이 "내가 올린 것들"의
+   * 목록이 되는데, 이 제품이 답하려는 질문은 그게 아니다.
+   */
+  const [uploaded, setUploaded] = useState<CardPreset | null>(null);
+  const cards = uploaded ? [...CARDS, uploaded] : CARDS;
   const [steps, setSteps] = useState<ReplayStep[] | null>(null);
   const [cursor, setCursor] = useState(-1);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -92,7 +100,9 @@ export default function Landing({ build }: { build: BuildInfo }) {
     () => null,                  // 서버 스냅숏 — SSR에서는 판정하지 않는다
   );
 
-  const preset = CARDS.find((c) => c.key === cardKey)!;
+  // 업로드 카드가 지워지는 경우는 없지만(하나만 들고 대체한다), find 가 못 찾으면
+  // 첫 프리셋으로 되돌린다 — 화면이 죽는 것보다 낫다.
+  const preset = cards.find((c) => c.key === cardKey) ?? CARDS[0]!;
   const h = disposalDiscountRate(preset.card);
   const hUnknown = h === null; // 조건카드 불완전 — 수량을 추정하지 않는다
 
@@ -205,6 +215,16 @@ export default function Landing({ build }: { build: BuildInfo }) {
 
   // 회사별 비교도 카드마다 게이트를 건다 — 선택된 카드만 막고 비교 행에 수량을
   // 남기면, 같은 카드가 한 화면에서 "산정 불가"와 "전량"을 동시에 말하게 된다
+  /**
+   * ⚠ **업로드 카드는 여기 넣지 않는다.** `cards` 가 아니라 `CARDS` 다.
+   *
+   * 이 스트립은 *"같은 부족액, 회사만 다를 때"* 인데, 배너는 **선택된** 카드가 draft 일
+   * 때만 뜬다. verified 카드를 보고 있어도 스트립은 draft 유래 수치를 경고 없이
+   * 표시하는 결함이 이미 있고(A 가 #66 리뷰에서 찾았다, `#70` D-5), 업로드 카드를
+   * 얹으면 **그 결함을 넓히는 것**이 된다 — 업로드 카드는 정의상 항상 draft 다.
+   *
+   * `#64` P0-3(draft 계산 차단 여부)이 정해지면 그 결정에 맞춰 함께 손댄다.
+   */
   const compare = CARDS.map((c) => {
     const ch = disposalDiscountRate(c.card);
     // 유지비율 대조도 카드마다 건다 — 비교 행은 **같은 원장**에 회사만 갈아 끼운
@@ -350,7 +370,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
           </div>
 
           <div className="cards" role="group" aria-label="증권사 조건 카드">
-            {CARDS.map((c) => (
+            {cards.map((c) => (
               <button
                 key={c.key}
                 type="button"
@@ -388,6 +408,25 @@ export default function Landing({ build }: { build: BuildInfo }) {
             안 넘기면 패널은 둘이 어긋난 것을 볼 수단이 없어 "근거 있는 170%"와
             "140%로 낸 부족액"을 모순 없어 보이게 나란히 낸다 */}
         <EvidencePanel view={evidence} fresh={fresh} ratio={ratio} />
+
+        {/* 근거 패널 다음에 둔다 — 심사위원이 "우리 카드가 어디서 왔는지"를 먼저 보고
+            나서 자기 약관을 올려 보는 순서다. 위에 두면 근거를 보기 전에 업로드부터
+            누르게 되고, 그러면 이 제품의 주장(계산은 엔진이 하고 AI 는 인용만 한다)을
+            보여줄 화면을 건너뛴다 */}
+        <UploadPanel
+          onCard={(next) => {
+            setUploaded(next);
+            setCardKey(next.key);
+            // 재생 중이던 7월 연쇄를 멈춘다 — 카드가 바뀌면 그 재생은 다른 카드 것이다
+            setSteps(null);
+            setCursor(-1);
+            if (timer.current) {
+              clearInterval(timer.current);
+              timer.current = null;
+            }
+            setPlaying(false);
+          }}
+        />
 
         <section className="grid" aria-label="계기판">
           <div className="panel">

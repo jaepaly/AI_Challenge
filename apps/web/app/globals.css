@@ -129,6 +129,20 @@
      새 색 토큰도 만들지 않는다 — 다크는 prefers-color-scheme 한 벌뿐이라(16~26)
      :root에만 추가하면 다크에서 흰 상자가 뜬다. 정의만 되고 쓰이지 않던
      --accent-soft를 쓴다(라이트 #F0E7DC / 다크 #2B2318, 양쪽 다 정의돼 있다). */
+  /* 약관 업로드 — .ev 와 같은 카드 형태를 쓴다. 이 화면에서 새 시각 언어를 만들지 않는다 */
+  .upload{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin:16px 0}
+  .upload h2{margin:0 0 4px; font-family:var(--serif); font-size:17px}
+  .uploadLead{margin:0 0 12px; font-size:12.5px; color:var(--ink2); line-height:1.6}
+  .uploadRow{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+  .uploadRow input[type=file]{font:inherit; font-size:12.5px; color:var(--ink2); max-width:100%}
+  .uploadBtn{font:inherit; font-size:13px; padding:7px 14px; border-radius:999px; border:1px solid var(--line2); background:var(--surface2); color:var(--ink3)}
+  .uploadBusy,.uploadFail,.uploadDone{margin:11px 0 0; font-size:12.5px; line-height:1.6; border-radius:8px; padding:9px 12px}
+  .uploadBusy{background:var(--accent-soft); color:var(--ink2)}
+  .uploadFail{background:var(--danger-soft); color:var(--danger)}
+  .uploadDone{background:var(--safe-soft); color:var(--safe)}
+  .uploadDetail{opacity:.85}
+  .uploadNote{margin:10px 0 0; font-size:11.5px; color:var(--ink3); line-height:1.6}
+
   .ev{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:18px 20px; margin:16px 0}
   .ev h2{margin:0 0 4px; font-family:var(--serif); font-size:17px}
   .evLead{margin:0 0 12px; font-size:12.5px; color:var(--ink2); line-height:1.6}
