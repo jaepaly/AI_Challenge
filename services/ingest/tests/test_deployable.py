@@ -48,11 +48,43 @@ class BundledSchemaTest(unittest.TestCase):
             BUNDLED.exists(),
             f"번들 사본이 없다: {BUNDLED}. `python scripts/sync_bundled_schema.py` 를 돌려라.",
         )
+        # ⚠ **개행을 정규화해 비교한다.** 두 파일 다 `.gitattributes` 의
+        #   `*.json text eol=lf` 를 받아 **인덱스에는 LF 로 같은 바이트**가 들어간다.
+        #   그런데 작업본은 브랜치를 오가면 한쪽만 다시 체크아웃돼 CRLF/LF 가 갈릴 수
+        #   있다(2026-08-24 실제로 그랬다 — 정본 CRLF 150 / 사본 0). 그 상태는
+        #   **커밋에 안 들어가는데** 로컬만 빨간불이 된다. 검사가 이유 없이 흔들리면
+        #   다음 사람은 검사를 지운다.
+        #
+        #   개행 차이를 놓아 주는 대신, **개행 정책이 갈라지는 것**은 아래 검사가 막는다.
+        normalize = lambda raw: raw.replace(b"\r\n", b"\n")  # noqa: E731
         self.assertEqual(
-            BUNDLED.read_bytes(),
-            CANONICAL.read_bytes(),
+            normalize(BUNDLED.read_bytes()),
+            normalize(CANONICAL.read_bytes()),
             "번들 사본이 정본과 다르다. **사본을 손으로 고치지 마라** — 정본을 고치고 "
             "`python scripts/sync_bundled_schema.py` 를 돌려라.",
+        )
+
+    def test_both_files_get_the_same_line_ending_policy(self) -> None:
+        """정본과 사본의 `eol` 속성이 갈라지면 **커밋된 바이트**가 달라진다.
+
+        위 비교가 개행을 정규화하므로, 그 구멍은 여기서 막는다. `data/terms/**` 처럼
+        누가 `-text` 를 걸면 한쪽만 CRLF 로 저장되고 배포본이 다른 파일을 싣게 된다.
+        """
+        def eol_attr(path: Path) -> str:
+            out = subprocess.run(
+                ["git", "check-attr", "text", "eol", "--", str(path.relative_to(REPO_ROOT))],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=True,
+            ).stdout
+            return "\n".join(sorted(line.split(": ", 1)[1] for line in out.splitlines() if ": " in line))
+
+        self.assertEqual(
+            eol_attr(BUNDLED),
+            eol_attr(CANONICAL),
+            "정본과 번들 사본의 개행 속성이 다르다 — 커밋된 바이트가 갈라진다.",
         )
 
     def test_the_copy_is_valid_json_schema_shaped(self) -> None:
@@ -151,6 +183,70 @@ class DeployBundleRunsTest(unittest.TestCase):
         for dropped in EXCLUDED_DIRS:
             with self.subTest(dropped=dropped):
                 self.assertIn(dropped, patterns, f"{dropped} 이 제외 목록에서 빠졌다")
+
+
+class DeployWorkflowTest(unittest.TestCase):
+    """배포 잡이 **어느 디렉터리에서 CLI 를 도는지**를 고정한다.
+
+    `deploy.yml` 은 Git 연동이 아니라 CLI + 토큰으로 배포한다(그 파일 머리글 참조).
+    그래서 "프로젝트 루트가 어디인가"는 두 곳에서 정해질 수 있다:
+
+        ① Vercel 대시보드의 Root Directory 설정   ← 저장소에 없다. 어긋나도 아무도 모른다
+        ② CLI 를 도는 디렉터리                     ← 이 파일이 지키는 것
+
+    ②로 못 박았다. 최초 링크도 같은 디렉터리에서 하므로 둘이 갈라질 자리가 없다.
+    `working-directory` 가 빠지면 repo 루트에서 돌게 되고, 그 순간 ①에 몰래 의존한다.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = (REPO_ROOT / ".github" / "workflows" / "deploy.yml").read_text(
+            encoding="utf-8"
+        )
+
+    def test_the_ingest_job_exists(self) -> None:
+        self.assertIn("deploy-ingest:", self.text, "인제스트 배포 잡이 없다")
+
+    def test_every_ingest_cli_step_runs_in_the_service_directory(self) -> None:
+        """`vercel` 을 도는 스텝마다 working-directory 가 붙어 있어야 한다."""
+        lines = self.text.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.strip() == "deploy-ingest:")
+        job = lines[start:]
+
+        missing: list[str] = []
+        for index, line in enumerate(job):
+            if "vercel pull" not in line and "vercel deploy" not in line:
+                continue
+            # 이 스텝(직전 `- name:` 부터)에 working-directory 가 있는가
+            head = index
+            while head > 0 and not job[head].lstrip().startswith("- name:"):
+                head -= 1
+            block = "\n".join(job[head:index])
+            if "working-directory: services/ingest" not in block:
+                missing.append(job[index].strip()[:60])
+        self.assertEqual(
+            missing,
+            [],
+            "working-directory 없이 vercel CLI 를 도는 스텝이 있다:\n  "
+            + "\n  ".join(missing)
+            + "\n repo 루트에서 돌면 Vercel 대시보드의 Root Directory 설정에 몰래 의존한다.",
+        )
+
+    def test_the_ingest_job_skips_without_its_own_secret(self) -> None:
+        """Secret 이 없어도 CI 가 빨개지면 안 된다 — 붙이기 전에 머지할 수 있어야 한다."""
+        self.assertIn("VERCEL_INGEST_PROJECT_ID", self.text)
+        self.assertIn("인제스트 배포 건너뜀", self.text)
+
+    def test_the_web_job_does_not_borrow_the_ingest_project_id(self) -> None:
+        """두 잡이 같은 PROJECT_ID 를 쓰면 인제스트가 웹 URL 을 덮는다.
+
+        제출 URL 이 바뀌는 사고라 여기서 막는다(deploy.yml 머리글의 경고와 같은 취지).
+        """
+        lines = self.text.splitlines()
+        split = next(i for i, line in enumerate(lines) if line.strip() == "deploy-ingest:")
+        web, ingest = "\n".join(lines[:split]), "\n".join(lines[split:])
+        self.assertIn("secrets.VERCEL_PROJECT_ID", web)
+        self.assertNotIn("secrets.VERCEL_PROJECT_ID }}", ingest.replace("VERCEL_INGEST_PROJECT_ID", ""))
 
 
 class PythonVersionTest(unittest.TestCase):
