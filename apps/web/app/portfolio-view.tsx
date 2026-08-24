@@ -16,7 +16,19 @@
 import type { PortfolioLambdaView, LambdaRow } from "../lib/marginguard/portfolio";
 import type { PortfolioReplayStep } from "@marginguard/engine";
 
-const won = (n: number) => n.toLocaleString("ko-KR") + "원";
+/**
+ * 퍼센트 표시. **유한하지 않으면 "—" 다.**
+ *
+ * 카드가 유지비율을 하나로 못 정하면 원장 r 이 NaN 이고 λ*·λ_k 가 전부 NaN 이 된다
+ * (#67 A-1). 그때 `toFixed(1)` 은 "NaN%" 를 찍는다 — 숫자처럼 생긴 것을 내면 안 된다.
+ */
+const pct = (n: number, digits = 1): string =>
+  Number.isFinite(n) ? `${n.toFixed(digits)}%` : "—";
+
+const won = (n: number) =>
+  // ⚠ 유한하지 않으면 "NaN원"을 찍지 않는다. 카드가 유지비율을 못 정하면 파생값이
+  //   전부 NaN 이 되는데, 그때 화면이 숫자처럼 생긴 것을 내면 안 된다(#67 A-1).
+  Number.isFinite(n) ? n.toLocaleString("ko-KR") + "원" : "—";
 
 export default function PortfolioView({
   view,
@@ -53,7 +65,7 @@ export default function PortfolioView({
       <div className="pfStar">
         <div className="optLbl">전 종목이 동시에 하락할 때 — λ*</div>
         <div className="optAmt tnum">
-          {view.breached ? "이미 관통" : `${view.lambdaStarPct.toFixed(1)}%`}
+          {view.breached ? "이미 관통" : pct(view.lambdaStarPct)}
         </div>
         <div className="optBasis">
           주식 평가액 {won(view.V)} · 버퍼 {won(view.buffer)} · 표시는 <b>내림</b>(여유를 올려 잡지
@@ -82,10 +94,10 @@ export default function PortfolioView({
                 <td className="num tnum">{r.qty.toLocaleString()}주</td>
                 <td className="num tnum">{won(r.prevClose)}</td>
                 <td className="num tnum">{won(r.value)}</td>
-                <td className="num tnum">{r.weightPct.toFixed(1)}%</td>
+                <td className="num tnum">{pct(r.weightPct)}</td>
                 <td className="num tnum">
                   {r.lambdaKPct !== null ? (
-                    `${r.lambdaKPct.toFixed(1)}%`
+                    pct(r.lambdaKPct)
                   ) : r.immune ? (
                     <span className="pfNa">0원이 돼도 관통 안 함</span>
                   ) : (
@@ -100,8 +112,8 @@ export default function PortfolioView({
 
       {weakest && !view.breached && (
         <p className="optPunch">
-          가장 먼저 걸리는 것은 <b>{weakest.name}</b>입니다 — 혼자 {weakest.lambdaKPct!.toFixed(1)}%
-          빠지면 관통합니다. 다만 <b>전 종목이 함께 {view.lambdaStarPct.toFixed(1)}%</b>만 빠져도
+          가장 먼저 걸리는 것은 <b>{weakest.name}</b>입니다 — 혼자 {pct(weakest.lambdaKPct!)}
+          빠지면 관통합니다. 다만 <b>전 종목이 함께 {pct(view.lambdaStarPct)}</b>만 빠져도
           같은 일이 벌어집니다.
         </p>
       )}
@@ -121,7 +133,7 @@ export default function PortfolioView({
                 {cur.phase === "executed" ? "집행" : cur.phase === "notified" ? "통지" : "정상"}
               </span>
               <span className="tnum">
-                포트폴리오 {(cur.portfolioReturn / 100).toFixed(2)}%
+                포트폴리오 {pct(cur.portfolioReturn / 100, 2)}
               </span>
               <span className="tnum">
                 담보비율 {cur.ratioRaw === null ? "—" : `${Math.floor(cur.ratioRaw)}%`}

@@ -5,9 +5,9 @@
 import { describe, expect, it } from "vitest";
 import type { CreditLedger, Position } from "@marginguard/engine";
 import { portfolioLambdaView, weakestRow } from "./portfolio";
-import { PORTFOLIO_POSITIONS, portfolioLedger } from "./snapshot";
+import { CARDS, PORTFOLIO_POSITIONS, portfolioLedger } from "./snapshot";
 
-const led = portfolioLedger();
+const led = portfolioLedger(CARDS[0]!.card);
 
 describe("λ 분해 — 스냅숏 계좌", () => {
   const view = portfolioLambdaView(PORTFOLIO_POSITIONS, led);

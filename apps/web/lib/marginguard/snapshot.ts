@@ -7,13 +7,24 @@
  * 수치는 전부 packages/engine이 산출한다. 이 파일은 입력값만 보관한다.
  */
 import type { ConditionCard, CreditLedger, DailyPortfolioReturn, DailyReturn, EvidenceSpan, Position } from "@marginguard/engine";
+import { policyRatio } from "@marginguard/engine";
 
-/** 가상 계좌 — 한투 설명서 골든 계좌와 같은 구조(1,000주 · 융자 600만 · 유지비율 140%) */
+/**
+ * 가상 계좌 — 한투 설명서 골든 계좌와 같은 구조(1,000주 · 융자 600만).
+ *
+ * ⚠ **`requiredRatio` 는 여기 없다.** 유지비율은 **카드가 정한다**(#67 A-1, (다) 채택).
+ * 리터럴로 두면 그 값이 계산을 몰고, *"AI 가 약관을 읽고 엔진이 계산한다"* 는 주장이
+ * 화면에서 성립하지 않는다 — 읽은 값이 계산에 닿지 않는다.
+ *
+ * 실측이 그 모양이었다::
+ *
+ *     카드만 1.5 · 원장 1.4   부족액 300,000    ← 카드를 바꿔도 안 따라온다
+ *     원장만 1.5 · 카드 1.4   부족액 900,000    ← 원장이 단독 구동
+ */
 export const ACCOUNT = {
   qty: 1_000,
   loan: 6_000_000,
   cash: 0,
-  requiredRatio: 1.4,
 } as const;
 
 export const TICK = 10; // 호가단위(원) — 이 가격대는 10원
@@ -23,11 +34,38 @@ export const PRICE_START = 10_000;
 
 export const roundTick = (p: number) => Math.round(p / TICK) * TICK;
 
-export const ledger = (): CreditLedger => ({
-  loan: ACCOUNT.loan,
-  cash: ACCOUNT.cash,
-  requiredRatio: ACCOUNT.requiredRatio,
-});
+/**
+ * 합성 신용 원장. **유지비율은 카드에서 파생시킨다.**
+ *
+ * `#55` 의 대조 상대가 이 값이다. 리터럴 1.4 로 두면 **카드를 바꾼 순간 대조가
+ * 어긋남으로 보고 수량을 영구 차단**한다. 심사위원이 1.5 짜리 약관을 올리면 그
+ * 자리에서 데모가 죽는다 — 실측으로 확인했다::
+ *
+ *     카드 r=1.5  원장 1.4  →  "유지비율 150%와 계좌 원장의 140%가 같지 않습니다"
+ *     카드 r=1.2  원장 1.4  →  차단
+ *     카드 r=1.05 원장 1.4  →  차단
+ *
+ * 우리가 확보한 원문 기준으로 **차단되는 쪽이 다수**다(메리츠 C∙D군 150 · 한투 대주
+ * 120·대주전용 105 · 신한 105·120·170 · 미래에셋 145·120·105).
+ *
+ * ⚠ **이건 게이트를 무력화하는 것이 아니다.** 합성 계좌에는 애초에 **독립적인 제2
+ *   의견이 없다** — "브로커가 이 계좌에 적용하는 실제 비율" 같은 것이 없는 가상 계좌다.
+ *   실계좌가 붙으면 그때 원장은 진짜 제2 의견이 되고, `#55` 게이트가 그 자리에서
+ *   의미를 되찾는다. 그때 이 함수를 고쳐라.
+ *
+ * ⚠ **`NaN` 을 쓰는 이유** — `CreditLedger.requiredRatio` 는 `number` 이고 그 타입은
+ *   **경계 계약**이라(README:27, C↔A) 바꾸려면 전원 승인이 필요하다. 값을 못 정한
+ *   상태를 타입 변경 없이 표현하려면 `NaN` 뿐이다. `NaN` 은 모든 비교가 거짓이라
+ *   조용히 통과하지 않고, 화면은 그 전에 `policyRatio(...).resolved` 로 먼저 막는다.
+ */
+export const ledger = (card: ConditionCard): CreditLedger => {
+  const p = policyRatio(card);
+  return {
+    loan: ACCOUNT.loan,
+    cash: ACCOUNT.cash,
+    requiredRatio: p.resolved ? p.ratio : Number.NaN,
+  };
+};
 
 export const positions = (prevClose: number): Position[] => [
   {
@@ -431,7 +469,10 @@ export const JULY_SEQ: DailyReturn[] = [
 export const displayRatio = (V: number, L: number) =>
   L <= 0 ? null : Math.floor((V * 100) / L);
 
-export const won = (n: number) => n.toLocaleString("ko-KR") + "원";
+export const won = (n: number) =>
+  // ⚠ 유한하지 않으면 "NaN원"을 찍지 않는다. 카드가 유지비율을 못 정하면 파생값이
+  //   전부 NaN 이 되는데, 그때 화면이 숫자처럼 생긴 것을 내면 안 된다(#67 A-1).
+  Number.isFinite(n) ? n.toLocaleString("ko-KR") + "원" : "—";
 
 /**
  * 자발적 매도 제비용률 — **가정치다. 약관 원문 근거가 없다.**
@@ -480,11 +521,18 @@ export const PORTFOLIO_POSITIONS: Position[] = [
   },
 ];
 
-export const portfolioLedger = (): CreditLedger => ({
-  loan: 6_000_000,
-  cash: 0,
-  requiredRatio: 1.4,
-});
+/**
+ * 다종목 재생용 원장. `ledger()` 와 같은 이유로 카드에서 파생시킨다 —
+ * 여기만 1.4 로 두면 **같은 화면에서 단일 종목과 다종목이 다른 r 로 계산**한다.
+ */
+export const portfolioLedger = (card: ConditionCard): CreditLedger => {
+  const p = policyRatio(card);
+  return {
+    loan: 6_000_000,
+    cash: 0,
+    requiredRatio: p.resolved ? p.ratio : Number.NaN,
+  };
+};
 
 /**
  * 다종목 재생 입력 — **전 종목에 같은 일간 등락을 적용한 균등 시나리오다.**

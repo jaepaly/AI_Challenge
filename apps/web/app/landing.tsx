@@ -8,7 +8,7 @@
  *  - 7월 연쇄는 engine.replay()가 낸 ReplayStep[]을 그대로 렌더한다(집행·원장 갱신 포함).
  *  - 담보비율 3단 규칙(PR #2 합의): 판정=원시값(engine) / 골든 재현=사사오입 / 표시=내림.
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   equalShockLambda,
   liquidationQty,
@@ -25,6 +25,7 @@ import { freshnessView, todayISO } from "../lib/marginguard/freshness-view";
 import { ratioView } from "../lib/marginguard/ratio-view";
 import type { BuildInfo } from "../lib/build-info";
 import UploadPanel from "./upload-panel";
+import { policyRatio } from "@marginguard/engine";
 import type { CardPreset } from "../lib/marginguard/snapshot";
 import {
   buildOptions,
@@ -56,13 +57,19 @@ import {
   won,
 } from "../lib/marginguard/snapshot";
 
-/** 임계가 = engine.shortfall이 0이 되는 최소 가격. 엔진을 오라클로 이분 탐색 */
-function thresholdPrice(): number {
+/**
+ * 임계가 = engine.shortfall이 0이 되는 최소 가격. 엔진을 오라클로 이분 탐색.
+ *
+ * ⚠ `r` 을 **인자로 받는다.** 전에는 `ACCOUNT.requiredRatio` 리터럴을 읽었고, 그래서
+ *   카드를 바꿔도 임계가가 안 움직였다 — *"AI 가 약관을 읽고 엔진이 계산한다"* 가
+ *   이 줄에서 성립하지 않았다(#67 A-1).
+ */
+function thresholdPrice(r: number): number {
   let lo = Math.floor(PRICE_MIN / TICK);
   let hi = Math.floor(PRICE_MAX / TICK);
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (shortfall(ACCOUNT.qty * mid * TICK, ACCOUNT.loan, ACCOUNT.requiredRatio) === 0) hi = mid;
+    if (shortfall(ACCOUNT.qty * mid * TICK, ACCOUNT.loan, r) === 0) hi = mid;
     else lo = mid + 1;
   }
   return lo * TICK;
@@ -122,14 +129,42 @@ export default function Landing({ build }: { build: BuildInfo }) {
    * 슬라이더를 끌어도 이 값은 변하지 않는다(포지션을 넘기는 것은 종목군 때문이다).
    */
   const pos = positions(price)[0]!;
-  const ratio = ratioView(preset.card, ACCOUNT.requiredRatio, pos);
+  /**
+   * **계산용 유지비율은 카드가 정한다**(#67 A-1, (다) 채택). 못 정하면 숫자를 내지 않는다 —
+   * 원장 리터럴로 메우면 그 순간 (다)가 아니고, 화면이 어디서 온지 모르는 숫자를
+   * 근거 옆에 놓는다.
+   */
+  const policy = policyRatio(preset.card, pos);
+  const r = policy.resolved ? policy.ratio : Number.NaN;
+  const led = ledger(preset.card);
+  /**
+   * 유지비율 대조 게이트(#55) — 판정은 엔진(ratioAgreement), 화면 규약은 ratio-view.
+   *
+   * ⚠ **합성 계좌에서는 구조적으로 항상 통과한다.** `led.requiredRatio` 가 같은 카드에서
+   *   파생되므로 카드를 자기 자신과 맞대 본다. 이건 게이트를 무력화한 것이 아니라
+   *   **비교할 두 번째 값이 없다는 사실**이다 — 가상 계좌에는 "브로커가 이 계좌에
+   *   적용하는 실제 비율"이 없다. 리터럴 1.4 를 제2 의견인 척 두면 오히려 실제 약관
+   *   대부분을 차단한다(실측: 1.5·1.2·1.05 전부 차단).
+   *
+   *   실계좌가 붙으면 `ledger()` 가 진짜 원장을 싣고, 이 게이트는 **그 자리에서 의미를
+   *   되찾는다.** 그래서 배선을 지운 것이 아니라 남겨 둔다.
+   *
+   *   지금 실질적으로 막는 것은 `policy.resolved === false` 다 — 카드가 이 계좌에 대해
+   *   r 을 하나로 못 정하는 경우(메리츠 '일반' 처럼 종목군이 안 좁혀지는 자리).
+   */
+  const ratio = ratioView(preset.card, led.requiredRatio, pos);
   /**
    * 수량·배수를 낼 수 있는가.
    * draft는 **낸다**(참고 모드 라벨만) — 인제스트 출력이 무조건 draft이므로
    * 여기서 막으면 라이브 데모의 출력 화면이 "산정 불가"가 된다(#30 리뷰).
    * 막는 것은 blocked(STALE·NO_VERIFIED_AT)와 h 부재, 그리고 유지비율 어긋남뿐이다.
    */
-  const quantOk = !hUnknown && fresh?.mode !== "blocked" && ratio.confirmed;
+  /**
+   * ⚠ `policy.resolved` 가 **맨 앞**이다. 카드가 r 을 하나로 못 정하면 부족액·임계가·λ*
+   *   까지 전부 못 낸다 — 수량만의 문제가 아니다. 다른 사유는 그 다음이다.
+   */
+  const quantOk =
+    policy.resolved && !hUnknown && fresh?.mode !== "blocked" && ratio.confirmed;
   /**
    * 수량을 못 내는 사유 — 계기판과 선택지 비교가 같은 문장을 쓴다(두 곳에 쓰면 갈라진다).
    *
@@ -142,11 +177,25 @@ export default function Landing({ build }: { build: BuildInfo }) {
    */
   const quantBlockReason = quantOk
     ? null
-    : (ratio.blockReason ??
+    : !policy.resolved
+      ? policy.why === "AMBIGUOUS"
+        ? `이 조건카드는 이 계좌에 걸리는 유지비율을 하나로 정하지 못합니다 — 후보가 ${policy.candidates.map((c) => `${Math.round(c * 100)}%`).join(" · ")}입니다. 종목군을 특정해야 계산할 수 있습니다`
+        : policy.why === "NO_RULE"
+          ? "이 조건카드에는 담보유지비율 조항이 없습니다 — 계산의 기준값이 없습니다"
+          : "이 조건카드의 유지비율을 숫자로 읽지 못했습니다 — 값을 지어내지 않습니다"
+      : (ratio.blockReason ??
       (hUnknown
         ? "조건카드에 산정 기준가 규칙(할인율)이 없습니다 — 처분 수량을 추정하지 않습니다"
         : "이 카드는 재검증이 필요합니다 — 낡은 값을 정식 산출로 내지 않습니다"));
-  const pStar = useMemo(() => thresholdPrice(), []);
+  /**
+   * ⚠ **useMemo 를 걷어냈다.** 전에는 `useMemo(..., [])` 였고, 빈 배열이라 카드를 바꿔도
+   *   임계가가 안 움직였다 — 그게 정확히 (다)가 고치는 결함의 모양이다. `[r]` 로 고치자
+   *   React Compiler 가 *"Existing memoization could not be preserved"* 로 거부했다.
+   *
+   *   이분 탐색은 13회 반복이라 메모할 이유가 없다. 컴파일러와 다투는 대신 지운다 —
+   *   **손으로 건 메모가 틀린 의존성으로 버그를 만든 자리**이기도 하다.
+   */
+  const pStar = thresholdPrice(r);
 
   /**
    * 근거 좌표 뷰모델. **신선도 게이트를 걸지 않는다** — 근거는 h 유래 파생값이 아니라
@@ -182,17 +231,17 @@ export default function Landing({ build }: { build: BuildInfo }) {
 
   /* ── 엔진 산출 ─────────────────────────────────────────────── */
   const V = ACCOUNT.qty * price;
-  const D = shortfall(V, ACCOUNT.loan, ACCOUNT.requiredRatio);
+  const D = shortfall(V, ACCOUNT.loan, r);
   const breached = D > 0;
 
   const liq =
     breached && h !== null
-      ? liquidationQty({ D, prevClose: price, r: ACCOUNT.requiredRatio, h, held: ACCOUNT.qty })
+      ? liquidationQty({ D, prevClose: price, r, h, held: ACCOUNT.qty })
       : null;
   const paths = breached
     ? resolutionPaths({
         D,
-        r: ACCOUNT.requiredRatio,
+        r,
         prevClose: price,
         marketPrice: price,
         f: ASSUMED_FEE_RATE,
@@ -208,7 +257,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
   const verdict =
     optionRows && forcedRow ? comparisonVerdict(forcedRow, optionRows, ACCOUNT.qty) : null;
 
-  const lambda = equalShockLambda(V, ACCOUNT.loan, ACCOUNT.requiredRatio, ACCOUNT.cash);
+  const lambda = equalShockLambda(V, ACCOUNT.loan, r, ACCOUNT.cash);
 
   const shown = displayRatio(V, ACCOUNT.loan); // 표시 = 내림
   const engineRatio = marginRatioPct(V, ACCOUNT.loan); // 골든 재현 = 사사오입
@@ -227,10 +276,14 @@ export default function Landing({ build }: { build: BuildInfo }) {
    */
   const compare = CARDS.map((c) => {
     const ch = disposalDiscountRate(c.card);
-    // 유지비율 대조도 카드마다 건다 — 비교 행은 **같은 원장**에 회사만 갈아 끼운
-    // 것이라, 어떤 카드의 r이 이 원장과 어긋나면 그 행의 수량만 틀린다. 선택된
-    // 카드만 막고 비교 행을 남기면 화면이 한 자리에서 두 말을 하게 된다
-    const cRatio = ratioView(c.card, ACCOUNT.requiredRatio, pos);
+    // 유지비율 대조도 카드마다 건다 — 비교 행은 **같은 부족액**에 회사만 갈아 끼운
+    // 것이라, 어떤 카드의 r이 그 부족액을 만든 r과 어긋나면 그 행의 수량만 틀린다.
+    // 선택된 카드만 막고 비교 행을 남기면 화면이 한 자리에서 두 말을 하게 된다.
+    //
+    // ⚠ 대조 상대가 `led.requiredRatio`(= **선택된 카드가 정한 r**)다. (다) 이후로
+    //   이 대조는 오히려 **의미가 생겼다** — 전에는 모두가 리터럴 1.4와 비교돼
+    //   세 프리셋이 전부 통과했고(셋 다 1.4), 그래서 아무것도 안 잡았다.
+    const cRatio = ratioView(c.card, led.requiredRatio, pos);
     const cBlocked = asOf !== null && freshnessView(c.card, asOf).mode === "blocked";
     const ok = ch !== null && !cBlocked && cRatio.confirmed;
     /**
@@ -254,7 +307,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
       why,
       qty:
         breached && ok
-          ? liquidationQty({ D, prevClose: price, r: ACCOUNT.requiredRatio, h: ch, held: ACCOUNT.qty })
+          ? liquidationQty({ D, prevClose: price, r, h: ch, held: ACCOUNT.qty })
           : null,
     };
   });
@@ -262,7 +315,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
   /* ── 7월 연쇄 — engine.replay() ─────────────────────────────── */
   function playJuly() {
     if (timer.current || !quantOk) return; // 불완전 카드면 replay가 throw / 신선하지 않으면 산출 안 함
-    const result = replay(positions(PRICE_START), ledger(), JULY_SEQ, preset.card);
+    const result = replay(positions(PRICE_START), ledger(preset.card), JULY_SEQ, preset.card);
     setSteps(result);
     setCursor(0);
     setPlaying(true);
@@ -280,15 +333,27 @@ export default function Landing({ build }: { build: BuildInfo }) {
     }, 900);
   }
 
-  /* ── 다종목 — λ*·λ_k는 카드와 무관한 확정값이라 게이트를 걸지 않는다 ── */
-  const pfView = useMemo(() => portfolioLambdaView(PORTFOLIO_POSITIONS, portfolioLedger()), []);
-  const pfWeakest = useMemo(() => weakestRow(pfView), [pfView]);
+  /**
+   * 다종목 — λ*·λ_k.
+   *
+   * ⚠ 이 줄의 주석은 원래 *"카드와 무관한 확정값이라 게이트를 걸지 않는다"* 였다.
+   *   (다) 채택으로 **더는 카드와 무관하지 않다** — 원장 r 이 카드에서 나오므로 λ* 도
+   *   카드가 바뀌면 바뀐다. 게이트를 안 거는 것은 그대로다(λ 는 h 유래 값이 아니다).
+   *
+   * ⚠ useMemo 를 걷어냈다. `[preset.card]` 로 고치자 React Compiler 가 거부했고
+   *   (*"Existing memoization could not be preserved"*), 포지션 3개 계산이라 메모할
+   *   이유가 없다. 컴파일러와 다투는 대신 지운다.
+   */
+  const pfView = portfolioLambdaView(PORTFOLIO_POSITIONS, portfolioLedger(preset.card));
+  // pfView 가 매 렌더 새 객체라 `[pfView]` 메모는 의미가 없고, React Compiler 가
+  // 그 의존성을 거부한다. 행 3개에서 최솟값을 고르는 것이라 그냥 계산한다.
+  const pfWeakest = weakestRow(pfView);
 
   function playPortfolio() {
     if (pfTimer.current || !quantOk) return; // 처분 수량은 카드 h가 있어야 낸다
     const result = replayPortfolio(
       PORTFOLIO_POSITIONS,
-      portfolioLedger(),
+      portfolioLedger(preset.card),
       portfolioJuly(),
       preset.card,
     );
@@ -352,20 +417,28 @@ export default function Landing({ build }: { build: BuildInfo }) {
             <div className="railMeta">
               <span className="tnum">{won(PRICE_MIN)}</span>
               <span id="thresholdLabel" className="tnum">
-                임계가 {won(pStar)}
+                임계가 {policy.resolved ? won(pStar) : "—"}
               </span>
               <span className="tnum">{won(PRICE_MAX)}</span>
             </div>
           </div>
 
           <div className="headline">
+            {/* ⚠ 카드가 r 을 못 정하면 **여기서부터 숫자가 없다.** 부족액도 임계가도
+                r 에서 나오므로, 하나만 가리고 나머지를 내면 화면이 두 말을 한다 */}
             <div id="headline">
-              {breached ? `담보부족 ${won(D)}` : `임계가까지 여유 ${(((price - pStar) / price) * 100).toFixed(1)}%`}
+              {!policy.resolved
+                ? "유지비율을 정하지 못했습니다"
+                : breached
+                  ? `담보부족 ${won(D)}`
+                  : `임계가까지 여유 ${(((price - pStar) / price) * 100).toFixed(1)}%`}
             </div>
             <p id="subline">
-              {breached
-                ? "임계선을 지났습니다 — 아래는 약관 산정 방식의 재현값입니다"
-                : `${won(price - pStar)} 더 하락하면 담보부족 계산이 시작됩니다`}
+              {!policy.resolved
+                ? quantBlockReason
+                : breached
+                  ? "임계선을 지났습니다 — 아래는 약관 산정 방식의 재현값입니다"
+                  : `${won(price - pStar)} 더 하락하면 담보부족 계산이 시작됩니다`}
             </p>
           </div>
 
@@ -441,7 +514,12 @@ export default function Landing({ build }: { build: BuildInfo }) {
           <div className="panel">
             <div className="lbl">전 종목 균등 하락 여유 λ*</div>
             <div className="val tnum">
-              {lambda === 0 ? "이미 관통" : lambda === Infinity ? "—" : `−${(lambda * 100).toFixed(1)}%`}
+              {/* ⚠ NaN 도 받는다 — 카드가 r 을 못 정하면 λ* 가 NaN 이다 */}
+              {!Number.isFinite(lambda)
+                ? "—"
+                : lambda === 0
+                  ? "이미 관통"
+                  : `−${(lambda * 100).toFixed(1)}%`}
             </div>
             <div className="note">전 종목이 함께 이만큼 빠지면 임계선</div>
           </div>

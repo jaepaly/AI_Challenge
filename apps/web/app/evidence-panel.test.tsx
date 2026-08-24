@@ -16,7 +16,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ConditionCard } from "@marginguard/engine";
-import { ACCOUNT, CARDS, positions } from "../lib/marginguard/snapshot";
+import { CARDS, positions } from "../lib/marginguard/snapshot";
 import { evidenceView } from "../lib/marginguard/evidence-view";
 import { freshnessView, type FreshnessView } from "../lib/marginguard/freshness-view";
 import { ratioView, type RatioView } from "../lib/marginguard/ratio-view";
@@ -61,6 +61,14 @@ function unbackedBlock(html: string): string {
   expect(at).toBeGreaterThan(-1);
   return html.slice(at);
 }
+
+/**
+ * 실계좌를 가정한 원장 r. **`ledger()` 에서 읽지 않는다** — (다) 채택 이후 합성
+ * 원장은 카드에서 파생되므로, 그걸 대조 상대로 쓰면 카드를 자기 자신과 맞대 보게
+ * 되어 이 검사가 항상 통과한다(#67 A-1). `ratioView` 자체를 재려면 **독립적인**
+ * 제2 의견이 있어야 하고, 여기서는 그것을 상수로 세운다.
+ */
+const LEDGER_R = 1.4;
 
 describe("좌표·해시가 화면 출력에 실제로 들어간다", () => {
   it("스냅숏 3종의 9개 스팬이 좌표·형식·평탄화 해시와 함께 그려진다", () => {
@@ -544,21 +552,21 @@ describe("유지비율 대조 — 카드 값과 화면 계산이 어긋날 때",
     ...hantoo,
     ratio_rules: [{ ...hantoo.ratio_rules[0]!, ratio: 1.7 }],
   });
-  const gapView = (card: ConditionCard) => ratioView(card, ACCOUNT.requiredRatio, pos);
+  const gapView = (card: ConditionCard) => ratioView(card, LEDGER_R, pos);
 
   it("어긋난 카드: 유지비율 행에 두 숫자가 함께 나간다 — 큰 값 옆에서", () => {
     const card = mismatch();
     const r = row(render(card, undefined, gapView(card)), "유지비율(ratio)");
 
     expect(r).toContain("170%"); // 카드가 적은 값 (기존 큰 숫자)
-    expect(r).toContain("계좌 원장의 유지비율 140%로 산출했습니다"); // 부족액을 만든 값
-    expect(r).toContain("옆 값 170%와 같지 않습니다");
+    expect(r).toContain("조건카드의 유지비율 170%로 산출했습니다"); // 부족액을 만든 값
+    expect(r).toContain("계좌 원장은 같은 자리에 140%를 적고 있어 같지 않습니다");
   });
 
   it("접기 밖이다 — 펼치지 않은 사람에게 도달한다", () => {
     const card = mismatch();
     const r = row(render(card, undefined, gapView(card)), "유지비율(ratio)");
-    expect(collapsed(r)).toContain("계좌 원장의 유지비율 140%로 산출했습니다");
+    expect(collapsed(r)).toContain("조건카드의 유지비율 170%로 산출했습니다");
   });
 
   /**
@@ -569,7 +577,8 @@ describe("유지비율 대조 — 카드 값과 화면 계산이 어긋날 때",
   it("otherFigures 문단보다 **앞에** 놓인다 — 뒤에 두면 두 문장이 부딪힌다", () => {
     const card = mismatch();
     const r = row(render(card, undefined, gapView(card)), "유지비율(ratio)");
-    const gapAt = r.indexOf("계좌 원장의 유지비율");
+    // (다) 채택으로 이 문장의 주어가 카드로 바뀌었다 — 앞머리로 찾는다
+    const gapAt = r.indexOf("조건카드의 유지비율");
     const otherAt = r.indexOf("함께 들어 있습니다");
     expect(gapAt).toBeGreaterThan(-1);
     if (otherAt > -1) expect(gapAt).toBeLessThan(otherAt);
@@ -603,7 +612,7 @@ describe("유지비율 대조 — 카드 값과 화면 계산이 어긋날 때",
 
     expect(html).toContain("evRatioGap");
     expect(html).toContain("담보유지비율 조항이 없습니다");
-    expect(html).toContain("계좌 원장의 유지비율 140%로 산출했고");
+    expect(html).toContain("계산의 기준값이 없어 임계가·담보부족액을 산출하지 않았습니다");
     // 행이 없으므로 행 안이 아니라 머리글 뒤에 있다
     expect(html.indexOf("evRatioGap")).toBeLessThan(html.indexOf('<div class="evRow">'));
   });
@@ -645,7 +654,7 @@ describe("유지비율 대조 — 카드 값과 화면 계산이 어긋날 때",
 
     expect(r).not.toContain("인용문에 이 표기 없음"); // figureInQuote=true
     expect(r).not.toContain("함께 들어 있습니다"); // otherFigures 없음
-    expect(r).toContain("계좌 원장의 유지비율 140%로 산출했습니다"); // 그래도 말한다
+    expect(r).toContain("조건카드의 유지비율 170%로 산출했습니다"); // 그래도 말한다
   });
 });
 
@@ -670,7 +679,7 @@ describe("룰이 여럿인 카드 — 근거 행이 대조가 본 조항을 찍�
     ratio_rules: rules.map((r) => ({ ...base, ...r })),
   });
   const bigValue = (html: string) => /class="evVal tnum">([^<]*)</.exec(html)?.[1];
-  const gapView = (card: ConditionCard, led: number = ACCOUNT.requiredRatio) =>
+  const gapView = (card: ConditionCard, led: number = LEDGER_R) =>
     ratioView(card, led, pos);
 
   it("통과: 근거로 찍는 값이 **부족액을 만든 값**이다 — 침묵이 참이 된다", () => {
@@ -699,7 +708,7 @@ describe("룰이 여럿인 카드 — 근거 행이 대조가 본 조항을 찍�
     const html = render(card, undefined, v);
 
     expect(bigValue(html)).toBe("170%");
-    expect(html).toContain("옆 값 170%와 같지 않습니다");
+    expect(html).toContain("계좌 원장은 같은 자리에 140%를 적고 있어 같지 않습니다");
     expect(v.banner).toContain("조건카드 170%"); // 배너도 같은 숫자를 말한다
     expect(html).not.toContain(">120%<"); // 화면에 없는 값을 "옆 값"이라 부르지 않는다
   });

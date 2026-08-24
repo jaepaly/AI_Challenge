@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { ConditionCard, RatioRule } from "@marginguard/engine";
-import { CARDS, ACCOUNT, positions } from "./snapshot";
+import { CARDS, positions } from "./snapshot";
 import { ratioView } from "./ratio-view";
 
 const hantoo = CARDS.find((c) => c.key === "hantoo")!.card;
@@ -42,10 +42,18 @@ function allText(v: ReturnType<typeof ratioView>): string {
   return [v.banner, v.blockReason, v.evidenceNote, v.detail].filter((s) => s !== null).join("\n");
 }
 
+/**
+ * 실계좌를 가정한 원장 r. **`ledger()` 에서 읽지 않는다** — (다) 채택 이후 합성
+ * 원장은 카드에서 파생되므로, 그걸 대조 상대로 쓰면 카드를 자기 자신과 맞대 보게
+ * 되어 이 검사가 항상 통과한다(#67 A-1). `ratioView` 자체를 재려면 **독립적인**
+ * 제2 의견이 있어야 하고, 여기서는 그것을 상수로 세운다.
+ */
+const LEDGER_R = 1.4;
+
 describe("일치 — 아무 말도 하지 않는다", () => {
   it("프리셋 3장 전부 통과하고 문구가 하나도 생기지 않는다 (긍정 배지 금지)", () => {
     for (const preset of CARDS) {
-      const v = ratioView(preset.card, ACCOUNT.requiredRatio, pos);
+      const v = ratioView(preset.card, LEDGER_R, pos);
       expect(v.confirmed).toBe(true);
       expect(v.banner).toBeNull();
       expect(v.blockReason).toBeNull();
@@ -66,7 +74,7 @@ describe("일치 — 아무 말도 하지 않는다", () => {
 });
 
 describe("어긋남 — 두 숫자를 나란히 놓는 데까지만 말한다", () => {
-  const v = ratioView(withRatios([{ ratio: 1.7 }]), ACCOUNT.requiredRatio, pos);
+  const v = ratioView(withRatios([{ ratio: 1.7 }]), LEDGER_R, pos);
 
   it("차단하고, 네 문장이 모두 생긴다", () => {
     expect(v.confirmed).toBe(false);
@@ -94,8 +102,8 @@ describe("어긋남 — 두 숫자를 나란히 놓는 데까지만 말한다", 
 
   it("근거 패널 문장은 **부족액이 어느 값으로 나왔는지**를 밝힌다", () => {
     // 이 문장이 없으면 사용자는 근거 좌표가 붙은 170%가 부족액을 만든 값이라고 읽는다
-    expect(v.evidenceNote).toContain("계좌 원장의 유지비율 140%로 산출했습니다");
-    expect(v.evidenceNote).toContain("옆 값 170%와 같지 않습니다");
+    expect(v.evidenceNote).toContain("조건카드의 유지비율 170%로 산출했습니다");
+    expect(v.evidenceNote).toContain("계좌 원장은 같은 자리에 140%를 적고 있어 같지 않습니다");
   });
 
   it("차단 사유는 기존 두 사유와 같은 꼴이다 — 사실 — 하지 않는 것", () => {
@@ -154,7 +162,7 @@ describe("맞춰 볼 값이 없는 카드", () => {
     expect(v.confirmed).toBe(false);
     expect(v.agreement.why).toBe("NO_RULE");
     expect(v.banner).toContain("담보유지비율 조항이 없습니다");
-    expect(v.evidenceNote).toContain("계좌 원장의 유지비율 140%로 산출했고");
+    expect(v.evidenceNote).toContain("계산의 기준값이 없어 임계가·담보부족액을 산출하지 않았습니다");
     for (const word of VERDICT_WORDS) expect(allText(v)).not.toContain(word);
   });
 
@@ -169,16 +177,23 @@ describe("맞춰 볼 값이 없는 카드", () => {
   });
 
   /**
-   * 이 분기만 기준을 밝히지 않으면 화면에 남는 유일한 큰 숫자(담보부족액)가
-   * 기준 없이 서게 된다. 나머지 셋(COMPARED·AMBIGUOUS·NO_RULE)은 전부
-   * "계좌 원장의 유지비율 140%로 산출한 값입니다"로 시작한다.
+   * ⚠ **이 검사의 전제가 (다) 채택으로 바뀌었다**(#67 A-1).
+   *
+   * 전에는 화면이 원장 r 로 계산했으므로 카드를 못 읽어도 담보부족액이 남았고,
+   * 그래서 *"그 큰 숫자가 기준 없이 서지 않게"* 원장 값을 밝혀야 했다.
+   *
+   * 이제는 **카드가 계산을 구동한다.** 카드를 못 읽으면 부족액도 임계가도 λ* 도
+   * 아예 없다 — 기준을 밝힐 숫자가 없다. 그래서 문장이 말해야 하는 것은
+   * *"무엇으로 산출했는가"* 가 아니라 **"산출하지 않았다, 원장으로 메우지도 않았다"**
+   * 이다. 원장 값을 대신 쓰면 그 순간 (다)가 아니다.
    */
-  it("카드만 못 읽었으면 원장 값은 말한다 — 부족액이 기준 없이 서지 않는다", () => {
+  it("카드를 못 읽으면 산출하지 않았다고 말한다 — 원장으로 메우지 않는다", () => {
     const v = ratioView(withRatios([{ ratio: Number.NaN }]), 1.4, pos);
-    expect(v.evidenceNote).toContain("계좌 원장의 유지비율 140%로 산출했습니다");
-    // 호출부가 "담보부족액 300,000원은 " 뒤에 그대로 이어 붙인다 — 주어와 붙는
-    // 서술어로 시작해야 문장이 깨지지 않는다(넷이 같은 꼴이다)
-    expect(v.detail).toMatch(/^계좌 원장의 유지비율 140%로 산출한 값입니다\./);
+    expect(v.evidenceNote).toContain("산출하지 않았습니다");
+    expect(v.evidenceNote).toContain("대신 메우지 않습니다");
+    expect(v.detail).toContain("산출하지 않았습니다");
+    // 원장 값을 "이 값으로 산출했다"로 말하면 안 된다
+    expect(v.evidenceNote).not.toMatch(/원장의 140%로 산출/);
     for (const word of VERDICT_WORDS) expect(allText(v)).not.toContain(word);
   });
 

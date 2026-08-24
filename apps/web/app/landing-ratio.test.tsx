@@ -22,14 +22,44 @@ const BUILD = { sha: "test", builtAt: "2026-08-19T00:00:00Z" } as unknown as Bui
 
 const SNAPSHOT = "../lib/marginguard/snapshot";
 
+/**
+ * 원장이 말하는 유지비율. **실계좌를 가정한 제2 의견이다.**
+ *
+ * ⚠ `#67` A-1 (다) 채택 이후 합성 원장은 **카드에서 파생**된다. 그래서 아무것도 안
+ *   하면 이 파일의 검사가 카드를 자기 자신과 맞대 보게 되고 **전부 통과한다** —
+ *   실제로 그렇게 됐고 10건이 한꺼번에 초록이 됐다(배선하면서 확인).
+ *
+ *   이 파일이 지키는 요구사항은 사라지지 않았다: *"원장과 카드가 다른 값을 말하면
+ *   화면이 둘 다 낸다."* 그건 **실계좌가 붙는 순간 다시 실재**한다. 그래서 원장을
+ *   목으로 고정해 그 상황을 만든다 — 검사를 지우는 대신 전제를 명시한다.
+ */
+const LEDGER_R = 1.4;
+
+/** 카드와 무관한 원장을 세운다 — 실계좌가 붙었을 때의 모양 */
+function fixedLedger(actual: typeof import("../lib/marginguard/snapshot")) {
+  return {
+    ledger: () => ({ loan: actual.ACCOUNT.loan, cash: actual.ACCOUNT.cash, requiredRatio: LEDGER_R }),
+    portfolioLedger: () => ({ loan: 6_000_000, cash: 0, requiredRatio: LEDGER_R }),
+  };
+}
+
 /** 첫 프리셋(기본 선택)의 유지비율만 갈아 끼운 랜딩을 SSR 렌더한다 */
-async function renderWithCardRatio(ratio: number | null): Promise<string> {
+async function renderWithCardRatio(
+  ratio: number | null,
+  /**
+   * `independentLedger: false` 면 **실제 `ledger()` 를 그대로 쓴다** — 카드에서 파생되는
+   * 진짜 동작이다. 기본값이 true 인 이유는 이 파일의 다른 검사들이 *"두 값이 다를 때"* 를
+   * 재기 때문이고, 그 상황은 실계좌가 붙어야 생긴다(#67 A-1).
+   */
+  { independentLedger = true }: { independentLedger?: boolean } = {},
+): Promise<string> {
   vi.resetModules();
   if (ratio !== null) {
     vi.doMock(SNAPSHOT, async () => {
       const actual = await vi.importActual<typeof import("../lib/marginguard/snapshot")>(SNAPSHOT);
       return {
         ...actual,
+        ...(independentLedger ? fixedLedger(actual) : {}),
         CARDS: actual.CARDS.map((c, i) =>
           i === 0
             ? { ...c, card: { ...c.card, ratio_rules: [{ ...c.card.ratio_rules[0]!, ratio }] } }
@@ -52,7 +82,8 @@ async function renderWith(
   vi.resetModules();
   vi.doMock(SNAPSHOT, async () => {
     const actual = await vi.importActual<typeof import("../lib/marginguard/snapshot")>(SNAPSHOT);
-    return { ...actual, ...patch(actual) };
+    // patch 를 뒤에 둔다 — 개별 검사가 원장까지 갈아 끼우고 싶으면 덮을 수 있어야 한다
+    return { ...actual, ...fixedLedger(actual), ...patch(actual) };
   });
   const { default: Landing } = await import("./landing");
   return renderToStaticMarkup(<Landing build={BUILD} />);
@@ -101,8 +132,8 @@ describe("어긋난 카드 — 화면이 그 사실을 낸다", () => {
     expect(html).toContain("유지비율(ratio)");
     expect(html).toContain(">170%<");
     // 그리고 바로 그 자리에서 화면의 계산이 쓴 값을 밝힌다
-    expect(html).toContain("계좌 원장의 유지비율 140%로 산출했습니다");
-    expect(html).toContain("옆 값 170%와 같지 않습니다");
+    expect(html).toContain("조건카드의 유지비율 170%로 산출했습니다");
+    expect(html).toContain("계좌 원장은 같은 자리에 140%를 적고 있어 같지 않습니다");
   });
 
   it("어느 쪽이 틀렸다고 말하지 않는다 — 화면 전체에 판정 어투가 없다", async () => {
@@ -119,7 +150,13 @@ describe("어긋난 카드 — 화면이 그 사실을 낸다", () => {
    * SSR 첫 페인트에서는 기본 가격 10,000원 > 임계가라 breached=false다.
    */
   it("관통 전(breached=false)에도, 신선도가 판정되기 전(SSR)에도 뜬다", async () => {
-    const html = await renderWithCardRatio(1.7);
+    /**
+     * ⚠ **1.3 이다(전에는 1.7).** (다) 채택 후 카드가 임계가를 구동하므로 1.7 이면
+     *   임계가가 10,200원이 되어 기본 가격 10,000원에서 **이미 관통**이다 — 그러면
+     *   이 검사가 "관통 전"을 못 잰다. 1.3 이면 임계가 7,800원이라 관통 전이고,
+     *   원장 1.4 와는 여전히 어긋나 배너가 뜬다. **재는 것은 그대로다.**
+     */
+    const html = await renderWithCardRatio(1.3);
 
     expect(html).toContain('data-state="safe"'); // 아직 관통 전
     expect(html).not.toContain('id="liqBox"'); // 처분 블록 자체가 DOM에 없다
@@ -156,7 +193,9 @@ describe("어긋난 카드 — 화면이 그 사실을 낸다", () => {
     // 계기판 3칸(담보비율·λ*·카드 상태)은 어긋남과 무관하게 그대로다
     expect(html).toContain("담보비율");
     expect(html).toContain("전 종목 균등 하락 여유 λ*");
-    expect(html).toContain("임계가 8,400원"); // 임계가는 원장 r로 정해진다 — 변하지 않는다
+    // ⚠ 임계가가 **카드 r 로 정해진다**(1.7 × 600만 ÷ 1,000주 = 10,200원). 전에는
+    //   "원장 r로 정해진다 — 변하지 않는다"라고 적혀 있었고, 그게 (다)가 고친 결함이다.
+    expect(html).toContain("임계가 10,200원");
   });
 });
 
@@ -230,7 +269,7 @@ describe("룰이 여럿인 카드 — 근거와 계산이 같은 조항을 본�
     );
     expect(evidenceRatio(html)).toBe("170%");
     expect(html).toContain("조건카드 170%");
-    expect(html).toContain("옆 값 170%와 같지 않습니다");
+    expect(html).toContain("계좌 원장은 같은 자리에 140%를 적고 있어 같지 않습니다");
     expect(html).not.toContain(">120%<"); // 화면에 없는 값을 "옆 값"이라 부르지 않는다
   });
 
@@ -250,27 +289,34 @@ describe("룰이 여럿인 카드 — 근거와 계산이 같은 조항을 본�
 });
 
 /**
- * 관통 전 화면 — 떠 있는 수치가 **어느 r에서 나왔는지** 말하는가.
+ * 어긋난 화면이 **어느 r에서 나왔는지** 말하는가.
  *
- * 기본 가격 10,000원에서는 담보부족액이 렌더되지 않는다. 그런데 임계가·여유·λ*는
- * 전부 원장 r로 만든 값이고, 어긋난 상태에서 카드 쪽이 맞다면 이 계좌는 이미 부족이다
- * (카드 1.7이면 임계가 10,200원 · 부족 200,000원). 어긋남이 가장 위험한 구간이다.
+ * ⚠ **이 블록이 존재한 이유가 (다) 채택으로 해소됐다**(#67 A-1). 원래 주석은 이랬다::
+ *
+ *     기본 가격 10,000원에서는 담보부족액이 렌더되지 않는다. 그런데 임계가·여유·λ*는
+ *     전부 원장 r로 만든 값이고, 어긋난 상태에서 카드 쪽이 맞다면 이 계좌는 이미
+ *     부족이다(카드 1.7이면 임계가 10,200원 · 부족 200,000원).
+ *
+ * 즉 **위험이 화면 뒤에 숨어 있었다** — 원장 1.4 기준으로는 "아직 여유 있음"인데
+ * 카드가 맞다면 이미 부족인 구간이다. 이제 카드가 구동하므로 그 부족이 **화면에
+ * 그대로 뜬다.** 검사도 그것을 재도록 바꾼다: 숨은 위험을 배너로 설명하는 것에서,
+ * **위험이 실제로 표시되는지** 확인하는 것으로.
  */
-describe("관통 전 — 화면의 수치가 어느 기준인지 말한다", () => {
-  it("배너가 기준을 밝힌다 — 화면에 없는 값만 가리키고 끝나지 않는다", async () => {
+describe("어긋난 화면 — 카드가 위험하다면 그 위험이 보인다", () => {
+  it("카드 기준으로 이미 부족이면 화면이 부족을 낸다 — 숨기지 않는다", async () => {
     const html = await renderWithCardRatio(1.7);
 
-    expect(html).toContain('data-state="safe"');
-    expect(html).not.toContain("담보부족 300,000원"); // 부족액은 렌더되지 않는다
-    expect(html).toContain("임계가 8,400원");
-    expect(html).toContain("임계가까지 여유");
-    // 실제로 떠 있는 숫자들의 기준을 배너가 적는다
-    expect(html).toContain("이 화면의 임계가·담보부족액·λ*는 계좌 원장 140% 기준으로 산출했습니다");
+    // 원장 1.4 기준이면 "여유 있음"이던 자리다. 카드 1.7 이 구동하므로 관통이다.
+    expect(html).toContain('data-state="breach"');
+    expect(html).toContain("담보부족 200,000원");
+    expect(html).toContain("임계가 10,200원");
+    // 그 숫자가 어디서 왔는지도 함께 적는다
+    expect(html).toContain("이 화면의 임계가·담보부족액·λ*는 조건카드의 170%로 산출했습니다");
   });
 
   it("근거 행 문구도 화면에 없는 값만 가리키지 않는다", async () => {
     const html = await renderWithCardRatio(1.7);
-    expect(html).toContain("이 화면의 임계가·담보부족액은 계좌 원장의 유지비율 140%로 산출했습니다");
+    expect(html).toContain("이 화면의 임계가·담보부족액은 조건카드의 유지비율 170%로 산출했습니다");
   });
 
   it("담보비율은 기준 문장에 넣지 않는다 — V/L이라 r과 무관하다", async () => {
@@ -307,5 +353,67 @@ describe("회사별 비교 — 빠진 행의 사유를 적는다", () => {
     const html = await renderWith(() => ({ PRICE_START: 8_100 }));
     expect(html).not.toContain("산정 불가");
     expect(html).not.toContain('class="cmpWhy"');
+  });
+});
+
+/**
+ * (다) 채택이 **무엇을 고쳤는지** 재는 자리(#67 A-1, #64 P0-1).
+ *
+ * 이 검사들이 없으면 위의 다른 검사들은 전부 *"어긋났을 때 어떻게 보이는가"* 만 재고,
+ * **카드가 계산을 구동한다**는 주장 자체는 아무도 안 본다.
+ */
+describe("카드가 계산을 구동한다", () => {
+  it("🔴 업로드한 1.5 카드가 수량을 낸다 — 전에는 영구 차단이었다", async () => {
+    /**
+     * 2026-08-24 실측: 원장이 리터럴 1.4 이던 시절, r ≠ 1.4 카드는 **전부** 차단됐다.
+     *
+     *     카드 r=1.5  → "유지비율 150%와 계좌 원장의 140%가 같지 않습니다"
+     *     카드 r=1.2  → 차단        카드 r=1.05 → 차단
+     *
+     * 우리가 확보한 원문 기준으로 **차단되는 쪽이 다수**였다(메리츠 C∙D군 150 · 한투
+     * 대주 120·대주전용 105 · 신한 105·120·170 · 미래에셋 145·120·105). 즉 *"심사위원이
+     * 자기 약관을 올려 본다"* 는 데모가 실제 문서 대부분에서 "산정 불가"를 냈다.
+     */
+    const html = await renderWithCardRatio(1.5, { independentLedger: false });
+    expect(html).not.toContain("같지 않습니다");
+    expect(html).not.toContain('id="ratioBanner"');
+    // 1.5 × 600만 ÷ 1,000주 = 9,000원 — 기본가 10,000원이면 아직 관통 전
+    expect(html).toContain("임계가 9,000원");
+  });
+
+  it("카드 r 을 바꾸면 임계가가 따라온다 — 되돌리면 원래 값", async () => {
+    const at = async (ratio: number | null) =>
+      /임계가 ([0-9,]+)원/.exec(await renderWithCardRatio(ratio, { independentLedger: false }))?.[1];
+    // ⚠ `null` 로 되돌리지 않는다 — 헬퍼가 null 이면 doMock 을 안 걸어 **앞 검사의
+    //   목이 남는다**(실제로 7,200 이 새어 나왔다). 값을 명시해 왕복을 잰다.
+    expect(await at(1.4)).toBe("8,400");
+    expect(await at(1.5)).toBe("9,000");
+    expect(await at(1.2)).toBe("7,200");
+    expect(await at(1.4)).toBe("8,400"); // 되돌아온다
+  });
+
+  it("카드가 r 을 하나로 못 정하면 숫자를 하나도 내지 않는다 — NaN 을 찍지 않는다", async () => {
+    const html = await renderWith((actual) => ({
+      CARDS: actual.CARDS.map((c, i) =>
+        i === 0
+          ? {
+              ...c,
+              card: {
+                ...c.card,
+                ratio_rules: [
+                  { ...c.card.ratio_rules[0]!, ratio: 1.4, symbol_group: "A∙B군" },
+                  { ...c.card.ratio_rules[0]!, ratio: 1.5, symbol_group: "C∙D군" },
+                ],
+              },
+            }
+          : c,
+      ),
+      ledger: () => ({ loan: actual.ACCOUNT.loan, cash: actual.ACCOUNT.cash, requiredRatio: Number.NaN }),
+      portfolioLedger: () => ({ loan: 6_000_000, cash: 0, requiredRatio: Number.NaN }),
+    }));
+    // 메리츠형 — 종목군이 '일반'이라 A∙B군/C∙D군 어느 쪽도 안 걸린다
+    expect(html).not.toContain("NaN");
+    expect(html).toContain("유지비율을 정하지 못했습니다");
+    expect(html).toContain("임계가 —");
   });
 });
