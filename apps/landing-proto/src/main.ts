@@ -88,7 +88,7 @@ function render() {
   $("priceBubble").textContent = won(price);
   document.body.dataset.state = breached ? "breach" : "safe";
 
-  // ① 안전 여유 먼저 (기획서 4-2 표시 순서 규약)
+  // ① 안전 여유 먼저 (submission/attachment1-plan.md §4-5 표시 순서 규약)
   if (!breached) {
     const gapPct = (((price - P_STAR) / price) * 100).toFixed(1);
     $("headline").textContent = `임계가까지 여유 ${gapPct}%`;
