@@ -8,6 +8,8 @@ on:
 jobs:
   test:
     name: 테스트 (전 워크스페이스)
+    # 매달린 잡은 기본 6시간까지 분을 태운다(2026-08-24 배포 워크플로 실측).
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +25,8 @@ jobs:
 
   build:
     name: 빌드 (전 워크스페이스)
+    # 매달린 잡은 기본 6시간까지 분을 태운다(2026-08-24 배포 워크플로 실측).
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +39,8 @@ jobs:
 
   lint:
     name: 린트 (전 워크스페이스)
+    # 매달린 잡은 기본 6시간까지 분을 태운다(2026-08-24 배포 워크플로 실측).
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +56,8 @@ jobs:
 
   python:
     name: 테스트 (Python 인제스트)
+    # 매달린 잡은 기본 6시간까지 분을 태운다(2026-08-24 배포 워크플로 실측).
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     # services/ingest의 테스트는 #38 시점까지 CI에서 한 번도 돌지 않았다.
     # 위 세 잡이 Node 워크스페이스만 보기 때문이다 — 파싱·근거 좌표·스키마
@@ -99,6 +107,8 @@ jobs:
 
   e2e:
     name: E2E (브라우저)
+    # 매달린 잡은 기본 6시간까지 분을 태운다(2026-08-24 배포 워크플로 실측).
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     # 다른 잡이 못 보는 것만 본다 — jsdom 은 브라우저가 아니다. 2026-08-23 #73
     # 리뷰에서 A 가 짚었다: "브라우저 매트릭스·E2E·수동 점검 기록은 저장소 전체에
