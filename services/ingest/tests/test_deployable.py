@@ -128,9 +128,17 @@ class DeployBundleRunsTest(unittest.TestCase):
                 inside = Path(rel).relative_to("services/ingest")
                 if inside.parts and inside.parts[0] in EXCLUDED_DIRS:
                     continue  # vercel.json 의 excludeFiles 와 같은 뜻
+                source = REPO_ROOT / rel
+                if not source.exists():
+                    # 인덱스에는 있는데 디스크에 없다 = 삭제를 아직 `git add` 안 했다.
+                    # 그냥 건너뛰면 번들이 조용히 달라지므로, 무엇을 하라고 말한다.
+                    self.fail(
+                        f"{rel} 이 인덱스에는 있는데 디스크에 없다 — 삭제를 스테이지하지 "
+                        "않았다. `git add -A` 한 뒤 다시 돌려라."
+                    )
                 target = bundle / inside
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(REPO_ROOT / rel, target)
+                shutil.copyfile(source, target)
             self.assertFalse(
                 (bundle.parents[2] / "schemas").exists(),
                 "번들 위에 schemas/ 가 있으면 이 검사가 아무것도 확인하지 못한다",
@@ -247,6 +255,62 @@ class DeployWorkflowTest(unittest.TestCase):
         web, ingest = "\n".join(lines[:split]), "\n".join(lines[split:])
         self.assertIn("secrets.VERCEL_PROJECT_ID", web)
         self.assertNotIn("secrets.VERCEL_PROJECT_ID }}", ingest.replace("VERCEL_INGEST_PROJECT_ID", ""))
+
+
+class BuilderInputsTest(unittest.TestCase):
+    """Vercel 파이썬 빌더가 **무엇을 보고 무엇을 하는지** 고정한다."""
+
+    def test_pyproject_is_absent_or_declares_a_project_table(self) -> None:
+        """`pyproject.toml` 이 있으면 `[project]` 가 **반드시** 있어야 한다.
+
+        2026-08-24 배포가 여기서 멈췄다(C 실측)::
+
+            Failed to run "uv lock --python …/.venv/bin/python"
+            error: No `project` table found in: /vercel/path0/pyproject.toml
+
+        Vercel 빌더는 `pyproject.toml` 을 보면 PEP 621 프로젝트로 여기고 `uv lock` 을
+        돌린다. 우리 파일에는 `[tool.pytest.ini_options]` 뿐이었다.
+
+        그래서 pytest 설정을 `pytest.ini` 로 옮기고 이 파일을 없앴다. 누가 다시 만들면
+        **의존성 선언이 두 곳**이 될 위험도 함께 생기므로(아래 검사), 여기서 막는다.
+        """
+        path = INGEST_ROOT / "pyproject.toml"
+        if not path.exists():
+            return
+        self.assertIn(
+            "[project]",
+            path.read_text(encoding="utf-8"),
+            "pyproject.toml 이 있는데 `[project]` 가 없다 — Vercel 의 `uv lock` 이 거부한다. "
+            "pytest 설정만 담을 거라면 pytest.ini 를 써라.",
+        )
+
+    def test_dependencies_are_declared_in_exactly_one_place(self) -> None:
+        """의존성 정본은 `requirements.txt` 하나다.
+
+        `pyproject.toml` 에 `[project].dependencies` 를 적으면 `test_dependency_bounds`
+        (축 A·B)와 `test_lockfile`(CI 설치 경로)이 **그 목록을 못 본다.** 상한이 한쪽에만
+        붙어도 아무도 모르는 상태가 된다 — `#71` 이 정확히 그 모양이었다(선언은 있는데
+        읽는 설치가 없었다).
+        """
+        path = INGEST_ROOT / "pyproject.toml"
+        if not path.exists():
+            return
+        self.assertNotIn(
+            "dependencies",
+            path.read_text(encoding="utf-8"),
+            "pyproject.toml 이 의존성을 선언한다 — requirements.txt 와 두 곳이 된다.",
+        )
+
+    def test_pytest_config_survives_somewhere(self) -> None:
+        """`pythonpath` 가 사라지면 루트에서 돌릴 때 `app` 모듈을 못 찾는다(#26)."""
+        candidates = [INGEST_ROOT / "pytest.ini", INGEST_ROOT / "pyproject.toml", INGEST_ROOT / "setup.cfg"]
+        found = [c for c in candidates if c.exists() and "pythonpath" in c.read_text(encoding="utf-8")]
+        self.assertNotEqual(
+            found,
+            [],
+            "pytest 의 pythonpath 설정이 어디에도 없다 — 리포 루트에서 돌리면 "
+            "`ModuleNotFoundError: No module named 'app'` 이 난다(#26).",
+        )
 
 
 class PythonVersionTest(unittest.TestCase):
