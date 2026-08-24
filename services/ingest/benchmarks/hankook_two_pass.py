@@ -411,16 +411,23 @@ def run_hankook(
     }
 
 
-def _write_result(path: Path, result: Mapping[str, Any]) -> None:
-    """결과를 기록한다. **기존 파일은 어떤 경우에도 덮지 않는다.**
+def _write_result(path: Path, result: Mapping[str, Any], *, overwrite: bool = False) -> None:
+    """결과를 기록한다. **기존 파일은 물어보지 않는 한 덮지 않는다.**
 
     유료 실행 1회의 산출물은 되돌릴 수 없다. 경로 선택이 이미 빈 자리를
     고르므로 여기서 걸리면 그 사이에 파일이 생긴 것이다 — 조용히 덮는 대신
     던져서 호출부가 다른 자리에 남기게 한다.
+
+    ⚠ `overwrite` 는 **사람이 명시적으로 요구했을 때만** 참이다. 8차 성공을 정본으로
+      올리는 것 같은 판단은 있을 수 있지만, 그건 **결정**이지 부수효과가 아니다.
+      기본값이 거짓인 것이 이 함수의 계약이다.
     """
 
-    if path.exists():
-        raise FileExistsError(f"{path} 가 이미 있다 — 기존 기록을 덮지 않는다")
+    if path.exists() and not overwrite:
+        raise FileExistsError(
+            f"{path} 가 이미 있다 — 기존 기록을 덮지 않는다.\n"
+            f"  정말 이 자리를 갱신하려면: --overwrite"
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
@@ -481,6 +488,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--approve-max-krw", type=float)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="이미 있는 결과 파일을 덮는다. 되돌릴 수 없는 유료 실행 기록을 지우는 "
+        "행위이므로 **사람이 판단해서** 붙인다(기본값은 거부).",
+    )
     return parser
 
 
@@ -493,9 +506,10 @@ def main() -> None:
     if args.approve_max_krw is None:
         raise SystemExit("--execute에는 --approve-max-krw가 필수입니다")
     # 유료 호출 **전에** 막는다 — 실행한 뒤에 거절하면 되돌릴 수 없는 결과를 잃는다.
-    if args.output is not None and args.output.exists():
+    if args.output is not None and args.output.exists() and not args.overwrite:
         raise SystemExit(
-            f"--output {args.output} 가 이미 있다 — 기존 기록을 덮지 않는다. 호출하지 않았다."
+            f"--output {args.output} 가 이미 있다 — 기존 기록을 덮지 않는다. 호출하지 않았다.\n"
+            f"  정말 이 자리를 갱신하려면: --overwrite"
         )
 
     api_key = dotenv_values(repo_root / ".env").get("ANTHROPIC_API_KEY")
@@ -512,7 +526,7 @@ def main() -> None:
         raise SystemExit(str(error)) from None
 
     output = args.output or _default_result_path(repo_root, result)
-    if output.exists():
+    if output.exists() and not args.overwrite:
         # 그 사이 생겼다면 결과를 버리지 않고 옆자리에 남긴다 — 재실행은 유료다.
         rescue = _next_attempt_path(
             _results_dir(repo_root),
@@ -520,7 +534,7 @@ def main() -> None:
         )
         print(f"경고: {output} 가 이미 있어 {rescue} 에 기록한다", file=sys.stderr)
         output = rescue
-    _write_result(output, result)
+    _write_result(output, result, overwrite=args.overwrite)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "completed":
         raise SystemExit(1)

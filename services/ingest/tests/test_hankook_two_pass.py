@@ -1,5 +1,6 @@
 from base64 import urlsafe_b64encode
 import json
+import re
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from benchmarks.hankook_two_pass import (
     HANKOOK_FILENAME,
     _default_result_path,
     _next_attempt_path,
+    _parser,
     _write_result,
     build_dry_run_plan,
     evidence_span_report,
@@ -143,6 +145,43 @@ class HankookTwoPassGateTest(unittest.TestCase):
                 _write_result(path, {"status": "completed"})
 
             self.assertEqual(path.read_text(encoding="utf-8"), "기존")
+
+    def test_overwrite_is_possible_but_must_be_asked_for(self) -> None:
+        """8차를 정본으로 올리는 판단은 있을 수 있다 — 다만 **결정**이지 부수효과가 아니다.
+
+        탈출구가 없으면 사람이 결국 파일을 손으로 옮기고, 그때는 아무 기록도 안 남는다.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "hankook_two_pass.json"
+            path.write_text("기존", encoding="utf-8")
+
+            _write_result(path, {"status": "completed", "새": True}, overwrite=True)
+
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8")),
+                {"status": "completed", "새": True},
+            )
+
+    def test_the_cli_exposes_the_flag_the_error_message_names(self) -> None:
+        """거절 문구가 `--overwrite` 를 이름으로 부른다 — 그 플래그가 실제로 있어야 한다.
+
+        플래그를 지우거나 이름을 바꾸면 문구가 **없는 탈출구를 안내**하게 된다.
+        문구와 파서를 따로 두면 어긋나도 아무도 모르므로 여기서 묶는다.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "hankook_two_pass.json"
+            path.write_text("기존", encoding="utf-8")
+            with self.assertRaises(FileExistsError) as caught:
+                _write_result(path, {"status": "completed"})
+
+        named = re.findall(r"--[a-z-]+", str(caught.exception))
+        self.assertIn("--overwrite", named)
+
+        parsed = _parser().parse_args(["--overwrite"])
+        self.assertTrue(parsed.overwrite)
+        self.assertFalse(_parser().parse_args([]).overwrite)  # 기본값은 거부다
 
     def test_canonical_record_is_still_the_fourth_success(self) -> None:
         """정본이 **여전히 4차 성공인지** 파일끼리 대조한다.
