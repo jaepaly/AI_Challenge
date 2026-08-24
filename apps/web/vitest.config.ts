@@ -8,6 +8,14 @@ import { resolve } from "node:path";
  * 런타임 보호는 Next가 빌드 시점에 하고, 여기서는 모듈을 열기만 한다.
  */
 export default defineConfig({
+  test: {
+    /**
+     * ⚠ e2e/ 는 vitest 가 집으면 안 된다. playwright spec 이라 `@playwright/test`
+     * 의 test/expect 를 쓰는데, vitest 가 그걸 로드하면 러너가 둘이 겹쳐 죽는다.
+     * vitest 기본 include 가 `**\/*.{test,spec}.*` 라 이름만으로는 안 갈린다.
+     */
+    exclude: ["node_modules/**", "dist/**", ".next/**", "e2e/**"],
+  },
   resolve: {
     alias: {
       "server-only": resolve(__dirname, "test/stubs/empty.ts"),

@@ -169,7 +169,10 @@ export default function EvidencePanel({
   const hasRatioRow = view.rows.some((r) => r.role === "ratio");
 
   return (
-    <section className="ev" aria-label="약관 근거">
+    // id 는 E2E 가 이 패널 안으로 범위를 좁히는 데 쓴다. 클래스명으로 잡으면
+    // 나중에 스타일을 만질 때 검사가 조용히 다른 것을 보게 된다 — 실제로 `#75` 에서
+    // `getByText("140%").first()` 가 근거 패널이 아니라 상단 스냅숏 고지문을 잡고 있었다.
+    <section id="evidencePanel" className="ev" aria-label="약관 근거">
       {/* 제목이 "이 수치가 나온 문장"이면 행마다 출처를 단언하는 것이 된다. 화면이
           보증할 수 있는 것은 "이 인용문이 원문 그 좌표에 있다"까지이고, 그 문장이 옆
           수치를 뒷받침하는지는 어느 행에서도 판정하지 않는다 — 표기가 인용문에 글자로
