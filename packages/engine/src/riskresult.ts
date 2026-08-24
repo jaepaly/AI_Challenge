@@ -29,6 +29,12 @@ import {
   resolutionPaths,
   shortfall,
 } from "./index";
+import {
+  centi,
+  narrowRatioRules,
+  policyRatio,
+  PolicyRatioUnresolvedError,
+} from "./policy-ratio";
 
 /**
  * 카드에서 처분 산정 h를 뽑는다 — 못 뽑으면 null (throw하지 않는 조회용).
@@ -44,26 +50,7 @@ export function disposalDiscountRate(card: ConditionCard): number | null {
   return rule.discount_rate ?? null;
 }
 
-/**
- * 비교 격자 — shortfall·restorationCoefficientMicro·equalShockLambda가 쓰는 그 양자화.
- * 같은 격자를 쓰는 것이 요점이다: centi가 같으면 D·처분수량·λ*가 증명 가능하게 같고,
- * 1 centi만 달라도 갈린다(실측: 195주 → 224주). 여기서 더 촘촘한 격자를 쓰면
- * 산출값이 실제로는 같은 카드를 막게 되고, 더 성긴 격자를 쓰면 갈리는 카드를 통과시킨다.
- */
-const centi = (x: number): number => Math.round(x * 100);
 
-/**
- * 융자행 판별 — **좁히기용이다. 게이트로 쓰지 말 것.**
- * product_type은 통제 어휘가 아니라 자유 문자열이라("신용융자"·"신용거래융자"·
- * "마진론"·"Margin Loan" 전부 실재 가능), 이걸 필터 게이트로 쓰면 어휘가 안 맞는
- * 순간 후보가 0이 되어 정상 카드를 막는다. 아래에서는 "좁혀지면 좁히고, 비면 버린다".
- *
- * 좁히기 두 축 중 **먼저** 도는 축이다 — 이것이 답하는 질문이 "이 조항이 이 원장에
- * 해당하는 상품인가"(관련성)이고, 종목군은 "해당하는 것들 중 어느 것"(선택)이라
- * 순서가 뒤집히면 선택이 관련 없는 조항을 골라 버린다. 상술은 ratioAgreement 머리글.
- */
-const isLoan = (productType: string): boolean =>
-  productType.includes("융자") && !productType.includes("대주");
 
 /** 카드 r ↔ 원장 r 대조 결과. */
 export interface RatioAgreement {
@@ -162,34 +149,15 @@ export function ratioAgreement(
 
   if (!Number.isFinite(requiredRatio)) return bad("NON_FINITE");
 
-  let candidates = card.ratio_rules;
-  // wire format은 minItems:1로 막지만 TS 타입은 빈 배열을 허용한다. 빈 카드에서
-  // 통과시키면 수량이 "카드 h + 아무도 맞춰 보지 않은 원장 r"을 한 식에 섞는다.
-  if (candidates.length === 0) return bad("NO_RULE");
-  // 유일성 검사보다 **먼저** 본다 — NaN은 Set에서 서로 같다고 취급돼 길이 1을 통과한다.
-  if (candidates.some((rule) => !Number.isFinite(rule.ratio))) return bad("NON_FINITE");
-
-  if (candidates.length > 1) {
-    // ① 관련성 — 이 원장은 융자 원장이다(D=max(0,r·L−V)가 융자 산식). 대주 조항이
-    //    섞여 있으면 먼저 뺀다. 전부 융자면 좁히지 않는다(정보가 없다).
-    const loans = candidates.filter((rule) => isLoan(rule.product_type));
-    if (loans.length > 0 && loans.length < candidates.length) candidates = loans;
-    // ② 선택 — 남은 것들 중 이 종목에 걸리는 것. 라벨 어휘가 안 맞아 비면 버린다.
-    const group = pos?.group;
-    if (candidates.length > 1 && group !== undefined && group !== null) {
-      const matched = candidates.filter((rule) => rule.symbol_group === group);
-      if (matched.length > 0) candidates = matched; // 좁히되 비우지 않는다
-    }
-  }
+  const narrowed = narrowRatioRules(card, pos);
+  if (narrowed.why !== "OK") return bad(narrowed.why);
 
   // 길이가 아니라 **값의 갈림**으로 판정한다 — 같은 값이 두 줄 있는 카드는 정상이다.
-  const cardRatios = [...new Set(candidates.map((rule) => centi(rule.ratio)))].sort(
-    (a, b) => a - b,
-  );
+  const cardRatios = narrowed.centis;
   return {
     agreed: cardRatios.length === 1 && cardRatios[0] === ledgerRatio,
     cardRatios,
-    selected: candidates,
+    selected: narrowed.selected,
     ledgerRatio,
     why: cardRatios.length === 1 ? "COMPARED" : "AMBIGUOUS",
   };
@@ -222,7 +190,20 @@ export function assembleRiskResult(p: {
   if (p.positions.length !== 1 || !pos) {
     throw new Error("assembleRiskResult: 단일 종목 계좌만 지원한다 — 다종목은 #23 머지 후");
   }
-  const r = p.ledger.requiredRatio;
+  /**
+   * **r 은 카드가 정한다** (#67 A-1 · 채택안 (다)).
+   *
+   * 전에는 `p.ledger.requiredRatio` 하나에서만 뽑았고 카드의 `ratio_rules[].ratio`
+   * 는 처분 수량을 막는 데만 쓰였다 — 카드를 1.5 로 바꿔도 부족액이 안 따라왔다.
+   * 이제 부족액·담보비율·λ*·해소 4경로가 전부 이 값에서 나온다.
+   *
+   * ⚠ 카드가 하나로 못 주면 **던진다.** 원장 리터럴로 메우면 그 순간 (다) 가 아니고,
+   *   화면이 어디서 온지 모르는 숫자를 근거 옆에 놓게 된다. 호출부는 `policyRatio`
+   *   를 먼저 봐서 *"유지비율을 하나로 정하지 못했습니다"* 를 그린다.
+   */
+  const policy = policyRatio(p.card, pos);
+  if (!policy.resolved) throw new PolicyRatioUnresolvedError(policy.why, policy.candidates);
+  const r = policy.ratio;
   const V = pos.qty * pos.prevClose + p.ledger.cash;
   const D = shortfall(V, p.ledger.loan, r);
   const ratioPct = marginRatioPct(V, p.ledger.loan);
@@ -242,7 +223,17 @@ export function assembleRiskResult(p: {
    * 어긋남이 확실히 틀리게 만드는 값은 수량뿐이고(실측 195주 ↔ 583주), 나머지는
    * 원장 r만으로 정해져 원장이 맞다면 여전히 참이다. 접으면 throw와 같아진다.
    */
-  const agreement = ratioAgreement(p.card, r, pos);
+  /**
+   * ⚠ **대조 상대는 `r` 이 아니라 원장이다.** (다) 채택 뒤 `r` 은 카드에서 나오므로
+   *   `ratioAgreement(p.card, r, pos)` 로 두면 카드를 **자기 자신과** 맞대 보게 되고,
+   *   게이트는 항상 통과한다 — 있으나 마나가 된다. 실측(카드 1.7 · 원장 1.4):
+   *   그렇게 두면 583주가 표식 없이 나갔다.
+   *
+   *   `p.ledger.requiredRatio` 는 이제 **구동값이 아니라 제2 의견**이다. 카드가
+   *   계산을 몰고, 원장은 "우리가 알던 값과 같은가"만 묻는다. 둘이 갈리면 막는 것은
+   *   여전히 **처분 수량 하나**다(#55 규약 유지).
+   */
+  const agreement = ratioAgreement(p.card, p.ledger.requiredRatio, pos);
 
   const liquidation =
     D > 0 && agreement.agreed && quantOk && h !== null

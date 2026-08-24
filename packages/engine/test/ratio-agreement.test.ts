@@ -110,7 +110,7 @@ describe("어긋남 — A가 실측한 3행 재현", () => {
     expect(r.liquidationSkipped).toBe("RATIO_NOT_CONFIRMED");
   });
 
-  it("카드 1.7 / 원장 1.4: 부족액·담보비율·λ*·4경로는 **그대로 나온다**", () => {
+  it("카드 1.7 / 원장 1.4: 부족액·λ*·4경로가 **카드 r 로 나온다** (#67 A-1)", () => {
     const mismatch = assembleRiskResult({
       positions: positions(8_100),
       ledger: ledger(1.4),
@@ -124,30 +124,28 @@ describe("어긋남 — A가 실측한 3행 재현", () => {
       f: ASSUMED_F,
     });
 
-    // 원장 r만으로 정해지는 값 넷 — 어긋남이 하나도 바꾸지 않는다
-    expect(mismatch.shortfall).toBe(300_000);
-    expect(mismatch.marginRatioPct).toBe(135);
-    expect(mismatch.equalShockLambda).toBe(0);
+    /**
+     * ⚠ 이 단언은 **A-1(#67) 에서 뒤집혔다.** 전에는 *"넷은 원장 r 만으로 정해지므로
+     *   어긋남이 하나도 바꾸지 않는다"* 였다. (다) 채택 뒤 r 은 카드에서 나오므로
+     *   카드를 1.4 → 1.7 로 바꾸면 **넷이 함께 따라온다.** 그게 A-1 의 요점이다.
+     *
+     *   막는 것은 여전히 **처분 수량 하나**다 — 아래 `liquidation` 은 null 이다.
+     */
+    expect(mismatch.shortfall).toBe(2_100_000); // 1.7×6,000,000 − 8,100,000
+    expect(mismatch.marginRatioPct).toBe(135); // V/L 이라 r 과 무관 — 유일하게 안 변한다
+    expect(mismatch.equalShockLambda).toBe(0); // 이미 관통 — 두 r 모두 0
     expect(mismatch.paths).toMatchObject({
-      deposit: 300_000,
-      repay: 214_286,
+      deposit: 2_100_000,
+      repay: 1_235_295,
       collateral: null,
-      voluntarySellQty: 96,
+      voluntarySellQty: 378,
     });
-    // 넷을 통째로 대조한다 — 개별 단언이 빠지면 조용히 접힐 수 있다
-    expect({
-      shortfall: mismatch.shortfall,
-      marginRatioPct: mismatch.marginRatioPct,
-      equalShockLambda: mismatch.equalShockLambda,
-      paths: mismatch.paths,
-      cardStatus: mismatch.cardStatus,
-    }).toEqual({
-      shortfall: agreed.shortfall,
-      marginRatioPct: agreed.marginRatioPct,
-      equalShockLambda: agreed.equalShockLambda,
-      paths: agreed.paths,
-      cardStatus: agreed.cardStatus,
-    });
+
+    // 카드가 실제로 구동한다는 증거 — 원장이 같은데 산출이 갈린다
+    expect(agreed.shortfall).toBe(300_000);
+    expect(agreed.paths).toMatchObject({ deposit: 300_000, repay: 214_286, voluntarySellQty: 96 });
+    expect(mismatch.shortfall).not.toBe(agreed.shortfall);
+    expect(mismatch.paths).not.toEqual(agreed.paths);
   });
 
   it("카드 1.7 / 원장 1.7: 통과 — 583주가 그대로 나온다(막는 것은 어긋남이지 값이 아니다)", () => {
@@ -166,15 +164,22 @@ describe("어긋남 — A가 실측한 3행 재현", () => {
 
 describe("우선순위 — RATIO_NOT_CONFIRMED > NO_SHORTFALL > CARD_NOT_FRESH > NO_DISCOUNT_RATE", () => {
   it("어긋남 + 관통 안 함: NO_SHORTFALL이 아니라 RATIO_NOT_CONFIRMED", () => {
-    // 원장 1.2로 재면 D=0(NO_SHORTFALL)인데 카드 1.4로 재면 D=1,100,000이다.
-    // NO_SHORTFALL이 먼저 나가면 화면은 "여유가 있다"고 말하고 어긋남이 사라진다.
+    /**
+     * 카드 1.4 로 재면 D=0 이다(8,500,000 ≥ 1.4×6,000,000). 그러니 사유코드를 값으로만
+     * 고르면 NO_SHORTFALL 이 나간다 — 화면은 *"여유가 있다"* 고 말하고 원장 1.7 과의
+     * 어긋남은 사유코드에서 통째로 사라진다.
+     *
+     * ⚠ A-1(#67) 전에는 방향이 반대였다(원장이 구동, 카드가 대조). 이제 카드가 구동하고
+     *   원장이 제2 의견이라, 이 검사도 **카드 기준 D=0** 으로 다시 세웠다. 지키는 성질은
+     *   같다: **하나로 맞추지 못한 상태에서 "관통하지 않는다"는 말 자체가 미정이다.**
+     */
     const r = assembleRiskResult({
-      positions: positions(7_300),
-      ledger: ledger(1.2),
+      positions: positions(8_500),
+      ledger: ledger(1.7),
       card: cardR(1.4),
       f: ASSUMED_F,
     });
-    expect(r.shortfall).toBe(0); // 원장 기준 산출은 그대로 낸다
+    expect(r.shortfall).toBe(0); // 카드 r 기준 산출은 그대로 낸다
     expect(r.liquidation).toBeNull();
     expect(r.liquidationSkipped).toBe("RATIO_NOT_CONFIRMED");
   });
@@ -360,7 +365,7 @@ describe("ratioAgreement — 좁히기 규칙", () => {
 
     it("**낙관 구멍**: 원장이 대주행과 우연히 같아도 통과시키지 않는다", () => {
       // 원장 1.2는 카드의 융자행 140%와 어긋난다. 대주행 120%로 좁혀 통과시키면
-      // D=0·NO_SHORTFALL이 무표식으로 나가고 어긋남의 흔적이 통째로 사라진다.
+      // 어긋남의 흔적이 통째로 사라진다.
       const a = ratioAgreement(loanWide, 1.2, at);
       expect(a.cardRatios).toEqual([140]);
       expect(a.agreed).toBe(false);
@@ -372,7 +377,9 @@ describe("ratioAgreement — 좁히기 규칙", () => {
         f: ASSUMED_F,
         asOf: "2026-08-19",
       });
-      expect(r.shortfall).toBe(0); // 원장 기준으로는 관통 전이다 — 그 값은 그대로 낸다
+      // A-1(#67) 뒤: 카드가 정한 융자행 140%로 재므로 관통한다. 전에는 원장 1.2 로 재
+      // D=0 이 나왔고, 그 침묵이 이 게이트가 없애려던 낙관 구멍 그 자체였다.
+      expect(r.shortfall).toBe(300_000);
       expect(r.liquidationSkipped).toBe("RATIO_NOT_CONFIRMED"); // 그래도 침묵하지 않는다
     });
 
