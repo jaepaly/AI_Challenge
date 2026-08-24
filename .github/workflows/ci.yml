@@ -8,6 +8,8 @@ on:
 jobs:
   test:
     name: 테스트 (전 워크스페이스)
+    # 매달린 잡은 기본 6시간까지 분을 태운다(2026-08-24 배포 워크플로 실측).
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,6 +25,8 @@ jobs:
 
   build:
     name: 빌드 (전 워크스페이스)
+    # 매달린 잡은 기본 6시간까지 분을 태운다(2026-08-24 배포 워크플로 실측).
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,6 +39,8 @@ jobs:
 
   lint:
     name: 린트 (전 워크스페이스)
+    # 매달린 잡은 기본 6시간까지 분을 태운다(2026-08-24 배포 워크플로 실측).
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +56,8 @@ jobs:
 
   python:
     name: 테스트 (Python 인제스트)
+    # 매달린 잡은 기본 6시간까지 분을 태운다(2026-08-24 배포 워크플로 실측).
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     # services/ingest의 테스트는 #38 시점까지 CI에서 한 번도 돌지 않았다.
     # 위 세 잡이 Node 워크스페이스만 보기 때문이다 — 파싱·근거 좌표·스키마
@@ -84,7 +92,7 @@ jobs:
       # test_lockfile.py가 이 두 규약을 함께 지킨다.
       - run: pip install -r services/ingest/requirements-dev.txt
       # ⚠ 리포 루트에서 돌리는 것이 의도다. `cd services/ingest` 후 돌리면
-      # pyproject.toml의 `pythonpath = ["."]`가 사라져도 통과한다 —
+      # pytest.ini의 `pythonpath = .`가 사라져도 통과한다 —
       # #26 이전에는 루트에서 `ModuleNotFoundError: No module named 'app'`로
       # 3개 모듈이 수집조차 안 됐다. 그 회귀를 여기서 잡는다.
       #
@@ -99,6 +107,8 @@ jobs:
 
   e2e:
     name: E2E (브라우저)
+    # 매달린 잡은 기본 6시간까지 분을 태운다(2026-08-24 배포 워크플로 실측).
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     # 다른 잡이 못 보는 것만 본다 — jsdom 은 브라우저가 아니다. 2026-08-23 #73
     # 리뷰에서 A 가 짚었다: "브라우저 매트릭스·E2E·수동 점검 기록은 저장소 전체에
