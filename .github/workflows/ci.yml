@@ -58,8 +58,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          # 로컬 개발 환경이 3.11이다. 마이너 차이로 갈리는 것을 막으려 고정한다.
-          python-version: "3.11"
+          # ⚠ **배포본과 같은 버전이어야 한다.** Vercel 파이썬 런타임이 지원하는 것은
+          #   3.12(기본)·3.13·3.14 뿐이고 **3.11 은 없다**. 3.11 로 테스트하고 3.12 로
+          #   배포하면 "선언과 실행이 갈라진" 상태가 된다 — 이 저장소가 오늘만 세 번
+          #   겪은 종류다(jsdom 30, pytest 8.4, pypdf 6.16.2).
+          #   services/ingest/.python-version 이 같은 값을 들고 있고,
+          #   test_deployable 이 둘이 어긋나면 넘어진다.
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: |
             services/ingest/requirements.txt

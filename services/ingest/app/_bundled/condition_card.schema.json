@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "marginguard/condition_card/v2",
+  "title": "ConditionCard v2",
+  "description": "약관 인제스트(B)의 출력 계약이자 LLM 출력 검증기. TS 미러: packages/engine/src/types.ts, Pydantic 미러: services/ingest/app/schemas.py. 변경은 PR + 전원 승인.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["broker", "ratio_rules", "account_aggregation", "disposal_price_rules", "execution_schedule", "ratio_source", "doc_version", "status"],
+  "oneOf": [
+    { "$ref": "#/definitions/page_evidence_card" },
+    { "$ref": "#/definitions/character_evidence_card" }
+  ],
+  "properties": {
+    "broker": { "type": "string", "minLength": 1 },
+    "ratio_rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["product_type", "collateral_type", "symbol_group", "ratio", "evidence"],
+        "properties": {
+          "product_type": { "type": "string" },
+          "collateral_type": { "type": "string" },
+          "symbol_group": { "type": "string" },
+          "ratio": { "type": "number", "minimum": 1.0, "maximum": 2.0, "description": "담보유지비율. evidence.quote에는 ×100 퍼센트 표기가 숫자 경계에 맞게 포함되어야 하며 Pydantic 최종 검증기가 강제한다." },
+          "evidence": { "$ref": "#/definitions/evidence_span" }
+        }
+      }
+    },
+    "account_aggregation": { "enum": ["max", "weighted_average"] },
+    "disposal_price_rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["trigger", "symbol_group", "discount_basis", "source_confidence", "evidence"],
+        "properties": {
+          "trigger": { "type": "string" },
+          "symbol_group": { "type": "string" },
+          "discount_basis": { "enum": ["prev_close_pct", "lower_limit"] },
+          "discount_rate": { "type": "number", "minimum": 0, "maximum": 0.35, "description": "h. evidence.quote에는 ×100 할인율 또는 처분 문맥이 있는 (1-h)×100 잔존 비율 중 하나가 숫자 경계에 맞게 포함되어야 하며 Pydantic 최종 검증기가 강제한다." },
+          "source_confidence": { "enum": ["explicit", "inferred_from_formula"] },
+          "evidence": { "$ref": "#/definitions/evidence_span" }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": { "discount_basis": { "const": "prev_close_pct" } },
+              "required": ["discount_basis"]
+            },
+            "then": { "required": ["discount_rate"] }
+          }
+        ]
+      }
+    },
+    "execution_schedule": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["threshold_ratio", "day_counting", "evidence"],
+        "properties": {
+          "threshold_ratio": { "type": "number", "minimum": 1.0, "maximum": 2.0, "description": "evidence.quote에는 ×100 퍼센트 표기가 숫자 경계에 맞게 포함되어야 하며 Pydantic 최종 검증기가 강제한다." },
+          "day_counting": { "type": "string" },
+          "evidence": { "$ref": "#/definitions/evidence_span" }
+        }
+      }
+    },
+    "ratio_source": { "enum": ["clause", "website_notice", "hts_only"] },
+    "doc_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "review_no": { "type": "string", "description": "심사필 번호 (우선)" },
+        "content_sha256": { "type": "string", "description": "번호 없는 회사의 폴백" },
+        "revised_at": { "type": "string" }
+      },
+      "anyOf": [{ "required": ["review_no"] }, { "required": ["content_sha256"] }]
+    },
+    "contract_vintage": { "type": "string" },
+    "status": { "enum": ["verified", "draft"], "description": "인제스트 직후는 반드시 draft. verified 승격은 사람 검수 후" },
+    "verified_at": { "type": "string", "format": "date", "description": "신선도 게이트(30일)의 기준일 — 수집일이 아니라 검증일" }
+  },
+  "definitions": {
+    "evidence_span": {
+      "anyOf": [
+        { "$ref": "#/definitions/page_evidence_span" },
+        { "$ref": "#/definitions/character_evidence_span" }
+      ]
+    },
+    "page_evidence_span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_format", "page", "quote"],
+      "properties": {
+        "source_format": { "const": "pdf" },
+        "page": { "type": "integer", "minimum": 1 },
+        "end_page": { "type": "integer", "minimum": 1, "description": "마지막 페이지. end_page >= page 순서는 Pydantic 최종 검증기가 강제한다." },
+        "quote": { "type": "string", "minLength": 1, "description": "원문 인용. 좌표를 못 찾으면 카드 전체를 거부한다 — 근거 없는 수치 금지" }
+      }
+    },
+    "character_evidence_span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_format", "char_start", "char_end", "flattened_sha256", "quote"],
+      "properties": {
+        "source_format": { "enum": ["text", "html"] },
+        "char_start": { "type": "integer", "minimum": 0 },
+        "char_end": { "type": "integer", "minimum": 0, "description": "exclusive 종료 오프셋. char_end > char_start 순서는 Pydantic 최종 검증기가 강제한다." },
+        "flattened_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "char_start/char_end가 가리키는 평탄화 결과물 UTF-8 바이트의 SHA-256"
+        },
+        "quote": { "type": "string", "minLength": 1, "description": "평탄화된 텍스트 기준 원문 인용" }
+      }
+    },
+    "page_evidence_card": {
+      "type": "object",
+      "properties": {
+        "ratio_rules": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/page_evidence_span" } } }
+        },
+        "disposal_price_rules": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/page_evidence_span" } } }
+        },
+        "execution_schedule": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/page_evidence_span" } } }
+        }
+      }
+    },
+    "character_evidence_card": {
+      "type": "object",
+      "properties": {
+        "ratio_rules": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/character_evidence_span" } } }
+        },
+        "disposal_price_rules": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/character_evidence_span" } } }
+        },
+        "execution_schedule": {
+          "items": { "properties": { "evidence": { "$ref": "#/definitions/character_evidence_span" } } }
+        }
+      }
+    }
+  }
+}
