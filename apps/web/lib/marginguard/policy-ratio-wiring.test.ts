@@ -57,6 +57,33 @@ describe("원장은 화면과 같은 r 을 본다 (#84 리뷰 ①)", () => {
     expect(Number.isNaN(ledger(card, pos).requiredRatio)).toBe(false);
   });
 
+  /**
+   * ⚠ **이게 실제로 도달하는 모양이다.** 위의 AB/CD 예시는 우리 계좌(`group: "일반"`)
+   *   에서는 양쪽 다 AMBIGUOUS 라 갈리지 않는다. 갈리는 것은 카드가 **`일반` 조항과
+   *   군별 조항을 같이** 실어 올 때다 — 그리고 그게 실제 약관에서 가장 흔한 모양이다
+   *   (일반 105% / 관리종목 170% 같은 표). 업로드 경로로 바로 들어온다.
+   */
+  it("일반 조항 + 군별 조항이 섞인 카드 — 실제 약관의 흔한 모양", () => {
+    const base = CARDS[0]!.card;
+    const rule = base.ratio_rules[0]!;
+    for (const [normal, other, group] of [
+      [1.05, 1.7, "관리종목"],
+      [1.5, 1.4, "AB"],
+    ] as const) {
+      const card: ConditionCard = {
+        ...base,
+        ratio_rules: [
+          { ...rule, symbol_group: "일반", ratio: normal },
+          { ...rule, symbol_group: group, ratio: other },
+        ],
+      };
+      const pos = positions(PRICE_START)[0]!; // group "일반" — 우리 계좌 그대로
+      expect(policyRatio(card, pos).resolved).toBe(true);
+      expect(ledger(card, pos).requiredRatio).toBe(normal);
+      expect(portfolioLedger(card, PORTFOLIO_POSITIONS[0]!).requiredRatio).toBe(normal);
+    }
+  });
+
   it("좁혀지지 않으면 **양쪽 다** 숫자를 내지 않는다 — 한쪽만 NaN 인 상태가 없다", () => {
     const card = grouped(1.4, 1.5);
     const pos = positions(PRICE_START)[0]!; // group "일반" — AB 도 CD 도 아니다
