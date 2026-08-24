@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from hashlib import sha256
 import json
 from pathlib import Path
+import re
+import sys
 from typing import Any, Mapping
 
 import anthropic
@@ -409,7 +411,23 @@ def run_hankook(
     }
 
 
-def _write_result(path: Path, result: Mapping[str, Any]) -> None:
+def _write_result(path: Path, result: Mapping[str, Any], *, overwrite: bool = False) -> None:
+    """결과를 기록한다. **기존 파일은 물어보지 않는 한 덮지 않는다.**
+
+    유료 실행 1회의 산출물은 되돌릴 수 없다. 경로 선택이 이미 빈 자리를
+    고르므로 여기서 걸리면 그 사이에 파일이 생긴 것이다 — 조용히 덮는 대신
+    던져서 호출부가 다른 자리에 남기게 한다.
+
+    ⚠ `overwrite` 는 **사람이 명시적으로 요구했을 때만** 참이다. 8차 성공을 정본으로
+      올리는 것 같은 판단은 있을 수 있지만, 그건 **결정**이지 부수효과가 아니다.
+      기본값이 거짓인 것이 이 함수의 계약이다.
+    """
+
+    if path.exists() and not overwrite:
+        raise FileExistsError(
+            f"{path} 가 이미 있다 — 기존 기록을 덮지 않는다.\n"
+            f"  정말 이 자리를 갱신하려면: --overwrite"
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
@@ -419,20 +437,49 @@ def _write_result(path: Path, result: Mapping[str, Any]) -> None:
     temporary.replace(path)
 
 
-def _default_result_path(
-    repo_root: Path, result: Mapping[str, Any]
-) -> Path:
-    """성공만 정본을 갱신하고 실패는 새 시도 파일에 보존한다."""
+_ATTEMPT_PATTERN = re.compile(r"hankook_two_pass_attempt(\d+)_(?:failed|success)\.json$")
 
-    results_dir = repo_root / "services" / "ingest" / "benchmarks" / "results"
-    if result.get("status") == "completed":
-        return results_dir / "hankook_two_pass.json"
-    attempt = 1
-    while True:
-        candidate = results_dir / f"hankook_two_pass_attempt{attempt}_failed.json"
-        if not candidate.exists():
-            return candidate
+
+def _results_dir(repo_root: Path) -> Path:
+    return repo_root / "services" / "ingest" / "benchmarks" / "results"
+
+
+def _next_attempt_path(results_dir: Path, suffix: str) -> Path:
+    """기존 어떤 기록도 덮지 않는 다음 시도 경로.
+
+    번호는 **단조 증가**한다. 빈 번호를 재사용하면 8차 실행이 ``attempt1`` 로
+    기록돼 이력 자체가 거짓이 된다 — 지금 2·3·5·6·7 만 있어 1 이 비어 있다.
+    """
+
+    used = {
+        int(match.group(1))
+        for path in results_dir.glob("hankook_two_pass_attempt*.json")
+        if (match := _ATTEMPT_PATTERN.search(path.name))
+    }
+    attempt = max(used, default=0) + 1
+    candidate = results_dir / f"hankook_two_pass_attempt{attempt}_{suffix}.json"
+    while candidate.exists():
         attempt += 1
+        candidate = results_dir / f"hankook_two_pass_attempt{attempt}_{suffix}.json"
+    return candidate
+
+
+def _default_result_path(repo_root: Path, result: Mapping[str, Any]) -> Path:
+    """정본은 **최초 성공만** 만든다. 이후 성공·실패는 시도 번호로 보존한다.
+
+    이전 구현은 성공이면 무조건 정본 경로를 돌려줘, 재실행이 성공하는 순간
+    4차 성공 기록을 덮었다. 그 파일은 되돌릴 수 없는 유료 실행 1회의
+    산출물이면서 ``packages/engine/test/fixtures/hankook-ingest-fourth-success.json``
+    의 ``source_result`` 가 가리키는 대상이다 — 덮이면 픽스처의 출처 주장이
+    **조용히 거짓**이 된다(그 테스트는 문자열끼리만 비교하므로 계속 통과한다).
+    """
+
+    results_dir = _results_dir(repo_root)
+    completed = result.get("status") == "completed"
+    canonical = results_dir / "hankook_two_pass.json"
+    if completed and not canonical.exists():
+        return canonical
+    return _next_attempt_path(results_dir, "success" if completed else "failed")
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -441,6 +488,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--approve-max-krw", type=float)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="이미 있는 결과 파일을 덮는다. 되돌릴 수 없는 유료 실행 기록을 지우는 "
+        "행위이므로 **사람이 판단해서** 붙인다(기본값은 거부).",
+    )
     return parser
 
 
@@ -452,6 +505,12 @@ def main() -> None:
         return
     if args.approve_max_krw is None:
         raise SystemExit("--execute에는 --approve-max-krw가 필수입니다")
+    # 유료 호출 **전에** 막는다 — 실행한 뒤에 거절하면 되돌릴 수 없는 결과를 잃는다.
+    if args.output is not None and args.output.exists() and not args.overwrite:
+        raise SystemExit(
+            f"--output {args.output} 가 이미 있다 — 기존 기록을 덮지 않는다. 호출하지 않았다.\n"
+            f"  정말 이 자리를 갱신하려면: --overwrite"
+        )
 
     api_key = dotenv_values(repo_root / ".env").get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -467,7 +526,15 @@ def main() -> None:
         raise SystemExit(str(error)) from None
 
     output = args.output or _default_result_path(repo_root, result)
-    _write_result(output, result)
+    if output.exists() and not args.overwrite:
+        # 그 사이 생겼다면 결과를 버리지 않고 옆자리에 남긴다 — 재실행은 유료다.
+        rescue = _next_attempt_path(
+            _results_dir(repo_root),
+            "success" if result.get("status") == "completed" else "failed",
+        )
+        print(f"경고: {output} 가 이미 있어 {rescue} 에 기록한다", file=sys.stderr)
+        output = rescue
+    _write_result(output, result, overwrite=args.overwrite)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "completed":
         raise SystemExit(1)
