@@ -1,6 +1,7 @@
 from base64 import urlsafe_b64encode
 import json
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import AsyncMock, patch
 
@@ -9,6 +10,7 @@ import httpx
 from benchmarks.hankook_two_pass import (
     HANKOOK_FILENAME,
     _default_result_path,
+    _write_result,
     build_dry_run_plan,
     evidence_span_report,
     estimate_max_cost_krw,
@@ -538,6 +540,99 @@ class HankookTwoPassGateTest(unittest.TestCase):
         self.assertEqual(result["evidence_spans"]["duplicate_spans"], 1)
         self.assertEqual(result["usage"]["pass1-input-tokens"], 100)
         self.assertIsInstance(result["usage"]["pass2-output-tokens"], int)
+
+
+class SuccessDoesNotClobberTheCanonicalTest(unittest.TestCase):
+    """성공이 이전 성공 기록을 조용히 지우지 못하게 한다.
+
+    `_default_result_path` 는 **성공일 때만** 정본 한 자리를 돌려준다(실패는 번호가
+    붙어 늘 새 경로다). 그래서 `--output` 없이 성공하면 그 자리의 이전 성공이 사라진다.
+    B 의 실행 조건 *"기존 4차 성공 결과를 덮어쓰지 않고 별도 artifact 로 보존"* 이
+    기본 실행으로는 지켜지지 않던 상태다(#68).
+
+    추적 파일이라 커밋 전이면 `git checkout --` 로 되살릴 수 있다. 영구 손실은
+    아니지만, 기본 동작이 조용히 지우는 것이고 알게 되는 경로가 나중의 빨간불뿐이다.
+    그래서 쓰기 전에 거부한다 — 사람이 `--output` 을 기억하는 것에 기대지 않는다.
+    """
+
+    def test_writing_over_an_existing_result_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "hankook_two_pass.json"
+            _write_result(target, {"status": "completed", "run": "4차"})
+
+            with self.assertRaises(SystemExit) as caught:
+                _write_result(target, {"status": "completed", "run": "새 실행"})
+
+            message = str(caught.exception)
+            self.assertIn("--output", message)
+            self.assertIn("--overwrite", message)
+            self.assertEqual(
+                json.loads(target.read_text(encoding="utf-8"))["run"],
+                "4차",
+                "거부했는데 파일이 바뀌었다 — 원본이 보존되지 않았다",
+            )
+
+    def test_a_fresh_path_still_writes(self) -> None:
+        """가드가 정상 실행을 막으면 안 된다. 실패 기록도 이 경로로 쓴다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "nested" / "hankook_two_pass_attempt9_failed.json"
+            _write_result(target, {"status": "failed"})
+            self.assertEqual(
+                json.loads(target.read_text(encoding="utf-8"))["status"], "failed"
+            )
+
+    def test_overwrite_is_possible_but_must_be_asked_for(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "hankook_two_pass.json"
+            _write_result(target, {"status": "completed", "run": "4차"})
+            _write_result(
+                target, {"status": "completed", "run": "새 실행"}, overwrite=True
+            )
+            self.assertEqual(
+                json.loads(target.read_text(encoding="utf-8"))["run"], "새 실행"
+            )
+
+    def test_the_cli_exposes_the_flag_the_error_message_names(self) -> None:
+        """오류 메시지가 없는 플래그를 안내하면 다음 사람이 막힌다."""
+        from benchmarks.hankook_two_pass import _parser
+
+        parsed = _parser().parse_args(["--overwrite"])
+        self.assertTrue(parsed.overwrite)
+        self.assertFalse(_parser().parse_args([]).overwrite)
+
+
+class FrozenFixtureProvenanceTest(unittest.TestCase):
+    """픽스처가 적어 둔 출처가 **실제로 그 기록을 담고 있어야 한다.**
+
+    `test_frozen_engine_fixture_is_traceable_to_fourth_success` 는 픽스처 자체
+    필드만 본다. 그래서 `source_result` 가 가리키는 파일이 다른 실행으로 덮여도
+    **초록인 채로 어긋난다**(#68 에서 A 가 지적, D 가 함께 처리를 요청).
+
+    제출 문서가 이 픽스처의 출처를 근거로 쓰므로, 초록을 근거로 못 삼는 구간을
+    남기지 않는다.
+    """
+
+    def test_source_result_actually_holds_that_prompt(self) -> None:
+        fixture = json.loads(ENGINE_FROZEN_FIXTURE.read_text(encoding="utf-8"))
+        pointed_at = REPO_ROOT / fixture["source_result"]
+
+        self.assertTrue(
+            pointed_at.exists(),
+            f"픽스처의 source_result 가 없는 파일을 가리킨다: {fixture['source_result']}",
+        )
+        recorded = json.loads(pointed_at.read_text(encoding="utf-8"))
+        self.assertEqual(
+            recorded.get("prompt_sha256"),
+            fixture["source_prompt_sha256"],
+            f"{fixture['source_result']} 가 픽스처가 적은 prompt_sha256 을 담고 있지 "
+            f"않다. 다른 실행이 그 자리를 덮었을 수 있다 — 덮은 기록을 되돌리거나, "
+            f"픽스처의 출처를 실제 파일로 고쳐라.",
+        )
+        self.assertEqual(
+            recorded.get("status"),
+            fixture["recorded_status"],
+            "source_result 의 status 가 픽스처가 적은 것과 다르다",
+        )
 
 
 if __name__ == "__main__":

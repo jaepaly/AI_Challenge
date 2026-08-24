@@ -409,7 +409,33 @@ def run_hankook(
     }
 
 
-def _write_result(path: Path, result: Mapping[str, Any]) -> None:
+def _write_result(
+    path: Path, result: Mapping[str, Any], *, overwrite: bool = False
+) -> None:
+    """이미 있는 파일은 **명시 없이 덮지 않는다.**
+
+    실패는 `_default_result_path` 가 번호를 붙여 늘 새 경로를 주므로 여기 걸리지
+    않는다. 걸리는 것은 **성공**이다 — 성공 경로만 정본 한 자리로 고정돼 있어서,
+    `--output` 없이 성공하면 그 자리에 있던 이전 성공 기록이 사라진다.
+
+    4차 성공(`hankook_two_pass.json`, prompt 70ce01c9)은 엔진 픽스처
+    `hankook-ingest-fourth-success.json` 의 `source_result` 가 가리키는 파일이고,
+    제출 문서가 그 출처를 근거로 쓴다.
+
+    ⚠ 추적 파일이라 **커밋 전이면 `git checkout --` 로 복구된다** — 영구 손실은
+    아니다. 다만 기본 동작이 **조용히 지우는 것**이고, 알게 되는 경로가 나중에 뜨는
+    빨간불뿐이다. 유료 실행 직후는 결과를 확인·기록하는 자리이지 복구를 떠올리는
+    자리가 아니다. 그래서 쓰기 전에 **거부**한다 — 사람이 `--output` 을 기억하는
+    것에 기대지 않는다.
+    """
+
+    if path.exists() and not overwrite:
+        raise SystemExit(
+            f"{path} 가 이미 있다 — 덮으면 이전 기록이 사라진다.\n"
+            f"  다른 파일로 남기려면:     --output <경로>\n"
+            f"  정말 이 자리를 갱신하려면: --overwrite\n"
+            f"(성공 기록은 엔진 픽스처의 source_result 가 가리키는 파일이다.)"
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(
@@ -441,6 +467,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--approve-max-krw", type=float)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="이미 있는 결과 파일을 덮는다. 성공 정본을 갱신할 때만 쓴다.",
+    )
     return parser
 
 
@@ -467,7 +498,7 @@ def main() -> None:
         raise SystemExit(str(error)) from None
 
     output = args.output or _default_result_path(repo_root, result)
-    _write_result(output, result)
+    _write_result(output, result, overwrite=args.overwrite)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "completed":
         raise SystemExit(1)
