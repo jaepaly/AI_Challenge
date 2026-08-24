@@ -169,6 +169,8 @@ describe("상류로 넘길 때", () => {
   it("경로 끝의 슬래시가 겹치지 않는다", async () => {
     // 인자를 선언해야 `mock.calls[0][0]` 이 타입으로 잡힌다 — 빈 목은 인자 튜플이
     // `[]` 로 추론돼 `next build` 의 타입체크가 TS2493 으로 넘어진다.
+    // 인자를 **선언만** 해야 `mock.calls[0][0]` 이 타입으로 잡힌다. 본문에서는 안 쓴다.
+    /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
     const spy = vi.fn(async (_url: string, _init?: RequestInit) =>
       new Response("{}", { status: 200 }),
     );
