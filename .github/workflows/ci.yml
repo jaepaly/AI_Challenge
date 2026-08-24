@@ -84,7 +84,7 @@ jobs:
       # test_lockfile.py가 이 두 규약을 함께 지킨다.
       - run: pip install -r services/ingest/requirements-dev.txt
       # ⚠ 리포 루트에서 돌리는 것이 의도다. `cd services/ingest` 후 돌리면
-      # pyproject.toml의 `pythonpath = ["."]`가 사라져도 통과한다 —
+      # pytest.ini의 `pythonpath = .`가 사라져도 통과한다 —
       # #26 이전에는 루트에서 `ModuleNotFoundError: No module named 'app'`로
       # 3개 모듈이 수집조차 안 됐다. 그 회귀를 여기서 잡는다.
       #
