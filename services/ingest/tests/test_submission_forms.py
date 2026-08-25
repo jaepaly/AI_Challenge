@@ -35,6 +35,11 @@ SPEC_FORM = "(첨부2) 2026 금융 AI Challenge 기능명세서.hwpx"
 
 # 우리가 쓰는 초안. 양식이 바뀌면 초안도 함께 깨져야 한다.
 PLAN_DRAFT = "submission/attachment1-plan.md"
+# 첨부2 는 두 파일로 나뉘어 있다 — §5 를 먼저 쓴 이유는 그 파일 머리말에 적혀 있다.
+SPEC_DRAFTS = (
+    "submission/attachment2-s1-s4.md",
+    "submission/attachment2-s5-verification.md",
+)
 
 # 이 파일 자신이 옛 형태(`기획서 4-2`)를 문서화로 담고 있다 — 왜 막는지 적으려면 적어야 한다.
 SELF_PATH = "services/ingest/tests/test_submission_forms.py"
@@ -303,6 +308,177 @@ class PlanDraftCoversTheFormTest(unittest.TestCase):
             "배포돼 있지 않다",
             self.text,
             "초안이 인제스트 미배포 사실을 적지 않는다 — §7 한계 목록을 확인하라.",
+        )
+
+
+class SpecDraftCoversTheFormTest(unittest.TestCase):
+    """첨부2 초안이 **양식의 다섯 절을 다 덮는지** 본다.
+
+    `PlanDraftCoversTheFormTest` 와 같은 이유다 — 작년 유일한 부적격 사유가 "양식
+    미작성"이었고 그건 기계가 지킬 수 있는 종류다. 첨부1 에만 그 가드가 있고 첨부2 에는
+    없었다(2026-08-24). **없는 쪽이 더 위험했다**: 첨부2 는 5절이 **전부 필수**인데
+    그중 §5 하나만 쓰여 있었다.
+
+    ⚠ 내용의 질은 못 본다. 빠진 절이 없는지, 그리고 양식이 이름으로 요구한 것
+      (§2 의 네 열, §3 의 배포 URL)이 있는지만 본다.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.paths = [REPO_ROOT / rel for rel in SPEC_DRAFTS]
+        cls.text = "\n".join(
+            path.read_text(encoding="utf-8") for path in cls.paths if path.exists()
+        )
+
+    def test_the_drafts_exist(self) -> None:
+        missing = [rel for rel, path in zip(SPEC_DRAFTS, self.paths) if not path.exists()]
+        self.assertEqual(
+            missing,
+            [],
+            f"첨부2 초안이 없다: {missing}. 5절이 전부 필수라 초안 없이는 제출할 수 없다.",
+        )
+
+    def test_every_required_section_appears_verbatim(self) -> None:
+        """다섯 절 제목이 **양식 그대로** 있어야 한다 — 두 파일에 나뉘어 있어도 된다.
+
+        제목을 바꿔 적으면 심사자가 절을 못 찾는다. 첨부2 는 `*` 가 다섯 개 전부라
+        하나라도 빠지면 그 자체로 부적격 사유다.
+        """
+        required = [s.rstrip("*") for s in SPEC_SECTIONS]
+        self.assertEqual(len(required), 5, "첨부2 필수 절은 5개다")
+        missing = [s for s in required if s not in self.text]
+        self.assertEqual(
+            missing,
+            [],
+            f"초안이 덮지 않은 필수 절: {missing}. 양식이 갱신됐다면 초안도 함께 고쳐라.",
+        )
+
+    # ── 표를 실제로 들여다보기 위한 보조 ──────────────────────────────────
+    #
+    # 부분문자열 검사는 **문서가 자기 산문으로 자기 검사를 만족시키는** 사고를 낸다.
+    # 아래 둘은 §2 의 마크다운 표를 행 단위로 집어 그 사고를 막는다.
+
+    def _feature_table_header(self) -> str:
+        """§2 기능 표의 머리행. 못 찾으면 그 자체가 실패다."""
+        for line in self.text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("|") and "기능명" in stripped:
+                return stripped
+        self.fail("§2 에서 '기능명' 을 머리로 갖는 표를 못 찾았다 — 표 구조가 바뀌었다")
+
+    def _feature_rows(self) -> list[str]:
+        """머리행 다음의 데이터 행들. 구분행(`|---|`)과 빈 줄은 뺀다."""
+        lines = self.text.splitlines()
+        header = self._feature_table_header()
+        start = next(i for i, line in enumerate(lines) if line.strip() == header)
+        rows: list[str] = []
+        for line in lines[start + 1 :]:
+            stripped = line.strip()
+            if not stripped.startswith("|"):
+                break
+            if set(stripped) <= set("|- :"):
+                continue  # 구분행
+            rows.append(stripped)
+        return rows
+
+    def _draft_containing(self, needle: str) -> str:
+        """`needle` 이 든 초안 **하나**의 본문. 합친 텍스트로 보면 다른 파일이 대신 만족시킨다."""
+        for path in self.paths:
+            if not path.exists():
+                continue
+            text = path.read_text(encoding="utf-8")
+            if needle in text:
+                return text
+        self.fail(f"어느 초안에도 {needle!r} 가 없다")
+
+    def test_the_feature_table_carries_the_four_columns_the_form_demands(self) -> None:
+        """§2 가 요구하는 것은 기능 목록이 아니라 **네 열**이다.
+
+        양식 원문: *"기능명, 기능 설명, 관련 화면, 구현 상태 작성"*. 이 중 **구현 상태**
+        가 빠지면 §1 의 *"미구현 또는 향후 구현 예정 기능은 제외"* 와 짝이 안 맞는다 —
+        읽는 사람이 어느 것이 실제로 도는지 알 수 없다.
+
+        ⚠ **본문 전체가 아니라 표의 머리행만 본다.** 처음엔 전체에서 부분문자열로 찾았는데,
+          초안 산문에 *"기능명 · 기능 설명 · 관련 화면 · 구현 상태"* 라는 설명 한 줄이 있어
+          **표에서 열을 지워도 검사가 초록이었다.** 검사가 자기 문서의 다른 문장에 속은
+          것이다. 머리행으로 좁혀야 표를 실제로 지킨다.
+        """
+        header = self._feature_table_header()
+        for column in ("기능명", "기능 설명", "관련 화면", "구현 상태"):
+            with self.subTest(column=column):
+                self.assertIn(
+                    column,
+                    header,
+                    f"§2 표의 머리행에 '{column}' 열이 없다 — 양식이 이름으로 요구한다.\n"
+                    f"머리행: {header}",
+                )
+
+    def test_the_flow_section_names_the_deployed_url(self) -> None:
+        """§3 은 **배포 URL 을 연 심사자**를 상대로 쓰는 절이다.
+
+        양식 원문이 *"사용자가 배포 URL 접속 후"* 다. URL 이 없으면 그 절은 읽는 사람이
+        따라 할 수 없다.
+
+        ⚠ **§3 이 있는 파일에서만 본다.** 두 초안을 합쳐서 보면 §5 쪽 URL 이 대신
+          만족시켜 준다 — 그러면 §3 에서 URL 을 지워도 초록이다.
+        """
+        text = self._draft_containing("3. 사용자 이용 흐름")
+        self.assertIn(
+            "https://marginguard-web.vercel.app",
+            text,
+            "§3 이 배포 URL 을 적지 않는다 — 양식이 그 URL 접속을 전제로 쓰라고 요구한다.",
+        )
+
+    def test_undeployed_features_are_not_marked_done(self) -> None:
+        """배포에 없는 기능을 §2 가 **완료로 적지 않는지** 본다.
+
+        2026-08-24 실측: 배포는 `d218501` 로 main 보다 커밋 11개 뒤였고, 그래서
+        `POST /api/ingest` 가 404 였다 — 업로드 화면 자체가 배포본에 없었다. 그 상태에서
+        §2 가 업로드를 "완료"로 적으면 심사자가 배포본을 열어 대조할 때 어긋난다.
+
+        ⚠ 이 검사는 **배포 상태를 재지 않는다**(네트워크를 쓰지 않는다). 초안이 그
+          구분을 지키는지만 본다. 배포가 따라잡히면 그 행을 완료로 바꾸게 되고 이 검사가
+          **그때 넘어진다** — 그게 의도다. 넘어지면 배포를 실제로 확인한 뒤 이 검사를
+          지우고 왜인지 적어라. 지우는 것이 곧 "이제 배포됐다"는 선언이다.
+        """
+        rows = [row for row in self._feature_rows() if "업로드" in row]
+        self.assertTrue(rows, "§2 에 업로드 기능 행이 없다 — 표 구조가 바뀌었다")
+        claimed = [row for row in rows if "완료" in row]
+        self.assertEqual(
+            claimed,
+            [],
+            "배포되지 않은 업로드 기능이 §2 에서 '완료' 로 적혀 있다:\n"
+            + "\n".join(claimed),
+        )
+
+    def test_the_freshness_row_carries_the_judging_window_gate(self) -> None:
+        """*"신선도 3단 판정 ✅ 완료"* 행이 **심사 기간에 스스로를 막는다**는 사실을 달고 있는지.
+
+        A 가 `#88` 리뷰에서 짚었다. 신선도 게이트는 `verified_at` 기준 30일이고 카드 셋의
+        검증일이 `2026-08-09` 다. 엔진으로 재보면::
+
+            2026-09-07  calculated   <- 제출일
+            2026-09-09  blocked      <- 심사 기간 안이다
+            2026-09-11  blocked
+
+        **심사 5일 중 사흘이 막힌다.** 그리고 그건 고장이 아니라 이 행이 **설계대로 작동하는
+        것**이다 — 그래서 `✅ 완료` 가 맞으면서 동시에 위험하다. `/api/build` 는 그 사흘 내내
+        200 을 주므로 배포 감시로도 안 보인다.
+
+        ⚠ 이 검사는 **날짜를 계산하지 않는다.** 엔진이 정본이고(`freshness.ts`) 여기서 30일을
+          베끼면 엔진이 바뀔 때 이 파일만 조용히 낡는다. 문서가 그 위험을 **달고 있는지**만 본다.
+          A-2(9/6 재검증)가 끝나면 이 표시를 떼게 되고 그때 이 검사도 함께 지워라.
+        """
+        # 기능명 칸으로 좁힌다. 행 전체로 보면 `/api/readiness` 행도 걸리는데, 그건 막히는
+        # 쪽이 아니라 **언제 막히는지를 보고하는** 쪽이라 게이트를 달 자리가 아니다.
+        rows = [row for row in self._feature_rows() if "신선도" in row.split("|")[1]]
+        self.assertTrue(rows, "§2 에 신선도 판정 행이 없다 — 표 구조가 바뀌었다")
+        ungated = [row for row in rows if "G-3" not in row]
+        self.assertEqual(
+            ungated,
+            [],
+            "신선도 행이 심사 기간 게이트(G-3) 표시 없이 '완료' 로만 적혀 있다:\n"
+            + "\n".join(ungated),
         )
 
 
