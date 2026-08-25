@@ -26,7 +26,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { disposalDiscountRate, liquidationQty, shortfall } from "@marginguard/engine";
-import { ACCOUNT, CARDS } from "./snapshot";
+import { ACCOUNT, CARDS, ledger } from "./snapshot";
 
 describe("스냅숏 카드 — 엔진 h 읽기 규약과의 정합", () => {
   it("스냅숏 프리셋 3종을 규약대로 읽는다", () => {
@@ -49,8 +49,10 @@ describe("스냅숏 카드 — 엔진 h 읽기 규약과의 정합", () => {
    */
   it("0 폴백이 왜 위험한지 — h=0은 처분 수량을 실제의 절반 아래로 줄인다", () => {
     const price = 8_100;
-    const D = shortfall(ACCOUNT.qty * price, ACCOUNT.loan, ACCOUNT.requiredRatio);
-    const arg = { D, prevClose: price, r: ACCOUNT.requiredRatio, held: ACCOUNT.qty };
+    // 카드가 정한 r 을 쓴다 — 원장 리터럴은 더 이상 없다(#67 A-1)
+    const r = ledger(CARDS[0]!.card).requiredRatio;
+    const D = shortfall(ACCOUNT.qty * price, ACCOUNT.loan, r);
+    const arg = { D, prevClose: price, r, held: ACCOUNT.qty };
 
     const real = liquidationQty({ ...arg, h: 0.15 }); // 한투 실측
     const optimistic = liquidationQty({ ...arg, h: 0 }); // 폴백이 만들던 값

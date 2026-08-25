@@ -21,7 +21,10 @@
 import type { OptionRow, ForcedRow, ComparisonVerdict } from "../lib/marginguard/options";
 import { fullDisposalKind, fullDisposalLabel } from "../lib/marginguard/options";
 
-const won = (n: number) => n.toLocaleString("ko-KR") + "원";
+const won = (n: number) =>
+  // ⚠ 유한하지 않으면 "NaN원"을 찍지 않는다. 카드가 유지비율을 못 정하면 파생값이
+  //   전부 NaN 이 되는데, 그때 화면이 숫자처럼 생긴 것을 내면 안 된다(#67 A-1).
+  Number.isFinite(n) ? n.toLocaleString("ko-KR") + "원" : "—";
 
 export default function OptionsCompare({
   options,
