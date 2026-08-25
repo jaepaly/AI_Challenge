@@ -1,0 +1,164 @@
+{
+  "status": "completed",
+  "created_at": "2026-08-25T10:21:56.873835+00:00",
+  "endpoint": "POST /ingest",
+  "model": "claude-sonnet-5",
+  "document_sha256": "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
+  "document_sha256_scope": "submitted_bytes",
+  "document_lf_sha256": "0220979938c03a24ac0dafb039185f863bef3c2e155cea60a4c2b5ce1e92bc9d",
+  "prompt_sha256": "c7b6effc566eabd1fc915be5f860a958d7c1e9add470f7f261553c872e15194e",
+  "approved_max_cost_krw": 650.0,
+  "estimated_max_cost_krw": 601.01,
+  "standard_price_usage_estimated_cost_krw": 310.93,
+  "introductory_price_usage_estimated_cost_krw": 207.29,
+  "introductory_price_ends_on": "2026-08-31",
+  "console_billed_cost_krw": null,
+  "evidence_spans": {
+    "max_length": 192,
+    "min_length": 20,
+    "duplicate_spans": 0,
+    "ambiguous_percent_spans": 1,
+    "ambiguous_bound_percent_spans": 0,
+    "derived_span_count": 3,
+    "character_span_count": 3,
+    "non_character_span_count": 0,
+    "unmeasurable_span_count": 0,
+    "coordinate_mode": "character",
+    "all_spans_single_percent_candidate": false,
+    "all_numeric_bindings_single_percent_candidate": true,
+    "spans": [
+      {
+        "role": "ratio_rules",
+        "index": 0,
+        "source_format": "html",
+        "char_start": 5252,
+        "char_end": 5272,
+        "length": 20,
+        "percent_values": [
+          140.0
+        ],
+        "bound_percent_values": [
+          140.0
+        ],
+        "numeric_binding_required": true,
+        "parent_char_start": 4444,
+        "parent_char_end": 6065,
+        "derived_from_parent": true
+      },
+      {
+        "role": "disposal_price_rules",
+        "index": 0,
+        "source_format": "html",
+        "char_start": 3342,
+        "char_end": 3456,
+        "length": 114,
+        "percent_values": [
+          15.0
+        ],
+        "bound_percent_values": [
+          15.0
+        ],
+        "numeric_binding_required": true,
+        "parent_char_start": 3342,
+        "parent_char_end": 3457,
+        "derived_from_parent": true
+      },
+      {
+        "role": "execution_schedule",
+        "index": 0,
+        "source_format": "html",
+        "char_start": 5252,
+        "char_end": 5444,
+        "length": 192,
+        "percent_values": [
+          105.0,
+          120.0,
+          140.0
+        ],
+        "bound_percent_values": [
+          140.0
+        ],
+        "numeric_binding_required": true,
+        "parent_char_start": 4444,
+        "parent_char_end": 6065,
+        "derived_from_parent": true
+      }
+    ]
+  },
+  "timing_ms": {
+    "parse": 14.1,
+    "pass1": 17917.8,
+    "pass2": 25834.7,
+    "total": 43773.0
+  },
+  "within_60_seconds": true,
+  "usage": {
+    "pass1-input-tokens": 80,
+    "pass1-output-tokens": 1276,
+    "pass1-cache-write-tokens": 43748,
+    "pass1-cache-read-tokens": 0,
+    "pass2-input-tokens": 3940,
+    "pass2-output-tokens": 802
+  },
+  "checks": {
+    "status_draft": true,
+    "evidence_coordinates_and_quotes": true,
+    "json_schema_and_pydantic": true,
+    "numeric_ranges": true,
+    "formula_contamination_rejected_by_endpoint": true,
+    "golden_h_0_15": true
+  },
+  "card": {
+    "broker": "한국투자증권",
+    "ratio_rules": [
+      {
+        "product_type": "융자",
+        "collateral_type": "융자금",
+        "symbol_group": "전체",
+        "ratio": 1.4,
+        "evidence": {
+          "source_format": "html",
+          "char_start": 5252,
+          "char_end": 5272,
+          "flattened_sha256": "f454551cba8762c6bddd546050d2b1f1fdab444cc348308e37f0a358cbb8fde5",
+          "quote": "담보유지 비율\t융자\t융자금의 140%"
+        }
+      }
+    ],
+    "account_aggregation": "max",
+    "disposal_price_rules": [
+      {
+        "trigger": "담보부족",
+        "symbol_group": "전체",
+        "discount_basis": "prev_close_pct",
+        "discount_rate": 0.15,
+        "source_confidence": "explicit",
+        "evidence": {
+          "source_format": "html",
+          "char_start": 3342,
+          "char_end": 3456,
+          "flattened_sha256": "f454551cba8762c6bddd546050d2b1f1fdab444cc348308e37f0a358cbb8fde5",
+          "quote": "반대매매는 한국거래소를 통해 진행되며 수량은 한국거래소(KRX) 전일종가 대비 15% 하락한 가격을 기준으로 산정되고, 전일종가의 하한가로 처분될 수 있으며 처분 금액은 담보부족금액을 상회할 수 있습니다."
+        }
+      }
+    ],
+    "execution_schedule": [
+      {
+        "threshold_ratio": 1.4,
+        "day_counting": "담보부족발생(D일) + 2일",
+        "evidence": {
+          "source_format": "html",
+          "char_start": 5252,
+          "char_end": 5444,
+          "flattened_sha256": "f454551cba8762c6bddd546050d2b1f1fdab444cc348308e37f0a358cbb8fde5",
+          "quote": "담보유지 비율\t융자\t융자금의 140%\n대주\t대주 시가상당액의 120%\n신용거래대주 전용계좌\t신용거래대주 전용계좌 담보평가액의 105% (담보증권의 유형별로 일정수준의 할인평가적용)\n상환방법\t상환기일 전이라도 전부 또는 일부 상환 가능 (매매에 의한 상환 시에는 당해 매매거래의 결제일에 상환)\n임의상환정리(반대매매)\t담보부족발생(D일) + 2일"
+        }
+      }
+    ],
+    "ratio_source": "clause",
+    "doc_version": {
+      "review_no": "2026-0265"
+    },
+    "status": "draft"
+  }
+}
