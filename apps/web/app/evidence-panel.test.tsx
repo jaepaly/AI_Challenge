@@ -40,9 +40,15 @@ const hantoo = CARDS.find((c) => c.key === "hantoo")!.card;
 const meritz = CARDS.find((c) => c.key === "meritz")!.card;
 const lower = CARDS.find((c) => c.key === "lower")!.card;
 
-/** 한 행(.evRow)만 잘라낸다 — 행 단위 표시가 옆 행으로 새지 않는지 본다 */
+/**
+ * 한 행(.evRow)만 잘라낸다 — 행 단위 표시가 옆 행으로 새지 않는지 본다.
+ *
+ * ⚠ **여는 태그를 `>` 까지 포함해 자르지 않는다.** 그러면 `.evRow` 에 속성이 하나
+ *   붙는 순간(2026-08-25 `data-role`) **행이 하나도 안 잘려** 7건이 한꺼번에 빨개진다.
+ *   화면은 멀쩡한데 검사만 깨지는 종류라, 원인을 찾는 데 시간이 든다.
+ */
 function row(html: string, field: string): string {
-  const rows = html.split('<div class="evRow">');
+  const rows = html.split('<div class="evRow"');
   const hit = rows.find((r) => r.includes(field));
   expect(hit).toBeDefined();
   return hit!;
@@ -614,7 +620,7 @@ describe("유지비율 대조 — 카드 값과 화면 계산이 어긋날 때",
     expect(html).toContain("담보유지비율 조항이 없습니다");
     expect(html).toContain("계산의 기준값이 없어 임계가·담보부족액을 산출하지 않았습니다");
     // 행이 없으므로 행 안이 아니라 머리글 뒤에 있다
-    expect(html.indexOf("evRatioGap")).toBeLessThan(html.indexOf('<div class="evRow">'));
+    expect(html.indexOf("evRatioGap")).toBeLessThan(html.indexOf('<div class="evRow"'));
   });
 
   it("종목군별로 값이 갈린 카드: '다르다'가 아니라 '고르지 않는다'고 말한다", () => {
