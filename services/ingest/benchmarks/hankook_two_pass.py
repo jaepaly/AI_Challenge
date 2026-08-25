@@ -586,6 +586,16 @@ def main() -> None:
             )
         except (FileNotFoundError, ValueError, json.JSONDecodeError) as error:
             raise SystemExit(str(error)) from None
+        print(
+            json.dumps(
+                {
+                    "estimated_max_cost_krw": result.get("estimated_max_cost_krw"),
+                    "console_billed_cost_krw": result.get("console_billed_cost_krw"),
+                },
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
     if args.record_result is not None or args.confirm_single_run_charge:

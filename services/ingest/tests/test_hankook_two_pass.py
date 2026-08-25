@@ -1,5 +1,7 @@
 from base64 import urlsafe_b64encode
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
+from io import StringIO
 import json
 import re
 from pathlib import Path
@@ -313,6 +315,40 @@ class HankookTwoPassGateTest(unittest.TestCase):
         self.assertTrue(parsed.confirm_single_run_charge)
         self.assertIsNotNone(parsed.record_result)
         self.assertIsNone(_parser().parse_args([]).record_console_billed_cost_krw)
+
+    def test_console_cost_cli_displays_the_estimate_with_the_bill(self) -> None:
+        from benchmarks import hankook_two_pass
+
+        parsed = _parser().parse_args(
+            [
+                "--record-console-billed-cost-krw",
+                "310.93",
+                "--record-result",
+                "benchmarks/results/hankook_two_pass_attempt8_success.json",
+                "--confirm-single-run-charge",
+            ]
+        )
+        recorded = {
+            "estimated_max_cost_krw": 601.01,
+            "console_billed_cost_krw": 310.93,
+        }
+        stdout = StringIO()
+        stderr = StringIO()
+
+        with (
+            patch.object(hankook_two_pass, "_parser") as parser_factory,
+            patch.object(
+                hankook_two_pass,
+                "record_console_billed_cost",
+                return_value=recorded,
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            parser_factory.return_value.parse_args.return_value = parsed
+            hankook_two_pass.main()
+
+        self.assertEqual(json.loads(stderr.getvalue()), recorded)
 
     def test_canonical_record_is_still_the_fourth_success(self) -> None:
         """정본이 **여전히 4차 성공인지** 파일끼리 대조한다.
