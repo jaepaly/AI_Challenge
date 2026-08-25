@@ -13,6 +13,7 @@ from base64 import urlsafe_b64decode
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
+from math import isfinite
 from pathlib import Path
 import re
 import sys
@@ -437,6 +438,59 @@ def _write_result(path: Path, result: Mapping[str, Any], *, overwrite: bool = Fa
     temporary.replace(path)
 
 
+def record_console_billed_cost(
+    repo_root: Path,
+    result_path: Path,
+    billed_cost_krw: float,
+    *,
+    confirmed_single_run_charge: bool,
+    recorded_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Console에서 분리 확인한 **한 실행의** 실청구액을 결과에 사후 기록한다.
+
+    Messages API는 청구액을 반환하지 않는다. 따라서 누적 Console 사용액을 특정
+    실행에 임의 배분하지 않고, Console에서 해당 실행의 금액을 분리 확인한 경우만
+    사람이 명시적으로 기록한다. 기존 기록은 불변이며 결과 디렉터리 밖 JSON도
+    수정하지 않는다.
+    """
+
+    if not confirmed_single_run_charge:
+        raise ValueError(
+            "누적 Console 금액은 실행 한 건에 귀속할 수 없다. "
+            "분리된 단일 실행 청구액을 확인했다면 --confirm-single-run-charge를 붙인다"
+        )
+    if not isfinite(billed_cost_krw) or billed_cost_krw <= 0:
+        raise ValueError("Console 실청구액은 0보다 큰 유한한 원화 금액이어야 한다")
+
+    results_dir = _results_dir(repo_root).resolve()
+    resolved_path = result_path.resolve()
+    if resolved_path.parent != results_dir or not (
+        resolved_path.name == "hankook_two_pass.json"
+        or _ATTEMPT_PATTERN.fullmatch(resolved_path.name)
+    ):
+        raise ValueError("한투 결과 디렉터리의 정본 또는 attempt JSON만 갱신할 수 있다")
+    if not resolved_path.is_file():
+        raise FileNotFoundError(resolved_path)
+
+    result = json.loads(resolved_path.read_text(encoding="utf-8"))
+    if not isinstance(result, dict) or "console_billed_cost_krw" not in result:
+        raise ValueError("console_billed_cost_krw 필드가 있는 한투 결과 JSON이어야 한다")
+    if result["console_billed_cost_krw"] is not None:
+        raise ValueError("이미 기록된 Console 실청구액은 덮어쓰지 않는다")
+
+    timestamp = recorded_at or datetime.now(timezone.utc)
+    if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+        raise ValueError("기록 시각은 시간대가 포함돼야 한다")
+    result["console_billed_cost_krw"] = billed_cost_krw
+    result["console_billing_verification"] = {
+        "source": "anthropic_console",
+        "scope": "single_run",
+        "recorded_at": timestamp.isoformat(),
+    }
+    _write_result(resolved_path, result, overwrite=True)
+    return result
+
+
 _ATTEMPT_PATTERN = re.compile(r"hankook_two_pass_attempt(\d+)_(?:failed|success)\.json$")
 
 
@@ -489,6 +543,21 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--output", type=Path)
     parser.add_argument(
+        "--record-console-billed-cost-krw",
+        type=float,
+        help="Console에서 분리 확인한 단일 실행의 실청구액을 기존 결과에 기록",
+    )
+    parser.add_argument(
+        "--record-result",
+        type=Path,
+        help="--record-console-billed-cost-krw로 갱신할 기존 한투 결과 JSON",
+    )
+    parser.add_argument(
+        "--confirm-single-run-charge",
+        action="store_true",
+        help="입력값이 누적액이 아니라 해당 실행 한 건의 분리된 청구액임을 확인",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="이미 있는 결과 파일을 덮는다. 되돌릴 수 없는 유료 실행 기록을 지우는 "
@@ -500,6 +569,30 @@ def _parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = _parser().parse_args()
     repo_root = Path(__file__).resolve().parents[3]
+    if args.record_console_billed_cost_krw is not None:
+        if args.execute or args.output is not None or args.overwrite:
+            raise SystemExit(
+                "Console 비용 기록 모드는 --execute/--output/--overwrite와 "
+                "함께 쓸 수 없습니다"
+            )
+        if args.record_result is None:
+            raise SystemExit("--record-console-billed-cost-krw에는 --record-result가 필수입니다")
+        try:
+            result = record_console_billed_cost(
+                repo_root,
+                args.record_result,
+                args.record_console_billed_cost_krw,
+                confirmed_single_run_charge=args.confirm_single_run_charge,
+            )
+        except (FileNotFoundError, ValueError, json.JSONDecodeError) as error:
+            raise SystemExit(str(error)) from None
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+    if args.record_result is not None or args.confirm_single_run_charge:
+        raise SystemExit(
+            "--record-result와 --confirm-single-run-charge는 "
+            "--record-console-billed-cost-krw와 함께 써야 합니다"
+        )
     if not args.execute:
         print(json.dumps(build_dry_run_plan(repo_root), ensure_ascii=False, indent=2))
         return
