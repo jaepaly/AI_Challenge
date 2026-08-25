@@ -33,6 +33,7 @@ BUNDLED = INGEST_ROOT / "app" / "_bundled" / "condition_card.schema.json"
 VERCEL_JSON = INGEST_ROOT / "vercel.json"
 PYTHON_VERSION_FILE = INGEST_ROOT / ".python-version"
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+DEPLOY_YML = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 
 # Vercel 파이썬 런타임이 받아 주는 것(2026-07 문서). 3.11 은 **없다**.
 VERCEL_PYTHON_VERSIONS = {"3.12", "3.13", "3.14"}
@@ -414,6 +415,102 @@ class PythonVersionTest(unittest.TestCase):
             ci,
             f"ci.yml 이 {declared} 로 안 돈다. 배포본과 다른 버전으로 테스트하는 것이다.",
         )
+
+
+class DeployUploadsSourceTest(unittest.TestCase):
+    """배포는 **소스를 올리고 Vercel 이 빌드**한다 — `--prebuilt` 를 쓰지 않는다.
+
+    2026-08-24 실측으로 기각된 경로다. C 가 Git 연동을 끊고 `.git` 없는 폴더에서
+    `vercel build --prod` → `vercel deploy --prebuilt --prod` 를 완주했다. 커밋 작성자
+    검사는 **통과했고**(Ready + 프로덕션 alias 승격) 화면도 떴는데, 서버리스 함수가
+    전부 500 이었다::
+
+        ChunkLoadError / MODULE_NOT_FOUND
+        Cannot find module '/var/task/apps/web/.next/server/chunks/
+                            [root-of-the-server]__13dzfwx._.js'
+
+    모노레포라 Next 가 파일 추적 루트를 저장소 루트로 잡는데(람다 경로가
+    `apps/web/.next/...` 인 것이 그 증거) 로컬 `vercel build` 가 추적한 것과 Vercel
+    실행 환경이 기대하는 것이 어긋난다.
+
+    ⚠ **이 워크플로가 그 경로를 그대로 쓰고 있었다.** 그래서 8/31 에 Actions 한도가
+      초기화돼도 같은 500 이 났을 것이고, 제출 6일 전에 알았을 일이다. 이 검사가
+      그 재발을 막는다.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = DEPLOY_YML.read_text(encoding="utf-8")
+        # 주석(`#` 으로 시작)은 뺀다 — 머리말이 `--prebuilt` 를 **왜 안 쓰는지** 설명하므로
+        # 본문째로 훑으면 그 설명이 검사를 넘어뜨린다. `#71` 에서 같은 실수를 했다.
+        cls.commands = [
+            line
+            for line in cls.text.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
+    def _deploy_lines(self) -> list[str]:
+        return [line for line in self.commands if "vercel deploy" in line]
+
+    def test_deploy_commands_exist(self) -> None:
+        """검사가 볼 대상이 사라지면 그것부터 알아야 한다."""
+        self.assertTrue(self._deploy_lines(), "deploy.yml 에 `vercel deploy` 가 없다")
+
+    def test_no_prebuilt_anywhere(self) -> None:
+        offenders = [line.strip() for line in self.commands if "--prebuilt" in line]
+        self.assertEqual(
+            offenders,
+            [],
+            "`--prebuilt` 가 돌아왔다. 2026-08-24 실측으로 기각된 경로다"
+            " — 함수가 전부 500(MODULE_NOT_FOUND)이 된다:\n" + "\n".join(offenders),
+        )
+
+    def test_no_local_vercel_build(self) -> None:
+        """`vercel build` 를 러너에서 돌리면 그 산출물을 쓰게 된다 — 위와 같은 결함이다."""
+        offenders = [
+            line.strip()
+            for line in self.commands
+            if "vercel build" in line
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "러너에서 `vercel build` 를 돌린다 — 소스를 올리고 Vercel 이 빌드하게 하라:\n"
+            + "\n".join(offenders),
+        )
+
+    def test_every_deploy_passes_the_build_identity(self) -> None:
+        """빌드가 Vercel 에서 돌므로 러너 환경변수가 **안 닿는다.**
+
+        `--build-env` 로 넘기지 않으면 `/api/build` 가 `local` 을 주고, 그러면 같은
+        워크플로의 「신선도 검증」이 대조할 SHA 자체가 없다. 2026-08-24 C 의 수동
+        배포에서 실제로 푸터가 `local · dev` 로 떴다.
+
+        ⚠ 줄바꿈(`\`)으로 이어진 명령이라 **다음 줄까지 이어 붙여** 본다. 한 줄만 보면
+          `--build-env` 가 다음 줄에 있어서 못 찾는다.
+        """
+        joined: list[str] = []
+        buf = ""
+        for line in self.commands:
+            buf += " " + line.strip()
+            if line.rstrip().endswith("\\"):
+                continue
+            joined.append(buf.replace("\\", " "))
+            buf = ""
+        if buf:
+            joined.append(buf.replace("\\", " "))
+
+        deploys = [cmd for cmd in joined if "vercel deploy" in cmd]
+        self.assertTrue(deploys, "이어 붙인 명령에서 `vercel deploy` 를 못 찾았다")
+        for cmd in deploys:
+            with self.subTest(cmd=cmd.strip()[:70]):
+                for var in ("VERCEL_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_REF"):
+                    self.assertIn(
+                        f"--build-env {var}",
+                        cmd,
+                        f"배포 명령이 `--build-env {var}` 를 안 넘긴다 —"
+                        " 배포 신원을 잃고 신선도 검증이 무의미해진다.",
+                    )
 
 
 if __name__ == "__main__":
