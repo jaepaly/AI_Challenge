@@ -451,6 +451,36 @@ class SpecDraftCoversTheFormTest(unittest.TestCase):
             + "\n".join(claimed),
         )
 
+    def test_the_freshness_row_carries_the_judging_window_gate(self) -> None:
+        """*"신선도 3단 판정 ✅ 완료"* 행이 **심사 기간에 스스로를 막는다**는 사실을 달고 있는지.
+
+        A 가 `#88` 리뷰에서 짚었다. 신선도 게이트는 `verified_at` 기준 30일이고 카드 셋의
+        검증일이 `2026-08-09` 다. 엔진으로 재보면::
+
+            2026-09-07  calculated   <- 제출일
+            2026-09-09  blocked      <- 심사 기간 안이다
+            2026-09-11  blocked
+
+        **심사 5일 중 사흘이 막힌다.** 그리고 그건 고장이 아니라 이 행이 **설계대로 작동하는
+        것**이다 — 그래서 `✅ 완료` 가 맞으면서 동시에 위험하다. `/api/build` 는 그 사흘 내내
+        200 을 주므로 배포 감시로도 안 보인다.
+
+        ⚠ 이 검사는 **날짜를 계산하지 않는다.** 엔진이 정본이고(`freshness.ts`) 여기서 30일을
+          베끼면 엔진이 바뀔 때 이 파일만 조용히 낡는다. 문서가 그 위험을 **달고 있는지**만 본다.
+          A-2(9/6 재검증)가 끝나면 이 표시를 떼게 되고 그때 이 검사도 함께 지워라.
+        """
+        # 기능명 칸으로 좁힌다. 행 전체로 보면 `/api/readiness` 행도 걸리는데, 그건 막히는
+        # 쪽이 아니라 **언제 막히는지를 보고하는** 쪽이라 게이트를 달 자리가 아니다.
+        rows = [row for row in self._feature_rows() if "신선도" in row.split("|")[1]]
+        self.assertTrue(rows, "§2 에 신선도 판정 행이 없다 — 표 구조가 바뀌었다")
+        ungated = [row for row in rows if "G-3" not in row]
+        self.assertEqual(
+            ungated,
+            [],
+            "신선도 행이 심사 기간 게이트(G-3) 표시 없이 '완료' 로만 적혀 있다:\n"
+            + "\n".join(ungated),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
