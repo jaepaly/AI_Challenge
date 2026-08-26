@@ -381,8 +381,25 @@ export default function Landing({ build }: { build: BuildInfo }) {
   const executedSteps = steps?.filter((s) => s.executedQty > 0) ?? [];
 
   /* ── 렌더 ──────────────────────────────────────────────────── */
+  /**
+   * ⚠ **«모름» 을 «안전» 으로 칠하지 않는다.**
+   *
+   * `policy.resolved` 가 거짓이면 r 이 없어 `D = shortfall(V, L, NaN) = NaN` 이고
+   * `breached` 가 서지 않는다. 그러면 `data-state` 가 `"safe"` 로 남는데, `#headline`
+   * 의 기본색이 **`var(--safe)`**(#2B6A56, 초록)라 *"유지비율을 정하지 못했습니다"* 가
+   * **30px · weight 800 · 초록**으로 뜬다 — 5,000원에서도(A, `#101` 리뷰).
+   *
+   *     globals.css:50   #headline{ … color:var(--safe) }
+   *     globals.css:10   --safe:#2B6A56
+   *
+   * 색은 문장보다 먼저 읽히고, 방향이 **낙관** 쪽이다. 세 번째 시각 언어를 만들지 않고
+   * **초록만 뗀다** — `unknown` 에서 헤드라인을 본문색으로 되돌린다. 슬라이더는 그대로다.
+   */
   return (
-    <div className="mg" data-state={breached ? "breach" : "safe"}>
+    <div
+      className="mg"
+      data-state={policy.resolved ? (breached ? "breach" : "safe") : "unknown"}
+    >
       {/*
         * ⚠ **유지비율을 계좌 괄호 안에 두지 않는다.** (다) 채택(#67 A-1) 뒤로 유지비율은
         *   계좌 속성이 아니라 **카드가 정하는 값**이다 — `snapshot.ts` 의 `ACCOUNT` 주석이

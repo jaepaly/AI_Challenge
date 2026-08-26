@@ -289,20 +289,35 @@ test.describe("🔴 실패 축 — 좁히지 못하면 숫자를 내지 않는�
   });
 
   /**
-   * ⚠ **이 검사는 «지금 이렇다» 를 고정할 뿐, «이래야 한다» 가 아니다.**
+   * ⚠ **이 검사는 «지금 이렇다» 를 고정하다가 «이래야 한다» 로 바뀌었다.**
    *
-   * `r` 이 미정이면 `breached` 가 안 서므로 `data-state` 가 `safe` 로 남는다. 5,000원
-   * 에서도 초록이다. 헤드라인은 *"정하지 못했습니다"* 라고 정직하게 말하지만 **색은
-   * 안전을 말한다** — 한 화면이 두 말을 한다.
+   * 처음엔 `data-state=safe` 를 그대로 박아 두고 *"바뀌면 먼저 넘어지게"* 만 해 뒀다.
+   * A 가 `#101` 리뷰에서 CSS 를 전수로 찾아 그 값이 **중립이 아니라 «안전» 토큰**임을
+   * 짚었다 — `#headline` 기본색이 `var(--safe)`(#2B6A56, 초록)다. 5,000원에서도
+   * *"유지비율을 정하지 못했습니다"* 가 30px · weight 800 · **초록**으로 떴다.
    *
-   * 세 번째 상태(«모름»)를 만들지, 색을 중립으로 뺄지는 화면 규약 결정이라 여기서
-   * 정하지 않는다. 다만 **바뀌면 이 검사가 먼저 넘어지게** 해 둔다 — 색이 조용히
-   * 바뀌는 것이 제일 나쁘다.
+   * 색은 문장보다 먼저 읽히고 방향이 낙관 쪽이라, 고정이 아니라 **수정**이 맞았다.
    */
-  test("현재 규약 고정 — 미정 카드에서 data-state 는 safe 로 남는다", async ({ page }) => {
+  test("미정 카드는 «모름» 이다 — 안전으로 칠하지 않는다", async ({ page }) => {
     await uploadAmbiguous(page);
     await page.getByLabel("가격 시나리오", { exact: true }).fill("5000");
-    await expect(page.locator(".mg")).toHaveAttribute("data-state", "safe");
+    await expect(page.locator(".mg")).toHaveAttribute("data-state", "unknown");
+    // 초록(--safe)이 아니라 본문색(--ink)이어야 한다.
+    const color = await page
+      .locator("#headline")
+      .evaluate((el) => getComputedStyle(el).color);
+    const ink = await page
+      .locator(".mg")
+      .evaluate((el) => getComputedStyle(el).getPropertyValue("--ink").trim());
+    const safe = await page
+      .locator(".mg")
+      .evaluate((el) => getComputedStyle(el).getPropertyValue("--safe").trim());
+    const rgb = (hex: string) => {
+      const n = parseInt(hex.replace("#", ""), 16);
+      return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+    };
+    expect(color, `헤드라인이 --safe(${safe}) 로 칠해졌다`).not.toBe(rgb(safe));
+    expect(color).toBe(rgb(ink));
   });
 
   test("골든과 대비 — 같은 화면이 좁혀지는 카드에서는 수량을 낸다", async ({ page }) => {

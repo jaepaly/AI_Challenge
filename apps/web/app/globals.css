@@ -49,6 +49,9 @@
   .headline{margin-top:18px; text-align:center}
   #headline{font-family:var(--serif); font-size:30px; font-weight:800; color:var(--safe)}
   .mg[data-state=breach] #headline{color:var(--danger)}
+  /* 유지비율을 못 정한 상태 — «안전» 토큰을 떼고 본문색으로 되돌린다.
+     새 시각 언어를 만들지 않는다. 슬라이더는 기본 그대로 둔다(#101 리뷰) */
+  .mg[data-state=unknown] #headline{color:var(--ink)}
   #subline{margin:4px 0 0; font-size:13.5px; color:var(--ink2)}
 
   /* 카드 선택 */
