@@ -35,6 +35,9 @@ SPEC_FORM = "(첨부2) 2026 금융 AI Challenge 기능명세서.hwpx"
 
 # 우리가 쓰는 초안. 양식이 바뀌면 초안도 함께 깨져야 한다.
 PLAN_DRAFT = "submission/attachment1-plan.md"
+# 이스케이프를 소스에 쓰지 않는다 — 이 파일을 스크립트로 고칠 때 백슬래시가
+# 뭉개져 두 번 사고가 났다(2026-08-25·26, test_deployable.py 와 같은 이유).
+NEWLINE = chr(10)
 # 첨부2 는 두 파일로 나뉘어 있다 — §5 를 먼저 쓴 이유는 그 파일 머리말에 적혀 있다.
 SPEC_DRAFTS = (
     "submission/attachment2-s1-s4.md",
@@ -319,12 +322,17 @@ class PlanDraftCoversTheFormTest(unittest.TestCase):
             self.text,
             "§7 의 «지금 못 하는 것» 절이 사라졌다 — 한계를 적는 것이 이 제품의 주장이다.",
         )
+        # ⚠ **절 경계에서 끊는다.** `self.text[start:]` 로 문서 끝까지 세면 «§7 의 항목»
+        #   이 아니라 «그 지점 이후 아무 데나 있는 `- ` 줄» 을 센다. 지금 초록인 이유는
+        #   §7 이 **마침 마지막 절이기 때문**이고, 뒤에 절이 하나 붙는 순간 그 전제가
+        #   깨진다 — A 가 뮤테이션으로 보였다(§7 을 비우고 부록 절을 붙이면 18 passed).
+        #   제출 12일 전이고 첨부1 은 아직 손보는 중이라 충분히 있을 법한 변경이다.
         start = self.text.index("지금 못 하는 것")
-        items = [
-            line
-            for line in self.text[start:].splitlines()
-            if line.startswith("- ")
-        ]
+        section = self.text[start:]
+        end = section.find(NEWLINE + "## ")
+        if end != -1:
+            section = section[:end]
+        items = [line for line in section.splitlines() if line.startswith("- ")]
         self.assertGreaterEqual(
             len(items),
             4,
