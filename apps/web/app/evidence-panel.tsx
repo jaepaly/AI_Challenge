@@ -216,7 +216,10 @@ export default function EvidencePanel({
       {view.empty !== null && <p className="evEmpty">{view.empty}</p>}
 
       {view.rows.map((row) => (
-        <div className="evRow" key={row.role}>
+        // `data-role` 은 E2E 가 **유지비율 행 하나**로 범위를 좁히는 데 쓴다. 클래스명이나
+        // 문구로 잡으면 스타일·문구를 만질 때 검사가 조용히 다른 행을 보게 된다 —
+        // 이 파일 아래쪽 주석이 `#75` 에서 실제로 겪은 그 사고를 적어 두었다.
+        <div className="evRow" data-role={row.role} key={row.role}>
           <div className="evRowHead">
             <span className="evTitle">{row.title}</span>
             <span className="evField">{row.field}</span>
