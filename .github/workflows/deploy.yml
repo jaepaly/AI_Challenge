@@ -216,47 +216,60 @@ jobs:
 
   # ── 인제스트(FastAPI) ──────────────────────────────────────────────
   #
-  # 웹과 **같은 경로**로 간다 — CLI + 토큰. 이유는 이 파일 머리글 그대로다.
-  # Git 연동을 쓰면 ⚠ 이중 배포가 되고, 비공개 저장소의 커밋 작성자 검사에 다시 걸린다.
+  # 🟢 **2026-08-26 — 이 잡도 «백업» 이다. 주 경로는 Vercel Git 연동이다.**
   #
-  # ⚠ **Vercel 대시보드의 "Add New → Project" 를 쓰지 마라.** 그 흐름은 GitHub import
-  #   를 요구하고, 저장소 소유자가 아닌 팀원에게는 *"내 계정에 새 repo 를 만들까요"* 로
-  #   빠진다(2026-08-24 C 가 실제로 그 화면에서 멈췄다). 우리는 애초에 import 를
-  #   쓰지 않으므로 그 화면에 갈 일이 없다. 프로젝트는 CLI 로 만든다 — 아래 참조.
+  #   웹과 같다. `marginguard-ingest` 프로젝트에 저장소를 붙여 두었고 main 푸시마다
+  #   Vercel 이 배포한다. 이 잡은 `workflow_dispatch` 로만 돈다.
   #
-  # 🔴 **프로젝트에 Git 연동이 붙어 있으면 먼저 끊어라.**
-  #   Settings → Git → Disconnect. 안 끊으면 main 에 푸시할 때마다 Vercel 이 **자기
-  #   경로로** 배포를 시도하고, 그 경로에는 커밋 작성자 검사가 걸린다::
+  #   ⚠ **아래에 «CLI 로 만들어라» 고 적혀 있던 지시를 걷어냈다.** 그 지시의 근거는
+  #     두 가지였는데 **둘 다 2026-08-26 에 사라졌다**::
   #
-  #       Deployment Blocked
-  #       The deployment was blocked because the commit author did not have
-  #       contributing access to the project on Vercel.
-  #       The Hobby Plan does not support collaboration for private repositories.
+  #         Hobby 라 좌석을 못 산다              ->  Pro 재활성화
+  #         비공개 저장소 커밋 작성자 검사에 걸린다  ->  팀 초대 수락으로 통과
   #
-  #   2026-08-24 `marginguard-ingest` 가 정확히 그렇게 막혔다(커밋 005f35f, 작성자
-  #   jaepaly). **이 파일 머리글이 예언한 그것이고, 팀에서 세 번째다.** Pro 를 해지한
-  #   뒤라 좌석으로 우회할 수도 없다 — 좌석은 1인당 월 $20 이고 팀 방침은 추가 비용 0 이다.
+  #     근거가 사라진 지시를 남겨 두면 다음 사람이 그대로 따라 하다 헤맨다. 실제로
+  #     이 머리글 때문에 인제스트만 CLI 로 가려다 `uv lock`(#85)·`Blocked`(#69) 로
+  #     두 번 멈췄다.
   #
-  #   ⚠ 끊지 않으면 이 워크플로와 **같은 커밋을 두 번 배포**하기도 한다(위 경고 참조).
-  #     한쪽은 막히고 한쪽은 성공하는 상태라 "배포가 되긴 되는데 빨간 게 하나 뜬다"로
-  #     보이기 쉽다. 그 상태로 심사 기간에 들어가면 안 된다.
+  # ## 대시보드 설정 — **두 프로젝트가 서로 다르다**
   #
-  # ## 최초 1회 (로컬에서, 토큰 가진 사람이)
+  #     marginguard-web       Root Directory  apps/web
+  #                           바깥 파일 포함    ✅ 켠다
+  #     marginguard-ingest    Root Directory  services/ingest
+  #                           바깥 파일 포함    ❌ 끈다
   #
-  #     cd services/ingest
-  #     npx vercel@latest link --yes --project marginguard-ingest   #         --token=$VERCEL_TOKEN --scope=<팀 슬러그>
-  #     npx vercel@latest deploy --token=$VERCEL_TOKEN     # 첫 배포로 프로젝트가 생긴다
-  #     cat .vercel/project.json                          # projectId 를 아래 Secret 에
+  #   🔴 **같은 토글이 두 프로젝트에서 반대 의미다.** 헷갈리기 쉬운 자리라 이유를 적는다.
   #
-  #   `services/ingest` **안에서** 링크하는 것이 중요하다. 그래야 Vercel 이 이 디렉터리를
-  #   프로젝트 루트로 잡고, 대시보드의 Root Directory 설정에 기대지 않아도 된다 —
-  #   아래 job 도 같은 디렉터리에서 CLI 를 돌린다. 두 곳이 어긋날 자리를 안 만든다.
+  #     웹은 `@marginguard/engine` 을 워크스페이스로 의존하고, 그 패키지는 빌드 산출물
+  #     없이 **생 TS 소스**를 노출한다(`main: "src/index.ts"`). 저장소 루트가 없으면
+  #     빌드가 엔진을 못 찾는다.
   #
-  # ## 추가 Secret 1개
+  #     인제스트는 정반대다. `two_pass.py` 의 `schema_path()` 가 *"정본이 보이면 정본,
+  #     안 보이면 사본"* 인데, **저장소 루트가 안 들어오는 것이 그 설계의 전제**다.
+  #     켜면 정본이 보여서 **번들 사본 경로가 프로덕션에서 한 번도 안 쓰인다** —
+  #     `scripts/sync_bundled_schema.py` 와 `test_bundled_schema_matches_canonical`
+  #     이 지켜 온 장치가 통째로 헛돈다. 그러면 사본이 낡아도 아무도 모르고, 켜기를
+  #     되돌리는 날 프로덕션에서만 4중 방어 ②가 터진다.
   #
-  #     VERCEL_INGEST_PROJECT_ID   services/ingest/.vercel/project.json 의 projectId
+  # ## 필요한 환경변수 (Vercel 대시보드, Production)
+  #
+  #     marginguard-ingest    ANTHROPIC_API_KEY     없으면 /ingest 가 500
+  #     marginguard-web       INGEST_BASE_URL       없으면 /api/ingest 가 503
+  #                                                 (503 은 «업로드 미연결» 을 말하는
+  #                                                  정상 응답이다 — 500 과 다르다)
+  #
+  #   ⚠ `ANTHROPIC_INGEST_MODEL` 은 넣지 않는다. 기본값 `claude-sonnet-5` 가 우리가
+  #     실측한 모델이고(README §6-2), 바꾸면 비용 상한 실행기의 정가와도 갈린다.
+  #
+  # ## 이 백업 경로를 손으로 쓰려면 — Secret 1개
+  #
+  #     VERCEL_INGEST_PROJECT_ID   Vercel 프로젝트 Settings → General 의 Project ID
   #
   #   없으면 조용히 건너뛴다. 웹 배포는 영향을 받지 않는다.
+  #
+  # ⚠ **Git 연동과 이 잡을 «동시에» 자동으로 돌리지 마라.** 지금은 이 파일 전체가
+  #   `workflow_dispatch` 뿐이라 그럴 일이 없다(`on:` 참조). 되돌리려면 Vercel 쪽
+  #   연동을 먼저 끊어라 — 순서가 반대면 같은 커밋을 두 번 배포한다.
   deploy-ingest:
     name: Vercel 배포 (인제스트)
     # ⚠ **반드시 있어야 한다.** 없으면 GitHub 기본값 6시간이고, `vercel` CLI 가
