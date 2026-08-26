@@ -75,14 +75,47 @@ describe("메리츠 — 문서가 군을 가르므로 카드도 가른다", () =
 });
 
 describe("적어 넣은 짝이 인용 스팬 안에 글자로 있다 — ②가 ①로 안 미끄러지게", () => {
-  it("메리츠 두 줄 다 군 이름과 % 표기가 인용문 안에 있다", () => {
-    const card = cardOf("meritz");
-    for (const rule of card.ratio_rules) {
-      const quote = rule.evidence.quote;
-      expect(quote).toContain(rule.symbol_group);
-      expect(quote).toContain(`${Math.round(rule.ratio * 100)}%`);
-    }
-  });
+  /**
+   * **카드 이름이 아니라 성질로 가른다** — `#95` 리뷰 ②(D) 를 받아 넓혔다.
+   *
+   * 처음엔 이 검사가 `cardOf("meritz")` 하나만 봤다. D 께서 네 번째 카드를 넣어
+   * 재보니, **군은 계좌와 맞고 값만 지어낸** 카드가 이 파일 18 건을 전부 통과했다.
+   * 독립 재현했고(아래), 그 자리가 정확히 이 파일이 막겠다고 적은 곳이다.
+   *
+   * 값과 라벨은 **읽히는 조건이 다르므로** 따로 건다.
+   *
+   *   값(`%`)   — 룰이 하나여도 계산을 구동한다. 예외 없이 전 카드·전 룰.
+   *   라벨(군)  — `narrowRatioRules` 의 좁히기 ②가 `candidates.length > 1` 안에 있어
+   *              룰이 하나면 **아예 안 읽힌다.** 안 읽히는 값에 근거를 요구하면
+   *              한투·유진이 지어낸 `A∙B군` 을 적어야 통과하게 된다 — 그게 더 나쁘다.
+   *
+   * 그래서 `rules.length < 2` 는 «한투·유진 봐주기» 가 아니라 **읽히지 않는 라벨은
+   * 근거를 요구하지 않는다**는 규칙이다. 군을 가르는 카드가 새로 생기면 이름을
+   * 안 적어도 자동으로 걸린다.
+   */
+  it.each(CARDS.map((preset) => [preset.key] as const))(
+    "%s — 모든 룰의 %% 표기가 인용문 안에 글자로 있다",
+    (key) => {
+      for (const rule of cardOf(key).ratio_rules) {
+        expect(rule.evidence.quote, `${key} / ${rule.symbol_group}`).toContain(
+          `${Math.round(rule.ratio * 100)}%`,
+        );
+      }
+    },
+  );
+
+  it.each(CARDS.map((preset) => [preset.key] as const))(
+    "%s — 군을 가르는 카드면 군 이름도 인용문 안에 있다",
+    (key) => {
+      const rules = cardOf(key).ratio_rules;
+      if (rules.length < 2) return; // 좁히기가 라벨을 안 읽는다 — 위 주석 참조
+      for (const rule of rules) {
+        expect(rule.evidence.quote, `${key} / ${rule.symbol_group}`).toContain(
+          rule.symbol_group,
+        );
+      }
+    },
+  );
 
   /**
    * 120% 는 **신용거래대주** 행이라 이 원장(융자)에 넣지 않았다. 같은 인용문 안에
