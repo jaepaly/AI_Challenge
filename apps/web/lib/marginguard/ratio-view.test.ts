@@ -14,12 +14,19 @@
  *   경로가 테스트에 한 번도 나타나지 않는다.
  */
 import { describe, expect, it } from "vitest";
-import type { ConditionCard, RatioRule } from "@marginguard/engine";
+import type { ConditionCard, Position, RatioRule } from "@marginguard/engine";
 import { CARDS, positions } from "./snapshot";
 import { ratioView } from "./ratio-view";
 
 const hantoo = CARDS.find((c) => c.key === "hantoo")!.card;
-const pos = positions(8_100)[0]!; // group: "일반"
+const pos = positions(8_100)[0]!; // 스냅숏 기본 종목군(A∙B군) — 프리셋을 그대로 볼 때 쓴다
+
+/**
+ * 이 카드에 **없는 어휘**로 물을 때 쓰는 포지션. 좁히기가 0 건이 되어 후보가 그대로
+ * 남는 자리를 보려면 필요하다. `일반` 은 어느 원문에도 없는 값이라 그 역할에 맞고,
+ * 스냅숏 기본값이 나중에 또 바뀌어도 이 검사의 의도가 조용히 달라지지 않는다.
+ */
+const posOutsideCard: Position = { ...positions(8_100)[0]!, group: "일반" };
 
 /** 프리셋 카드의 유지비율 조항만 갈아 끼운다 — 근거 좌표는 그대로 둔다 */
 function withRatios(rules: Partial<RatioRule>[]): ConditionCard {
@@ -129,7 +136,7 @@ describe("모호 — '다르다'가 아니라 '하나로 좁히지 못했다'", 
     { ratio: 1.4, symbol_group: "A∙B군" },
     { ratio: 1.5, symbol_group: "C∙D군" },
   ]);
-  const v = ratioView(meritz, 1.4, pos); // pos.group="일반"은 이 문서에 없는 어휘
+  const v = ratioView(meritz, 1.4, posOutsideCard); // 이 문서에 없는 어휘로 물었다
 
   it("차단하되 '다릅니다'라고 하지 않는다 — 원장 값도 후보 안에 있다", () => {
     expect(v.confirmed).toBe(false);

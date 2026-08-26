@@ -249,11 +249,12 @@ describe("룰이 여럿인 카드 — 근거와 계산이 같은 조항을 본�
   });
 
   it("종목군 축에서도 같다 — 적용 조항이 [0]이 아니어도 그 조항을 찍는다", async () => {
-    // positions()의 group은 "일반"이다 — 둘째 줄로 좁혀진다
+    // positions()의 group은 "A∙B군"이다 — 둘째 줄로 좁혀진다.
+    // 요지는 **적용 조항이 [0]이 아닌 상태**를 만드는 것이라 순서를 그렇게 둔다.
     const html = await renderWith(
       swapRules([
-        { symbol_group: "A∙B군", ratio: 1.7 },
-        { symbol_group: "일반", ratio: 1.4 },
+        { symbol_group: "C∙D군", ratio: 1.7 },
+        { symbol_group: "A∙B군", ratio: 1.4 },
       ]),
     );
     expect(evidenceRatio(html)).toBe("140%");
@@ -408,6 +409,11 @@ describe("카드가 계산을 구동한다", () => {
             }
           : c,
       ),
+      // ⚠ 계좌 쪽 종목군도 함께 목한다. 스냅숏 기본값은 "A∙B군" 이라 그대로 두면
+      //   첫 줄로 **좁혀져** 이 검사가 보려는 상태(못 정함)가 아예 안 나온다.
+      positions: (prevClose: number) => [
+        { ...actual.positions(prevClose)[0]!, group: "일반" },
+      ],
       ledger: () => ({ loan: actual.ACCOUNT.loan, cash: actual.ACCOUNT.cash, requiredRatio: Number.NaN }),
       portfolioLedger: () => ({ loan: 6_000_000, cash: 0, requiredRatio: Number.NaN }),
     }));
