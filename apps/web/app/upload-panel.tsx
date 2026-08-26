@@ -13,9 +13,16 @@ import { toUploadedPreset } from "../lib/marginguard/uploaded-card";
  *
  * ## 왜 진행 상황을 초 단위로 보여주는가
  *
- * 2패스 실측이 **68초**다(pass1 25s + pass2 43s, 한투 2026-08-16). 스피너만 돌리면
- * 그 시간이 "멈춘 것"으로 읽힌다. 남은 시간을 지어내지 않고 **경과 초와 실측 기준**을
- * 함께 적는다 — 예측이 아니라 관측이다.
+ * 2패스 실측이 **43.8~68.1초**다. 스피너만 돌리면 그 시간이 "멈춘 것"으로 읽힌다.
+ * 남은 시간을 지어내지 않고 **경과 초와 실측 기준**을 함께 적는다 — 예측이 아니라 관측이다.
+ *
+ * ⚠ **한 값이 아니라 범위다.** 성공 기록이 둘이고 서로 다르다::
+ *
+ *     4차  2026-08-16  프롬프트 70ce01c9  68.1초
+ *     8차  2026-08-25  프롬프트 c7b6effc  43.8초   <- 현재 코드
+ *
+ *   최신값 하나만 쓰면 44초라고 말하게 되는데, **짧게 부르는 쪽이 더 나쁘다** —
+ *   68초가 걸리는 날 사용자는 멈춘 줄 안다. n=2 를 n=1 인 척하지 않는다.
  *
  * ⚠ 단계(1패스/2패스)는 **표시하지 않는다.** 서버가 진행률을 스트리밍하지 않으므로
  *   브라우저는 지금 어느 패스인지 모른다. 모르는 것을 그럴듯하게 그리지 않는다.
@@ -27,8 +34,14 @@ import { toUploadedPreset } from "../lib/marginguard/uploaded-card";
  * 지어내지 않고 받은 대로 보여준다.
  */
 
-/** 한투 실측. 예측이 아니라 "이만큼 걸린 적이 있다"는 관측이다. */
-const OBSERVED_SECONDS = 68;
+/**
+ * 한투 실측 범위. 예측이 아니라 **"이만큼 걸린 적이 있다"** 는 관측이다.
+ * 값을 고칠 일이 생기면 `benchmarks/results/` 의 성공 기록에서 가져와라 — 기억으로
+ * 고치지 마라. 지금 근거는 `hankook_two_pass.json`(68.1초)과
+ * `hankook_two_pass_attempt8_success.json`(43.8초) 둘이다.
+ */
+const OBSERVED_MIN_SECONDS = 44;
+const OBSERVED_MAX_SECONDS = 68;
 
 type State =
   | { phase: "idle" }
@@ -118,8 +131,8 @@ export default function UploadPanel({ onCard }: { onCard: (preset: CardPreset) =
 
       {state.phase === "sending" && (
         <p id="uploadStatus" className="uploadBusy" role="status">
-          <b>{elapsed}초</b> 경과 — 실측 기준 약 {OBSERVED_SECONDS}초 걸립니다. 인용을 모으고
-          카드를 조립하는 두 단계라 오래 걸립니다. 창을 닫지 마세요.
+          <b>{elapsed}초</b> 경과 — 실측 기준 약 {OBSERVED_MIN_SECONDS}~{OBSERVED_MAX_SECONDS}초
+          걸립니다. 인용을 모으고 카드를 조립하는 두 단계라 오래 걸립니다. 창을 닫지 마세요.
         </p>
       )}
 
