@@ -185,3 +185,131 @@ test.describe("카드를 바꿔도 세 자리가 함께 움직인다", () => {
  *   달고 있고 그것이 이 제품의 주장이다. 검사를 위해 지어낸 카드를 화면에 넣으면 그
  *   주장이 화면 안에서 깨진다.
  */
+
+/**
+ * ## 실패 축 — **카드가 r 을 하나로 못 정하면 수량을 내지 않는다** (#64 P0-6)
+ * ---------------------------------------------------------------------------
+ * 이 파일 위쪽 「실패 축이 여기 없는 이유」가 **`#95` 로 닫혔다.** 그때는 프리셋 셋이
+ * 전부 단일 조항 `r=1.4` 라 `AMBIGUOUS` 가 구조적으로 안 나왔다. 지금은 메리츠가
+ * `A∙B군 1.4` / `C∙D군 1.5` 두 줄이다.
+ *
+ * ⚠ **그런데 화면에는 종목군을 바꾸는 컨트롤이 없다.** `positions()` 가 `"A∙B군"` 이라
+ *   메리츠도 좁혀져서 `r=1.4` 로 답한다. 즉 **프리셋만으로는 실패 화면에 도달할 수 없다.**
+ *
+ * 도달하는 유일한 경로가 **업로드**다. 군이 계좌와 안 맞는 카드가 올라오면 좁히기가
+ * 비고 `AMBIGUOUS` 가 된다 — 그리고 그것이 **실제 약관에서 제일 흔한 모양**이다
+ * (일반 105% / 관리종목 170%).
+ *
+ * ## 돈을 쓰지 않는다
+ *
+ * `/api/ingest` 를 **가로채서** 카드를 돌려준다. 유료 호출은 이미 배포 URL 로 한 번
+ * 끝까지 확인했고(첨부2 §5 ④), 이 검사가 보려는 것은 **그 카드를 받은 화면이 무엇을
+ * 하는가** 다. 두 질문은 다르고, 뒤 질문에 매번 400원을 쓸 이유가 없다.
+ *
+ * ⚠ 가로채는 것은 **상류 응답뿐**이다. 업로드 패널 · `toUploadedPreset` · 화면 게이트는
+ *   전부 진짜로 돈다. 카드를 손으로 만들어 `setState` 하는 것과 다르다 —
+ *   그러면 이 경로에서 실제로 깨질 수 있는 자리를 전부 건너뛴다.
+ */
+
+/** 군이 계좌(`A∙B군`)와 안 맞는 카드 — 실제 약관에서 흔한 «일반 / 관리종목» 모양. */
+function ambiguousCard() {
+  const base = GOLDEN.card;
+  const rule = base.ratio_rules[0]!;
+  return {
+    ...base,
+    broker: "업로드테스트",
+    // ⚠ **일부러 `verified` 로 보낸다.** 인제스트는 무조건 draft 를 내지만, 이 검사가
+    //   보려는 것은 **화면이 그 약속에 기대지 않는다**는 것이다(`uploaded-card.ts:53`).
+    //   모의 응답을 draft 로 보내면 강등 로직을 지워도 검사가 초록이다 — 직접 재보고
+    //   고쳤다(2026-08-26).
+    status: "verified",
+    ratio_rules: [
+      { ...rule, symbol_group: "일반", ratio: 1.05 },
+      { ...rule, symbol_group: "관리종목", ratio: 1.7 },
+    ],
+  };
+}
+
+test.describe("🔴 실패 축 — 좁히지 못하면 숫자를 내지 않는다", () => {
+  async function uploadAmbiguous(page: Page) {
+    await page.route("**/api/ingest", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(ambiguousCard()),
+      });
+    });
+    await open(page);
+    await page.locator("#uploadFile").setInputFiles({
+      name: "테스트증권_신용거래설명서.htm",
+      mimeType: "text/html",
+      buffer: Buffer.from("<html><body>probe</body></html>"),
+    });
+    // 카드가 얹히면 상단 고지가 «정하지 못함» 으로 바뀐다 — 그것이 도착 신호다.
+    await expect(page.locator("#snapshotRatio")).toHaveText("정하지 못함");
+  }
+
+  /**
+   * ⚠ **처음 이 검사를 쓸 때 `#liqBox` 가 «산정 불가» 로 뜰 것이라고 가정했다. 틀렸다.**
+   *
+   * `r` 이 미정이면 `D = shortfall(V, L, NaN)` 이 `NaN` 이고 `NaN > 0` 은 거짓이라
+   * `breached` 가 서지 않는다. 그래서 결론 블록이 **아예 안 뜬다.**
+   *
+   * 그게 더 정확하다. *"산정 불가"* 는 **관통했는데 수량을 못 낸다**는 뜻이고, 지금은
+   * 관통 여부 자체를 모른다. 모르는 것을 «불가» 라고 말하면 그것도 주장이다.
+   * 화면은 헤드라인 하나로만 말한다 — **"유지비율을 정하지 못했습니다"**.
+   */
+  test("가격을 어디로 끌어도 헤드라인이 «정하지 못했습니다» 다", async ({ page }) => {
+    await uploadAmbiguous(page);
+    const slider = page.getByLabel("가격 시나리오", { exact: true });
+    for (const price of ["10000", BREACH_PRICE, "5000"]) {
+      await slider.fill(price);
+      await expect(page.locator("#headline")).toHaveText("유지비율을 정하지 못했습니다");
+    }
+  });
+
+  test("결론 블록이 아예 안 뜬다 — 수량도, 거짓 «산정 불가» 도 없다", async ({ page }) => {
+    await uploadAmbiguous(page);
+    await page.getByLabel("가격 시나리오", { exact: true }).fill("5000");
+    await expect(page.locator("#liqBox")).toHaveCount(0);
+    await expect(page.locator("#liqQty")).toHaveCount(0);
+  });
+
+  test("수량은 안 내지만 **근거는 계속 보여준다**", async ({ page }) => {
+    await uploadAmbiguous(page);
+    await page.getByLabel("가격 시나리오", { exact: true }).fill("5000");
+    // 막는 것과 가리는 것은 다르다 — 재검증하러 가려면 어느 문장인지가 더 필요하다.
+    await expect(page.locator("#evidencePanel")).toBeVisible();
+    await expect(page.locator('#evidencePanel .evRow[data-role="ratio"] .evVal')).toBeVisible();
+  });
+
+  test("검수 전 배너가 함께 뜬다 — 업로드 카드는 정의상 draft 다", async ({ page }) => {
+    await uploadAmbiguous(page);
+    await expect(page.locator("#cardBanner")).toContainText("검수 전(draft)");
+  });
+
+  /**
+   * ⚠ **이 검사는 «지금 이렇다» 를 고정할 뿐, «이래야 한다» 가 아니다.**
+   *
+   * `r` 이 미정이면 `breached` 가 안 서므로 `data-state` 가 `safe` 로 남는다. 5,000원
+   * 에서도 초록이다. 헤드라인은 *"정하지 못했습니다"* 라고 정직하게 말하지만 **색은
+   * 안전을 말한다** — 한 화면이 두 말을 한다.
+   *
+   * 세 번째 상태(«모름»)를 만들지, 색을 중립으로 뺄지는 화면 규약 결정이라 여기서
+   * 정하지 않는다. 다만 **바뀌면 이 검사가 먼저 넘어지게** 해 둔다 — 색이 조용히
+   * 바뀌는 것이 제일 나쁘다.
+   */
+  test("현재 규약 고정 — 미정 카드에서 data-state 는 safe 로 남는다", async ({ page }) => {
+    await uploadAmbiguous(page);
+    await page.getByLabel("가격 시나리오", { exact: true }).fill("5000");
+    await expect(page.locator(".mg")).toHaveAttribute("data-state", "safe");
+  });
+
+  test("골든과 대비 — 같은 화면이 좁혀지는 카드에서는 수량을 낸다", async ({ page }) => {
+    await open(page);
+    await pick(page, GOLDEN.label);
+    await dragToBreach(page);
+    await expect(page.locator("#liqBox h2")).toHaveText("이대로면 — 약관 산정 방식의 재현값");
+    await expect(page.locator("#liqQty")).not.toHaveText("");
+  });
+});
