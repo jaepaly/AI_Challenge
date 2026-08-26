@@ -565,9 +565,22 @@ class DeployUploadsSourceTest(unittest.TestCase):
             for command in self._commands(block):
                 for var in re.findall(r"--build-env\s+([A-Z_][A-Z0-9_]*)=", command):
                     with self.subTest(job=name, var=var):
-                        defined = (
-                            f"{var}=" in body and "GITHUB_ENV" in body
-                        ) or re.search(rf"^\s+{var}:", body, re.M) is not None
+                        # ⚠ **한 줄 안에서 둘을 본다.** 잡 본문 전체로 보면
+                        #   `--build-env VERCEL_GIT_COMMIT_SHA="$VERCEL_GIT_COMMIT_SHA"`
+                        #   **그 줄 자체가** `VERCEL_GIT_COMMIT_SHA=` 를 담아서, 플래그를
+                        #   쓰는 순간 첫 조건이 항상 참이 된다. 그러면 남는 검사는
+                        #   *"이 잡이 GITHUB_ENV 에 뭐라도 쓰는가"* 뿐이고, 잡이 다른 변수
+                        #   하나만 더 내보내기 시작하면 그 이유마저 사라진다.
+                        #
+                        #   A 가 `#89` 리뷰에서 실측으로 잡았다 — 주입 단계는 그대로 두고
+                        #   **넣는 이름만** `BUILD_SHA_UNUSED` 로 바꿨더니 통과했다.
+                        #   그 상태에서 배포는 빈 값을 넘긴다(고친 그 사고와 같은 상태).
+                        exported = any(
+                            f"{var}=" in line and "GITHUB_ENV" in line for line in block
+                        )
+                        # 잡 레벨 `env:` 로 정의하는 길도 있다.
+                        in_job_env = re.search(rf"^\s+{var}:", body, re.M) is not None
+                        defined = exported or in_job_env
                         self.assertTrue(
                             defined,
                             f"잡 `{name}` 이 `--build-env {var}` 를 넘기는데 그 잡 안에"
