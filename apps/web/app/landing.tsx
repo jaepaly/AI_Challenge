@@ -383,8 +383,21 @@ export default function Landing({ build }: { build: BuildInfo }) {
   /* ── 렌더 ──────────────────────────────────────────────────── */
   return (
     <div className="mg" data-state={breached ? "breach" : "safe"}>
+      {/*
+        * ⚠ **유지비율을 계좌 괄호 안에 두지 않는다.** (다) 채택(#67 A-1) 뒤로 유지비율은
+        *   계좌 속성이 아니라 **카드가 정하는 값**이다 — `snapshot.ts` 의 `ACCOUNT` 주석이
+        *   *"`requiredRatio` 는 여기 없다"* 라고 적어 둔 그것이다.
+        *
+        *   그런데 이 줄은 `가상 계좌(… · 유지비율 140%)` 로 **계좌에 붙여** 놓았고 숫자도
+        *   리터럴이었다(2026-08-25 발견). 화면에서 제일 위에 있는 줄이 (다) 이전의 모델을
+        *   말하고 있었던 셈이다. 카드를 바꿔도 이 140% 는 안 움직였다.
+        *
+        *   이제 `policy` 에서 파생시킨다. 못 정하는 카드면 그렇게 말한다 — 지어내지 않는다.
+        */}
       <div className="snapshot">
-        📌 <b>스냅숏 모드</b> · KIS 미연동 · 가상 계좌(1,000주 · 융자 600만원 · 유지비율 140%) · 모든 수치는 결정론
+        📌 <b>스냅숏 모드</b> · KIS 미연동 · 가상 계좌({ACCOUNT.qty.toLocaleString()}주 · 융자{" "}
+        {(ACCOUNT.loan / 10_000).toLocaleString()}만원) · 유지비율은 조건카드에서{" "}
+        <b id="snapshotRatio">{policy.resolved ? `${policy.centi}%` : "정하지 못함"}</b> · 모든 수치는 결정론
         엔진 산출
       </div>
 
