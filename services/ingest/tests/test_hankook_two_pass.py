@@ -1,4 +1,7 @@
 from base64 import urlsafe_b64encode
+from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
+from io import StringIO
 import json
 import re
 from pathlib import Path
@@ -18,6 +21,7 @@ from benchmarks.hankook_two_pass import (
     evidence_span_report,
     estimate_max_cost_krw,
     lf_normalized_sha256,
+    record_console_billed_cost,
     require_approved_budget,
     usage_cost_report,
     usage_token_report,
@@ -182,6 +186,169 @@ class HankookTwoPassGateTest(unittest.TestCase):
         parsed = _parser().parse_args(["--overwrite"])
         self.assertTrue(parsed.overwrite)
         self.assertFalse(_parser().parse_args([]).overwrite)  # 기본값은 거부다
+
+    def test_console_cost_requires_an_explicit_single_run_confirmation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = (
+                root
+                / "services"
+                / "ingest"
+                / "benchmarks"
+                / "results"
+                / "hankook_two_pass_attempt8_success.json"
+            )
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                json.dumps({"console_billed_cost_krw": None}), encoding="utf-8"
+            )
+
+            with self.assertRaisesRegex(ValueError, "누적 Console 금액"):
+                record_console_billed_cost(
+                    root,
+                    path,
+                    310.93,
+                    confirmed_single_run_charge=False,
+                )
+
+            self.assertIsNone(
+                json.loads(path.read_text(encoding="utf-8"))["console_billed_cost_krw"]
+            )
+
+    def test_console_cost_records_only_an_isolated_single_run_bill(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = (
+                root
+                / "services"
+                / "ingest"
+                / "benchmarks"
+                / "results"
+                / "hankook_two_pass_attempt8_success.json"
+            )
+            path.parent.mkdir(parents=True)
+            original = {
+                "status": "completed",
+                "prompt_sha256": "c7b6effc",
+                "console_billed_cost_krw": None,
+            }
+            path.write_text(json.dumps(original), encoding="utf-8")
+            observed = datetime(2026, 8, 25, 11, 30, tzinfo=timezone.utc)
+
+            result = record_console_billed_cost(
+                root,
+                path,
+                310.93,
+                confirmed_single_run_charge=True,
+                recorded_at=observed,
+            )
+
+            self.assertEqual(result["console_billed_cost_krw"], 310.93)
+            self.assertEqual(result["status"], original["status"])
+            self.assertEqual(result["prompt_sha256"], original["prompt_sha256"])
+            self.assertEqual(
+                result["console_billing_verification"],
+                {
+                    "source": "anthropic_console",
+                    "scope": "single_run",
+                    "recorded_at": "2026-08-25T11:30:00+00:00",
+                },
+            )
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8")), result
+            )
+
+            with self.assertRaisesRegex(ValueError, "덮어쓰지 않는다"):
+                record_console_billed_cost(
+                    root,
+                    path,
+                    999.0,
+                    confirmed_single_run_charge=True,
+                )
+
+    def test_console_cost_rejects_invalid_amounts_and_files_outside_results(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results = root / "services" / "ingest" / "benchmarks" / "results"
+            results.mkdir(parents=True)
+            path = results / "hankook_two_pass_attempt8_success.json"
+            path.write_text(
+                json.dumps({"console_billed_cost_krw": None}), encoding="utf-8"
+            )
+
+            for amount in (0.0, -1.0, float("nan"), float("inf")):
+                with self.subTest(amount=amount), self.assertRaisesRegex(
+                    ValueError, "유한한 원화"
+                ):
+                    record_console_billed_cost(
+                        root,
+                        path,
+                        amount,
+                        confirmed_single_run_charge=True,
+                    )
+
+            outside = root / "other" / "hankook_two_pass_attempt8_success.json"
+            outside.parent.mkdir()
+            outside.write_text(
+                json.dumps({"console_billed_cost_krw": None}), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "결과 디렉터리"):
+                record_console_billed_cost(
+                    root,
+                    outside,
+                    310.93,
+                    confirmed_single_run_charge=True,
+                )
+
+    def test_console_cost_cli_flags_are_opt_in(self) -> None:
+        parsed = _parser().parse_args(
+            [
+                "--record-console-billed-cost-krw",
+                "310.93",
+                "--record-result",
+                "benchmarks/results/hankook_two_pass_attempt8_success.json",
+                "--confirm-single-run-charge",
+            ]
+        )
+
+        self.assertEqual(parsed.record_console_billed_cost_krw, 310.93)
+        self.assertTrue(parsed.confirm_single_run_charge)
+        self.assertIsNotNone(parsed.record_result)
+        self.assertIsNone(_parser().parse_args([]).record_console_billed_cost_krw)
+
+    def test_console_cost_cli_displays_the_estimate_with_the_bill(self) -> None:
+        from benchmarks import hankook_two_pass
+
+        parsed = _parser().parse_args(
+            [
+                "--record-console-billed-cost-krw",
+                "310.93",
+                "--record-result",
+                "benchmarks/results/hankook_two_pass_attempt8_success.json",
+                "--confirm-single-run-charge",
+            ]
+        )
+        recorded = {
+            "estimated_max_cost_krw": 601.01,
+            "console_billed_cost_krw": 310.93,
+        }
+        stdout = StringIO()
+        stderr = StringIO()
+
+        with (
+            patch.object(hankook_two_pass, "_parser") as parser_factory,
+            patch.object(
+                hankook_two_pass,
+                "record_console_billed_cost",
+                return_value=recorded,
+            ),
+            redirect_stdout(stdout),
+            redirect_stderr(stderr),
+        ):
+            parser_factory.return_value.parse_args.return_value = parsed
+            hankook_two_pass.main()
+
+        self.assertEqual(json.loads(stderr.getvalue()), recorded)
 
     def test_canonical_record_is_still_the_fourth_success(self) -> None:
         """정본이 **여전히 4차 성공인지** 파일끼리 대조한다.

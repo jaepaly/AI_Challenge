@@ -86,6 +86,22 @@ PDF document 경로를 “재현율이 낮다”고 판단하지 않는다. 비�
 - 골든: `h=0.15` 일치
 - 전체 시간: 68.14초로 60초 마일스톤 미충족
 
+Messages API 응답에는 실제 청구액이 없으므로 실행 직후 결과의
+`console_billed_cost_krw`는 `null`이다. Console에서 **해당 실행 한 건의 금액을
+분리해서 확인한 경우에만** 다음 명령으로 사후 기록한다.
+
+```powershell
+cd services/ingest
+python -m benchmarks.hankook_two_pass `
+  --record-console-billed-cost-krw <단일실행_실청구원화> `
+  --record-result benchmarks/results/hankook_two_pass_attempt<N>_<status>.json `
+  --confirm-single-run-charge
+```
+
+누적 사용액은 특정 실행에 임의 배분하지 않는다. 명령은 한투 결과 디렉터리 밖
+파일, 0 이하·비유한 금액, 이미 기록된 청구액의 변경을 거부하며 Console 출처와
+기록 시각을 `console_billing_verification`에 함께 남긴다.
+
 실제 API에 제출한 Windows 작업트리 바이트의 `document_sha256`은 `10e3f5ce…`다.
 GitHub Linux 체크아웃은 같은 HTML을 LF로 보관해 원시 SHA가 `02209799…`로
 달라진다. 결과에는 둘을 혼동하지 않도록 다음을 함께 기록한다.
