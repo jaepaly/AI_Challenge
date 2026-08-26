@@ -33,6 +33,9 @@ BUNDLED = INGEST_ROOT / "app" / "_bundled" / "condition_card.schema.json"
 VERCEL_JSON = INGEST_ROOT / "vercel.json"
 PYTHON_VERSION_FILE = INGEST_ROOT / ".python-version"
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+# 이스케이프를 소스에 쓰지 않는다 — 이 파일을 스크립트로 고칠 때마다
+# 백슬래시가 뭉개져 두 번 사고가 났다(2026-08-25·26).
+NEWLINE = chr(10)
 DEPLOY_YML = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 
 # Vercel 파이썬 런타임이 받아 주는 것(2026-07 문서). 3.11 은 **없다**.
@@ -323,22 +326,43 @@ class WorkflowTimeoutTest(unittest.TestCase):
                         too_long[f"{path.name}:{name}"] = int(value)
         self.assertEqual(too_long, {}, f"상한이 너무 길다(>{self.MAX_MINUTES}분): {too_long}")
 
-    def test_deploy_does_not_run_on_every_pull_request(self) -> None:
-        """PR 마다 프리뷰 배포를 돌리지 않는다 — 사고의 전량이 거기서 나왔다.
+    def test_deploy_runs_only_by_hand(self) -> None:
+        """`deploy.yml` 은 **자동으로 안 돈다.** 손으로 돌리는 백업 경로다.
 
-        프리뷰 URL 은 쓰지 않는다(`INGEST_BASE_URL` 은 프로덕션만, 프리뷰는 Deployment
-        Protection 으로 SSO 에 막힌다). PR 의 빌드 검증은 `ci.yml` 이 한다.
-        손으로 돌려야 하면 `workflow_dispatch` 가 있다.
+        두 사고가 이 검사 하나에 겹쳐 있다.
+
+        ① `pull_request` — 2026-08-24. PR 마다 프리뷰 배포가 돌았고, Vercel 이 배포를
+           `Blocked` 로 두는 바람에 CLI 가 오지 않을 완료를 기다렸다. 하루에 8건이
+           300분 넘게 매달려 무료 2,000분을 태우고 **CI 전체가 멈췄다.**
+
+        ② `push` — 2026-08-26. Pro 재활성화로 **Vercel Git 연동이 주 경로**가 됐다.
+           `on: push` 를 그대로 두면 같은 커밋을 두 번 배포한다. 그리고 그건 예정된
+           사고였다 — Actions 한도가 **8/31 에 초기화**되므로 그날 자동으로 되살아난다.
+           **아무도 그날을 지켜보고 있지 않다.**
+
+        `workflow_dispatch` 는 남긴다. Pro 도 *"커밋 작성자가 팀 멤버여야"* 를 요구하고
+        실제로 팀원 커밋이 `Blocked` 났다 — Git 연동이 다시 막히는 날 손으로 돌릴 길이
+        있어야 한다.
+
+        ⚠ 되돌리려면 **Vercel 프로젝트의 Git 연동을 먼저 끊어라.** 순서가 반대면
+          이중 배포가 난다. 이 검사를 지우는 것이 그 선언이다.
         """
-        text = (REPO_ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
-        trigger = text[text.index("\non:") : text.index("\nconcurrency:")]
-        self.assertNotIn(
-            "\n  pull_request:",
-            trigger,
-            "deploy.yml 이 모든 PR 에서 돈다. 프리뷰 배포가 매달리면 그 수만큼 분이 탄다.",
+        text = DEPLOY_YML.read_text(encoding="utf-8")
+        trigger = text[text.index(NEWLINE + "on:") : text.index(NEWLINE + "concurrency:")]
+        # 주석은 뺀다 — 머리말과 `on:` 위 주석이 `push` 를 **왜 뺐는지** 설명하므로,
+        # 본문째로 보면 그 설명이 검사를 넘어뜨린다(`#71` 과 같은 종류).
+        live = NEWLINE.join(
+            line for line in trigger.splitlines() if not line.strip().startswith("#")
         )
-        self.assertIn("workflow_dispatch:", trigger, "손으로 돌릴 길은 남겨 둔다")
-
+        for event in ("pull_request:", "push:"):
+            with self.subTest(event=event):
+                self.assertNotIn(
+                    NEWLINE + "  " + event,
+                    live,
+                    f"deploy.yml 이 `{event}` 로 자동으로 돈다 — 지금 배포의 주 경로는"
+                    f" Vercel Git 연동이라 같은 커밋을 두 번 올린다.",
+                )
+        self.assertIn("workflow_dispatch:", live, "손으로 돌릴 길은 남겨 둔다")
 
 class BuilderInputsTest(unittest.TestCase):
     """Vercel 파이썬 빌더가 **무엇을 보고 무엇을 하는지** 고정한다."""
