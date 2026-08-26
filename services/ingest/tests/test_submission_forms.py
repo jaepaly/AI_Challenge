@@ -297,19 +297,40 @@ class PlanDraftCoversTheFormTest(unittest.TestCase):
             "\n`submission/attachment1-plan.md` §N-M 으로 적어라.",
         )
 
-    def test_the_draft_does_not_claim_the_upload_route_works(self) -> None:
-        """배포본에 없는 기능을 제출물이 있다고 말하지 않는지 본다.
+    def test_the_draft_still_names_what_the_deployed_url_cannot_do(self) -> None:
+        """제출물이 배포본보다 **많이 약속하지 않는지** 본다.
 
-        2026-08-23 실측으로 `POST /api/ingest` 는 404 다(README §8). 인제스트
-        파이프라인은 저장소 안에서 돌지만 어디에도 배포돼 있지 않다. 이 구분이
-        흐려지면 심사자가 배포본을 열어 대조할 때 어긋난다.
+        ⚠ 이 검사는 2026-08-26 에 **판정 대상을 바꿨다.** 그전에는
+          *"«배포돼 있지 않다» 가 초안에 있는가"* 를 봤다 — `POST /api/ingest` 가
+          404 이던 시절의 사실이다. 그날 배포가 붙었고 **배포 URL 로 업로드를 끝까지
+          돌렸다**(200 · 31.3초 · 카드 `한국투자증권 · status=draft`). 그래서 그 문장은
+          **적으면 안 되는 문장**이 됐다.
+
+          문장 하나를 다른 문장으로 바꿔 고정하면 같은 일이 또 난다. 그래서 지금은
+          **«못 하는 것 목록이 살아 있는가»** 만 본다 — 목록의 내용은 사실이 바뀔 때마다
+          손으로 고치되, **목록 자체가 사라지는 것**은 기계가 막는다.
+
+        ⚠ **한계 목록이 비면 그것이 사고다.** 이 제품은 *"모르는 것을 모른다고 말한다"* 를
+          파는데, 기획서에서 그러지 않으면 그 주장이 성립하지 않는다(§7 머리말이 그렇게
+          적고 있다).
         """
         self.assertIn(
-            "배포돼 있지 않다",
+            "지금 못 하는 것",
             self.text,
-            "초안이 인제스트 미배포 사실을 적지 않는다 — §7 한계 목록을 확인하라.",
+            "§7 의 «지금 못 하는 것» 절이 사라졌다 — 한계를 적는 것이 이 제품의 주장이다.",
         )
-
+        start = self.text.index("지금 못 하는 것")
+        items = [
+            line
+            for line in self.text[start:].splitlines()
+            if line.startswith("- ")
+        ]
+        self.assertGreaterEqual(
+            len(items),
+            4,
+            f"«지금 못 하는 것» 이 {len(items)}개뿐이다. 항목이 줄었다면 그것이 "
+            f"**사실이 바뀌어서인지 지운 것인지** 확인하라 — 지운 것이면 되돌려라.",
+        )
 
 class SpecDraftCoversTheFormTest(unittest.TestCase):
     """첨부2 초안이 **양식의 다섯 절을 다 덮는지** 본다.
