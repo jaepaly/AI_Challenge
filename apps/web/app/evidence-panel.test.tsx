@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { ConditionCard } from "@marginguard/engine";
+import type { ConditionCard, Position } from "@marginguard/engine";
 import { CARDS, positions } from "../lib/marginguard/snapshot";
 import { evidenceView } from "../lib/marginguard/evidence-view";
 import { freshnessView, type FreshnessView } from "../lib/marginguard/freshness-view";
@@ -632,7 +632,13 @@ describe("유지비율 대조 — 카드 값과 화면 계산이 어긋날 때",
         { ...base, ratio: 1.5, symbol_group: "C∙D군" },
       ],
     };
-    const r = row(render(split, undefined, gapView(split)), "유지비율(ratio)");
+    // ⚠ 이 카드에 **없는 어휘**로 물어야 좁히기가 0 건이 되어 후보 둘이 그대로 남는다.
+    //   스냅숏 기본 종목군으로 물으면 A∙B군 한 줄로 좁혀져 이 화면이 아예 안 나온다.
+    const outside: Position = { ...pos, group: "일반" };
+    const r = row(
+      render(split, undefined, ratioView(split, LEDGER_R, outside)),
+      "유지비율(ratio)",
+    );
 
     expect(r).toContain("140%, 150%");
     expect(r).toContain("화면이 고르지 않습니다");
@@ -678,7 +684,10 @@ describe("유지비율 대조 — 카드 값과 화면 계산이 어긋날 때",
  * 한투 인용문 자체가 융자 140 / 대주 120 / 대주전용 105 세 행을 담고 있다.
  */
 describe("룰이 여럿인 카드 — 근거 행이 대조가 본 조항을 찍는다", () => {
-  const pos = positions(8_100)[0]!; // group "일반"
+  // ⚠ 스냅숏 기본 종목군에 기대지 않는다. 여기서 보는 것은 **좁히기 자체**라
+  //   "이 카드에 없는 어휘" 가 필요하고, 기본값(A∙B군)이 바뀌면 의도가 조용히
+  //   달라진다. `일반` 은 어느 원문에도 없는 값이라 그 역할에 맞다.
+  const pos: Position = { ...positions(8_100)[0]!, group: "일반" };
   const base = hantoo.ratio_rules[0]!;
   const withRules = (rules: Partial<typeof base>[]): ConditionCard => ({
     ...hantoo,

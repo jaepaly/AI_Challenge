@@ -77,10 +77,17 @@ describe("원장은 화면과 같은 r 을 본다 (#84 리뷰 ①)", () => {
           { ...rule, symbol_group: group, ratio: other },
         ],
       };
-      const pos = positions(PRICE_START)[0]!; // group "일반" — 우리 계좌 그대로
+      // ⚠ 이 검사는 **업로드된 카드**의 흔한 모양을 보는 자리다. 그 문서의 어휘가
+      //   `일반`/`관리종목` 이면 계좌 쪽 종목군도 그 어휘여야 좁혀진다 — 스냅숏
+      //   기본값(A∙B군)은 이 문서의 어휘가 아니다.
+      const pos: Position = { ...positions(PRICE_START)[0]!, group: "일반" };
       expect(policyRatio(card, pos).resolved).toBe(true);
       expect(ledger(card, pos).requiredRatio).toBe(normal);
-      expect(portfolioLedger(card, PORTFOLIO_POSITIONS[0]!).requiredRatio).toBe(normal);
+      // 다종목 쪽도 **같은 문서 어휘**로 물어야 같은 답이 나온다 — 이 검사가 보는 것은
+      // 「화면과 원장이 같은 조항을 본다」이지 종목군 어휘가 무엇이냐가 아니다.
+      expect(
+        portfolioLedger(card, { ...PORTFOLIO_POSITIONS[0]!, group: pos.group }).requiredRatio,
+      ).toBe(normal);
     }
   });
 

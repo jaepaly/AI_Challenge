@@ -73,13 +73,23 @@ export const ledger = (card: ConditionCard, pos?: Position): CreditLedger => {
   };
 };
 
+/**
+ * ⚠ `group` 은 **문서의 어휘**여야 한다. 예전 값 `"일반"` 은 어느 원문에도 없는
+ *   우리가 지어낸 분류였고(#91 D 실측: 메리츠 행에 `기본형∙투자형 / A∙B군 / C∙D군`
+ *   은 있고 `일반` 은 ❌), 그 때문에 메리츠 카드에서 **좁히기가 항상 무의미**했다 —
+ *   라벨 대조가 매번 0 건이 돼 후보를 그대로 두기 때문이다.
+ *
+ * ⚠ 값을 바꿀 때는 **카드 쪽 `symbol_group` 과 함께** 본다. 한쪽만 옮기면 화면은
+ *   안 깨지고 조용히 AMBIGUOUS 로 떨어진다 — `snapshot-symbol-group.test.ts` 가
+ *   그 어긋남을 잡는다.
+ */
 export const positions = (prevClose: number): Position[] => [
   {
     symbol: "A0001",
     name: "가상 종목",
     qty: ACCOUNT.qty,
     prevClose,
-    group: "일반",
+    group: "A∙B군",
   },
 ];
 
@@ -215,18 +225,20 @@ const EVIDENCE = {
     ratio: {
       // 조항 — '마. 담보유지비율'(@6652) 섹션의 표 행 전체. 예시 구간 8개 어디에도 겹치지
       // 않는다. 인용문이 '신용거래융자'·'기본형∙투자형'·'A∙B군'을 스스로 담아 값 결속이
-      // 인용문만으로 성립한다. 한 행에 140/150/120이 섞여 있으므로 **이 스팬은 ratio=1.4의
-      // 근거로만** 쓴다 — 세 값을 동시에 주장하는 데 쓰면 안 된다.
+      // 인용문만으로 성립한다.
       // 좁게 자른 [7718:7749](140%까지)도 성립하지만, 자르면 'C∙D군 150%'가 화면에서
-      // 사라져 종목군 차등이 있다는 사실 자체가 안 보인다. 카드가 symbol_group '일반'
-      // 하나만 모델링한다는 점이 오히려 덜 드러나므로 행 전체를 남긴다.
-      // ⚠ **그 대가**: 화면은 '유지비율 140%' 옆에 150%를 담은 인용문을 나란히 놓는다.
-      //   '일반'은 이 문서에 없는 분류이고(문서는 A/B/C/D군), C∙D군 종목 보유자에게는
-      //   문서상 유지비율이 150%인데 카드는 1.4로 계산한다 — 위험을 과소평가하는 방향이다.
+      // 사라져 종목군 차등이 있다는 사실 자체가 안 보인다. 그래서 행 전체를 남긴다.
+      // ⚠ **이 스팬은 융자 두 줄(A∙B군 140 / C∙D군 150)의 근거다**(#91 결정, B 동의).
+      //   예전에는 카드가 '일반' 하나에 1.4만 두어 *"ratio=1.4의 근거로만 쓴다"*고 적혀
+      //   있었는데, 그 상태에서는 **C∙D군 종목 보유자에게 문서 값이 150%인데 1.4로
+      //   계산**했다 — 위험을 과소평가하는 방향이었다. 지금은 군별로 나눠 담아 그 자리가
+      //   닫혔고, snapshot-symbol-group.test.ts가 적어 넣은 짝이 이 인용문 안에
+      //   **글자로** 있는지를 매번 확인한다(추론이 들어가면 그건 B-2 컷이다).
+      // ⚠ 같은 행의 **120%는 신용거래대주**라 융자 원장에 넣지 않는다. 인용문 안에
+      //   글자로 있어서 위 검사만으로는 안 걸러지므로 상품 축을 따로 본다.
       //   figureInQuote는 '140%'가 글자로 있으니 true라 기존 경고 경로에 걸리지 않았다.
-      //   그래서 화면 쪽에 otherFigures를 뒀다(evidence-view.ts) — 이 행은 이제
-      //   "인용문에 150%, 120%도 함께 있다"를 접기 밖에 적는다. 종목군별 ratio를
-      //   제대로 담으려면 ratio_rules를 군별로 나눠야 하고 그건 스냅숏 범위 밖이다.
+      //   그래서 화면 쪽에 otherFigures를 뒀다(evidence-view.ts) — 그 문단은 나눈 뒤에도
+      //   남는다(A∙B군을 그리면 "150%, 120%", C∙D군이면 "140%, 120%").
       // ✗ 버린 좌표 [2995:3010] "담보유지비율(140% 가정)" — #46이 쓰던 값이고
       //   '◉ <예시> 투자원금 400만원…'(@2929) 블록 안이다. 인용문이 스스로 '가정'이라고
       //   말하는데도 Pydantic은 통과시켰다(140%라는 글자가 있으므로).
@@ -364,6 +376,16 @@ function makeCard(
     discount_rate?: number;
     status: "verified" | "draft";
     verified_at?: string;
+    /**
+     * 종목군별 유지비율 — **문서가 군을 가르는 경우에만** 넘긴다.
+     *
+     * 안 넘기면 룰 한 줄(1.4)이다. 그 카드에서 `symbol_group` 은 **읽히지 않는다** —
+     * `narrowRatioRules` 가 룰이 하나면 라벨을 아예 안 보기 때문이다(`policy-ratio.ts`
+     * 의 좁히기 ②는 `candidates.length > 1` 안에 있다). 문서에 군 구분이 없는데 라벨을
+     * 지어내 넣어도 계산이 안 달라지는 이유가 그것이고, 그래서 **군을 가르는 문서만**
+     * 여기에 적는다.
+     */
+    ratios?: { symbol_group: string; ratio: number }[];
   } & DocIdentity,
 ): ConditionCard {
   const doc_version: ConditionCard["doc_version"] =
@@ -372,15 +394,13 @@ function makeCard(
       : { content_sha256: p.doc_sha256 };
   return {
     broker: p.broker,
-    ratio_rules: [
-      {
-        product_type: "신용거래융자",
-        collateral_type: "주식",
-        symbol_group: "일반",
-        ratio: 1.4,
-        evidence: span(p.evidence, "ratio"),
-      },
-    ],
+    ratio_rules: (p.ratios ?? [{ symbol_group: "일반", ratio: 1.4 }]).map((r) => ({
+      product_type: "신용거래융자",
+      collateral_type: "주식",
+      symbol_group: r.symbol_group,
+      ratio: r.ratio,
+      evidence: span(p.evidence, "ratio"),
+    })),
     account_aggregation: "max",
     disposal_price_rules: [
       {
@@ -437,6 +457,14 @@ export const CARDS: CardPreset[] = [
       review_no: "25-125",
       status: "verified",
       verified_at: "2026-08-09",
+      // 문서가 군을 가른다 — 짝이 **인용 스팬 안에 글자로** 있다(#91 D 실측):
+      //   t[7718:7774] "…신용거래융자기본형∙투자형A∙B군 140% C∙D군 150%신용거래대주A∙B군 120%"
+      // 추론이 들어가지 않으므로 B-2 컷(인제스트 자동 추출)과 다른 층이다.
+      // 120% 는 **신용거래대주** 행이라 여기 넣지 않는다 — 이 원장은 융자 원장이다.
+      ratios: [
+        { symbol_group: "A∙B군", ratio: 1.4 },
+        { symbol_group: "C∙D군", ratio: 1.5 },
+      ],
     }),
   },
   {
@@ -509,21 +537,21 @@ export const PORTFOLIO_POSITIONS: Position[] = [
     name: "가상 종목 갑",
     qty: 400,
     prevClose: 12_000,
-    group: "일반",
+    group: "A∙B군",
   },
   {
     symbol: "A0002",
     name: "가상 종목 을",
     qty: 300,
     prevClose: 10_000,
-    group: "일반",
+    group: "A∙B군",
   },
   {
     symbol: "A0003",
     name: "가상 종목 병",
     qty: 500,
     prevClose: 4_400,
-    group: "일반",
+    group: "A∙B군",
   },
 ];
 
@@ -534,8 +562,13 @@ export const PORTFOLIO_POSITIONS: Position[] = [
  * ⚠ **원장 하나에 종목군 하나를 가정한다.** `CreditLedger.requiredRatio` 는 스칼라라
  *   종목마다 다른 r 을 실을 자리가 없다. 지금은 `PORTFOLIO_POSITIONS` 가 전부 같은
  *   종목군이라 아무 포지션으로 좁혀도 같은 답이 나오고, 그 전제를
- *   `test_portfolio_single_group`(portfolio.test.ts)이 지킨다. 섞인 포트폴리오를
- *   넣는 날 그 검사가 먼저 넘어진다 — 그때 이 함수가 아니라 **경계 계약**을 고쳐라.
+ *   `snapshot-symbol-group.test.ts` 의 *"다종목 포지션은 전부 같은 종목군이다"* 가
+ *   지킨다. 섞인 포트폴리오를 넣는 날 그 검사가 먼저 넘어진다 — 그때 이 함수가 아니라
+ *   **경계 계약**을 고쳐라.
+ *
+ * ⚠ 이 자리는 원래 `test_portfolio_single_group`(portfolio.test.ts) 을 가리키고
+ *   있었는데 **그 검사는 어느 브랜치에도 없었다**(`#91` 조건② 를 받으면서 확인).
+ *   지켜 준다고 적힌 것을 실제로는 아무것도 안 지키고 있었다.
  */
 export const portfolioLedger = (card: ConditionCard, pos?: Position): CreditLedger => {
   const p = policyRatio(card, pos);
