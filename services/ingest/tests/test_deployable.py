@@ -33,6 +33,10 @@ BUNDLED = INGEST_ROOT / "app" / "_bundled" / "condition_card.schema.json"
 VERCEL_JSON = INGEST_ROOT / "vercel.json"
 PYTHON_VERSION_FILE = INGEST_ROOT / ".python-version"
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+# 이스케이프를 소스에 쓰지 않는다 — 이 파일을 스크립트로 고칠 때마다
+# 백슬래시가 뭉개져 두 번 사고가 났다(2026-08-25·26).
+NEWLINE = chr(10)
+DEPLOY_YML = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 
 # Vercel 파이썬 런타임이 받아 주는 것(2026-07 문서). 3.11 은 **없다**.
 VERCEL_PYTHON_VERSIONS = {"3.12", "3.13", "3.14"}
@@ -322,22 +326,43 @@ class WorkflowTimeoutTest(unittest.TestCase):
                         too_long[f"{path.name}:{name}"] = int(value)
         self.assertEqual(too_long, {}, f"상한이 너무 길다(>{self.MAX_MINUTES}분): {too_long}")
 
-    def test_deploy_does_not_run_on_every_pull_request(self) -> None:
-        """PR 마다 프리뷰 배포를 돌리지 않는다 — 사고의 전량이 거기서 나왔다.
+    def test_deploy_runs_only_by_hand(self) -> None:
+        """`deploy.yml` 은 **자동으로 안 돈다.** 손으로 돌리는 백업 경로다.
 
-        프리뷰 URL 은 쓰지 않는다(`INGEST_BASE_URL` 은 프로덕션만, 프리뷰는 Deployment
-        Protection 으로 SSO 에 막힌다). PR 의 빌드 검증은 `ci.yml` 이 한다.
-        손으로 돌려야 하면 `workflow_dispatch` 가 있다.
+        두 사고가 이 검사 하나에 겹쳐 있다.
+
+        ① `pull_request` — 2026-08-24. PR 마다 프리뷰 배포가 돌았고, Vercel 이 배포를
+           `Blocked` 로 두는 바람에 CLI 가 오지 않을 완료를 기다렸다. 하루에 8건이
+           300분 넘게 매달려 무료 2,000분을 태우고 **CI 전체가 멈췄다.**
+
+        ② `push` — 2026-08-26. Pro 재활성화로 **Vercel Git 연동이 주 경로**가 됐다.
+           `on: push` 를 그대로 두면 같은 커밋을 두 번 배포한다. 그리고 그건 예정된
+           사고였다 — Actions 한도가 **8/31 에 초기화**되므로 그날 자동으로 되살아난다.
+           **아무도 그날을 지켜보고 있지 않다.**
+
+        `workflow_dispatch` 는 남긴다. Pro 도 *"커밋 작성자가 팀 멤버여야"* 를 요구하고
+        실제로 팀원 커밋이 `Blocked` 났다 — Git 연동이 다시 막히는 날 손으로 돌릴 길이
+        있어야 한다.
+
+        ⚠ 되돌리려면 **Vercel 프로젝트의 Git 연동을 먼저 끊어라.** 순서가 반대면
+          이중 배포가 난다. 이 검사를 지우는 것이 그 선언이다.
         """
-        text = (REPO_ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
-        trigger = text[text.index("\non:") : text.index("\nconcurrency:")]
-        self.assertNotIn(
-            "\n  pull_request:",
-            trigger,
-            "deploy.yml 이 모든 PR 에서 돈다. 프리뷰 배포가 매달리면 그 수만큼 분이 탄다.",
+        text = DEPLOY_YML.read_text(encoding="utf-8")
+        trigger = text[text.index(NEWLINE + "on:") : text.index(NEWLINE + "concurrency:")]
+        # 주석은 뺀다 — 머리말과 `on:` 위 주석이 `push` 를 **왜 뺐는지** 설명하므로,
+        # 본문째로 보면 그 설명이 검사를 넘어뜨린다(`#71` 과 같은 종류).
+        live = NEWLINE.join(
+            line for line in trigger.splitlines() if not line.strip().startswith("#")
         )
-        self.assertIn("workflow_dispatch:", trigger, "손으로 돌릴 길은 남겨 둔다")
-
+        for event in ("pull_request:", "push:"):
+            with self.subTest(event=event):
+                self.assertNotIn(
+                    NEWLINE + "  " + event,
+                    live,
+                    f"deploy.yml 이 `{event}` 로 자동으로 돈다 — 지금 배포의 주 경로는"
+                    f" Vercel Git 연동이라 같은 커밋을 두 번 올린다.",
+                )
+        self.assertIn("workflow_dispatch:", live, "손으로 돌릴 길은 남겨 둔다")
 
 class BuilderInputsTest(unittest.TestCase):
     """Vercel 파이썬 빌더가 **무엇을 보고 무엇을 하는지** 고정한다."""
@@ -413,6 +438,190 @@ class PythonVersionTest(unittest.TestCase):
             f'python-version: "{declared}"',
             ci,
             f"ci.yml 이 {declared} 로 안 돈다. 배포본과 다른 버전으로 테스트하는 것이다.",
+        )
+
+
+class DeployUploadsSourceTest(unittest.TestCase):
+    """배포는 **소스를 올리고 Vercel 이 빌드**한다 — `--prebuilt` 를 쓰지 않는다.
+
+    2026-08-24 실측으로 기각된 경로다. C 가 Git 연동을 끊고 `.git` 없는 폴더에서
+    `vercel build --prod` → `vercel deploy --prebuilt --prod` 를 완주했다. 커밋 작성자
+    검사는 **통과했고**(Ready + 프로덕션 alias 승격) 화면도 떴는데, 서버리스 함수가
+    전부 500 이었다::
+
+        ChunkLoadError / MODULE_NOT_FOUND
+        Cannot find module '/var/task/apps/web/.next/server/chunks/
+                            [root-of-the-server]__13dzfwx._.js'
+
+    모노레포라 Next 가 파일 추적 루트를 저장소 루트로 잡는데(람다 경로가
+    `apps/web/.next/...` 인 것이 그 증거) 로컬 `vercel build` 가 추적한 것과 Vercel
+    실행 환경이 기대하는 것이 어긋난다.
+
+    ⚠ **이 워크플로가 그 경로를 그대로 쓰고 있었다.** 그래서 8/31 에 Actions 한도가
+      초기화돼도 같은 500 이 났을 것이고, 제출 6일 전에 알았을 일이다. 이 검사가
+      그 재발을 막는다.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = DEPLOY_YML.read_text(encoding="utf-8")
+        # 주석(`#` 으로 시작)은 뺀다 — 머리말이 `--prebuilt` 를 **왜 안 쓰는지** 설명하므로
+        # 본문째로 훑으면 그 설명이 검사를 넘어뜨린다. `#71` 에서 같은 실수를 했다.
+        cls.commands = [
+            line
+            for line in cls.text.splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
+    def _deploy_lines(self) -> list[str]:
+        return [line for line in self.commands if "vercel deploy" in line]
+
+    def test_deploy_commands_exist(self) -> None:
+        """검사가 볼 대상이 사라지면 그것부터 알아야 한다."""
+        self.assertTrue(self._deploy_lines(), "deploy.yml 에 `vercel deploy` 가 없다")
+
+    def test_no_prebuilt_anywhere(self) -> None:
+        offenders = [line.strip() for line in self.commands if "--prebuilt" in line]
+        self.assertEqual(
+            offenders,
+            [],
+            "`--prebuilt` 가 돌아왔다. 2026-08-24 실측으로 기각된 경로다"
+            " — 함수가 전부 500(MODULE_NOT_FOUND)이 된다:\n" + "\n".join(offenders),
+        )
+
+    def test_no_local_vercel_build(self) -> None:
+        """`vercel build` 를 러너에서 돌리면 그 산출물을 쓰게 된다 — 위와 같은 결함이다."""
+        offenders = [
+            line.strip()
+            for line in self.commands
+            if "vercel build" in line
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "러너에서 `vercel build` 를 돌린다 — 소스를 올리고 Vercel 이 빌드하게 하라:\n"
+            + "\n".join(offenders),
+        )
+
+    # ── 잡 단위로 본다 ────────────────────────────────────────────────
+    #
+    # 파일 전체를 평평하게 훑으면 **잡 사이의 경계가 안 보인다.** `$GITHUB_ENV` 로 넣은
+    # 값은 잡을 넘지 않는데, 평평한 검사는 "어딘가에 정의가 있으니 됐다" 로 읽는다.
+    # 2026-08-26 에 실제로 그 구멍으로 인제스트 잡이 **빈 값**을 넘기고 있었다(A 발견).
+
+    def _jobs(self) -> dict[str, list[str]]:
+        """`jobs:` 아래 2칸 들여쓰기 이름으로 구간을 나눈다."""
+        lines = self.text.splitlines()
+        start = next(i for i, l in enumerate(lines) if l.rstrip() == "jobs:")
+        blocks: dict[str, list[str]] = {}
+        name: str | None = None
+        for line in lines[start + 1 :]:
+            stripped = line.strip()
+            if (
+                line.startswith("  ")
+                and not line.startswith("   ")
+                and stripped.endswith(":")
+                and not stripped.startswith("#")
+            ):
+                name = stripped[:-1]
+                blocks[name] = []
+                continue
+            if name is not None:
+                blocks[name].append(line)
+        self.assertTrue(blocks, "deploy.yml 에서 잡을 하나도 못 찾았다")
+        return blocks
+
+    @staticmethod
+    def _commands(block: list[str]) -> list[str]:
+        """주석을 빼고, 줄바꿈(역슬래시)으로 이어진 명령을 한 줄로 잇는다."""
+        BS = chr(92)
+        out: list[str] = []
+        buf = ""
+        for line in block:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            buf += " " + stripped
+            if stripped.endswith(BS):
+                continue
+            out.append(buf.replace(BS, " "))
+            buf = ""
+        if buf:
+            out.append(buf.replace(BS, " "))
+        return out
+
+    def test_build_env_variables_are_defined_in_the_same_job(self) -> None:
+        """`--build-env VAR` 로 넘기는 값은 **그 잡 안에서** 정의돼 있어야 한다.
+
+        2026-08-24 에 난 사고는 플래그가 빠진 것이 아니라 **값이 비어 있던 것**이다
+        (푸터가 `local · dev` 로 떴다). 그런데 플래그 존재만 보는 검사는 그 사고를
+        못 잡는다 — 실제로 인제스트 잡이 정의도 없이 `--build-env` 를 넘기고 있었고
+        검사는 초록이었다(A, `#89` 리뷰).
+
+        `$GITHUB_ENV` 로 넣은 값은 **잡을 넘지 않는다.** 그래서 잡 단위로 본다.
+        """
+        for name, block in self._jobs().items():
+            body = "\n".join(block)
+            for command in self._commands(block):
+                for var in re.findall(r"--build-env\s+([A-Z_][A-Z0-9_]*)=", command):
+                    with self.subTest(job=name, var=var):
+                        # ⚠ **한 줄 안에서 둘을 본다.** 잡 본문 전체로 보면
+                        #   `--build-env VERCEL_GIT_COMMIT_SHA="$VERCEL_GIT_COMMIT_SHA"`
+                        #   **그 줄 자체가** `VERCEL_GIT_COMMIT_SHA=` 를 담아서, 플래그를
+                        #   쓰는 순간 첫 조건이 항상 참이 된다. 그러면 남는 검사는
+                        #   *"이 잡이 GITHUB_ENV 에 뭐라도 쓰는가"* 뿐이고, 잡이 다른 변수
+                        #   하나만 더 내보내기 시작하면 그 이유마저 사라진다.
+                        #
+                        #   A 가 `#89` 리뷰에서 실측으로 잡았다 — 주입 단계는 그대로 두고
+                        #   **넣는 이름만** `BUILD_SHA_UNUSED` 로 바꿨더니 통과했다.
+                        #   그 상태에서 배포는 빈 값을 넘긴다(고친 그 사고와 같은 상태).
+                        exported = any(
+                            f"{var}=" in line and "GITHUB_ENV" in line for line in block
+                        )
+                        # 잡 레벨 `env:` 로 정의하는 길도 있다.
+                        in_job_env = re.search(rf"^\s+{var}:", body, re.M) is not None
+                        defined = exported or in_job_env
+                        self.assertTrue(
+                            defined,
+                            f"잡 `{name}` 이 `--build-env {var}` 를 넘기는데 그 잡 안에"
+                            f" 정의가 없다 — 빈 값이 넘어간다.\n"
+                            f"  고치는 길: 이 잡에 「빌드 신원 주입」 단계를 넣거나,"
+                            f" 읽는 코드가 없으면 `--build-env` 를 빼라.",
+                        )
+
+    def test_the_job_that_verifies_api_build_passes_the_identity(self) -> None:
+        """`/api/build` 의 sha 를 `$GITHUB_SHA` 와 대조하는 잡은 **신원을 넘겨야** 한다.
+
+        이 둘은 한 쌍이다. 넘기지 않으면 `/api/build` 가 `local` 을 주고, 같은 잡의
+        「신선도 검증」이 대조할 값 자체가 없어진다 — 그 단계가 통째로 무의미해진다.
+
+        ⚠ 잡 **이름**으로 찾지 않는다. 이름은 바뀌어도 이 논리는 안 바뀐다. 찾는 것은
+          *"`/api/build` 를 `GITHUB_SHA` 와 맞대 보는 잡"* 이고, 그런 잡만 신원이 필요하다.
+          인제스트 잡은 그 대조를 하지 않으므로 이 검사의 대상이 아니다.
+        """
+        checked = 0
+        for name, block in self._jobs().items():
+            body = "\n".join(block)
+            if "/api/build" not in body or "GITHUB_SHA" not in body:
+                continue
+            checked += 1
+            # ⚠ **명령 단위로 본다.** 잡 안의 명령을 전부 이어 붙여 보면, 프로덕션 배포에서
+            #   한 줄이 빠져도 **프리뷰 배포가 대신 만족시킨다**(직접 뮤테이션으로 확인,
+            #   2026-08-26). 배포는 단계마다 따로 도는 것이라 단계마다 갖춰야 한다.
+            deploys = [c for c in self._commands(block) if "vercel deploy" in c]
+            self.assertTrue(deploys, f"잡 `{name}` 에 `vercel deploy` 가 없다")
+            for command in deploys:
+                for var in ("VERCEL_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_REF"):
+                    with self.subTest(job=name, var=var, cmd=command.strip()[:60]):
+                        self.assertIn(
+                            f"--build-env {var}",
+                            command,
+                            f"잡 `{name}` 이 `/api/build` 를 `$GITHUB_SHA` 와 대조하면서"
+                            f" 이 배포 명령에 `--build-env {var}` 를 안 넘긴다 —"
+                            f" 대조할 값이 없어진다.\n  {command.strip()[:140]}",
+                        )
+        self.assertGreater(
+            checked, 0, "`/api/build` 를 대조하는 잡이 하나도 없다 — 신선도 검증이 사라졌다"
         )
 
 

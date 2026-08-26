@@ -15,8 +15,45 @@
 ##
 ## Secret이 아직 없으면 조용히 건너뛴다. 배포 설정 전에 머지해도 CI가 빨개지지 않는다.
 ##
-## ⚠ Git 연동과 이 워크플로를 **동시에 켜두지 말 것.** 같은 커밋을 두 번 배포한다.
-##   전환 순서: 이 워크플로로 배포 1회 성공 확인 → Git 연동 해제 → 그다음 Pro 해지.
+## 🔴 **2026-08-26 — 이 워크플로는 이제 «백업»이다. 자동으로 안 돈다.**
+##
+##   Hobby 무료 우회가 실패로 끝나 **Pro 를 재활성화하고 Git 연동을 붙였다.** 그래서
+##   main 푸시의 배포는 **Vercel Git 연동이 한다.** 이 워크플로가 같이 켜져 있으면
+##   같은 커밋을 두 번 배포한다.
+##
+##   ⚠ 그리고 그건 **예정된 사고였다.** GitHub Actions 한도가 **8/31 에 초기화**되므로,
+##     `on: push` 를 그대로 뒀으면 그날 자동으로 되살아나 이중 배포가 시작된다. 아무도
+##     그날을 지켜보고 있지 않다.
+##
+##   남겨 두는 이유는 **Git 연동이 다시 막힐 수 있어서**다. Pro 도 *"커밋 작성자가 팀
+##   멤버여야 한다"* 를 요구하고, 실제로 팀원이 초대를 수락하기 전 커밋이 `Blocked` 났다.
+##   그때 손으로 돌릴 길이 있어야 한다 — `workflow_dispatch`.
+##
+##   되돌리려면(Git 연동을 끊고 이 경로로 돌아가려면) `on:` 에 `push` 를 되살리고
+##   **Vercel 프로젝트의 Git 연동을 먼저 끊어라.** 순서가 반대면 이중 배포가 난다.
+##
+## 🔴 **`--prebuilt` 를 쓰지 않는다 — 2026-08-24 실측으로 기각됐다.**
+##
+##   C 가 손으로 그 경로를 완주했다. Git 연동을 끊고, `.git` 없는 폴더에서
+##   `vercel build --prod` → `vercel deploy --prebuilt --prod` 를 돌렸다.
+##   **커밋 작성자 검사는 통과했고**(Ready + 프로덕션 alias 승격) 화면도 떴다.
+##   그런데 서버리스 함수가 전부 500 이었다::
+##
+##       ChunkLoadError / MODULE_NOT_FOUND
+##       Cannot find module '/var/task/apps/web/.next/server/chunks/
+##                           [root-of-the-server]__13dzfwx._.js'
+##
+##   빠진 chunk 를 넣고 재배포해도 같았다. 모노레포라 Next 가 파일 추적 루트를
+##   **저장소 루트**로 잡는데(람다 경로가 `apps/web/.next/...` 인 것이 그 증거),
+##   로컬 `vercel build` 가 추적한 것과 Vercel 실행 환경이 기대하는 것이 어긋난다.
+##
+##   그래서 **소스를 올리고 Vercel 이 빌드하게 한다**(`--prebuilt` 없는 `deploy`).
+##   그 경로는 Git 연동이 쓰던 것과 같은 빌드이고, 지금 프로덕션에 떠 있던
+##   `d218501` 이 그렇게 만들어진 것이라 **동작이 확인된 유일한 경로**다.
+##
+##   ⚠ 대신 빌드가 Vercel 에서 돌므로 러너 환경변수가 안 닿는다 —
+##     `--build-env` 로 `VERCEL_GIT_COMMIT_SHA/REF` 를 명시적으로 넘겨야 한다.
+##     안 넘기면 푸터가 `local · dev` 로 뜨고 「신선도 검증」이 대조할 SHA 가 없다.
 name: 배포
 
 ## 🔴 **`pull_request` 를 뺐다 — 2026-08-24 사고의 전량이 거기서 나왔다.**
@@ -37,8 +74,7 @@ name: 배포
 ##
 ##   손으로 돌려 볼 일이 있으면 `workflow_dispatch` 로 브랜치를 골라 돌린다.
 on:
-  push:
-    branches: [main]
+  ## 🔴 **`push` 도 뺐다 (2026-08-26).** Git 연동이 주 경로가 됐다 — 아래 참조.
   workflow_dispatch:
 
 concurrency:
@@ -88,6 +124,11 @@ jobs:
 
       # Git 연동 경로가 아니므로 Vercel이 VERCEL_GIT_* 를 자동 주입하지 않는다.
       # 넣지 않으면 푸터·/api/build 가 "local"로 뜬다(배포 신원을 잃는다).
+      #
+      # ⚠ **여기에 넣는 것만으로는 부족하다.** 빌드가 Vercel 쪽에서 돌기 때문에 러너의
+      #   환경변수가 그 빌드에 닿지 않는다. 배포 명령에 `--build-env` 로 다시 넘긴다.
+      #   2026-08-24 C 가 손으로 배포했을 때 정확히 이걸 빠뜨려 푸터가 `local · dev` 로
+      #   떴다 — 그러면 아래 「신선도 검증」이 대조할 SHA 자체가 없다.
       - name: 빌드 신원 주입
         if: steps.pre.outputs.ready == 'true'
         run: |
@@ -135,16 +176,18 @@ jobs:
         if: steps.pre.outputs.ready == 'true' && github.ref == 'refs/heads/main'
         run: |
           vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-          vercel build --prod --token="$VERCEL_TOKEN"
-          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prod --token="$VERCEL_TOKEN" \
+            --build-env VERCEL_GIT_COMMIT_SHA="$VERCEL_GIT_COMMIT_SHA" \
+            --build-env VERCEL_GIT_COMMIT_REF="$VERCEL_GIT_COMMIT_REF"
 
       - name: 프리뷰 배포
         id: preview
         if: steps.pre.outputs.ready == 'true' && github.ref != 'refs/heads/main'
         run: |
           vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
-          vercel build --token="$VERCEL_TOKEN"
-          URL=$(vercel deploy --prebuilt --token="$VERCEL_TOKEN")
+          URL=$(vercel deploy --token="$VERCEL_TOKEN" \
+            --build-env VERCEL_GIT_COMMIT_SHA="$VERCEL_GIT_COMMIT_SHA" \
+            --build-env VERCEL_GIT_COMMIT_REF="$VERCEL_GIT_COMMIT_REF")
           echo "### 프리뷰 배포" >> "$GITHUB_STEP_SUMMARY"
           echo "$URL" >> "$GITHUB_STEP_SUMMARY"
 
@@ -260,16 +303,14 @@ jobs:
         working-directory: services/ingest
         run: |
           vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-          vercel build --prod --token="$VERCEL_TOKEN"
-          vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+          vercel deploy --prod --token="$VERCEL_TOKEN"
 
       - name: 프리뷰 배포
         if: steps.pre.outputs.ready == 'true' && github.ref != 'refs/heads/main'
         working-directory: services/ingest
         run: |
           vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
-          vercel build --token="$VERCEL_TOKEN"
-          URL=$(vercel deploy --prebuilt --token="$VERCEL_TOKEN")
+          URL=$(vercel deploy --token="$VERCEL_TOKEN")
           echo "### 인제스트 프리뷰" >> "$GITHUB_STEP_SUMMARY"
           echo "$URL" >> "$GITHUB_STEP_SUMMARY"
 

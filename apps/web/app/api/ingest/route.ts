@@ -23,7 +23,7 @@ import {
  *
  * ## maxDuration
  *
- * 2패스 실측이 68초다(pass1 25s + pass2 43s, 한투 2026-08-16). Fluid compute 기준
+ * 2패스 실측이 43.8~68.1초다(성공 기록 2건, 한투). Fluid compute 기준
  * Hobby 도 300초가 기본이자 최대이므로 여유가 있다. **60초 제한은 옛 정보다** —
  * 그 오해로 한때 "호스팅을 바꿔야 한다"고 판단했었다.
  *
@@ -45,7 +45,7 @@ export const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 const ALLOWED_SUFFIXES = [".pdf", ".htm", ".html"] as const;
 
-/** 상류가 68초를 쓰므로 넉넉히 두되, 함수 상한(300s)보다는 먼저 끊는다. */
+/** 상류가 **최대 68초**(실측 2건 중 느린 쪽)를 쓰므로 넉넉히 두되, 함수 상한(300s)보다는 먼저 끊는다. */
 const UPSTREAM_BUDGET_MS = 240_000;
 
 function json(body: unknown, init: ResponseInit) {

@@ -125,7 +125,9 @@ describe("기다리는 동안", () => {
     await waitFor(() => {
       const status = document.querySelector("#uploadStatus")!.textContent!;
       expect(status).toMatch(/경과/);
-      expect(status).toMatch(/68초/);
+      // 범위로 말한다. 한 값으로 말하면 짧은 쪽을 고르게 되고, 짧게 부르는 쪽이 더 나쁘다
+      // — 68초 걸리는 날 사용자는 멈춘 줄 안다(성공 기록 둘: 43.8초 · 68.1초).
+      expect(status).toMatch(/44~68초/);
       // "남은 시간 N초" 같은 예측은 하지 않는다 — 서버가 진행률을 안 준다
       expect(status).not.toMatch(/남은/);
     });
