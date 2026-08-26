@@ -1,17 +1,28 @@
-## 배포 — Vercel CLI를 GitHub Actions에서 돌린다 (C·D)
+## 배포 — 🟡 **백업 경로다.** 주 경로는 Vercel Git 연동이다 (C·D)
 ##
-## 왜 Git 연동이 아니라 이 경로인가
-##   Vercel의 "비공개 저장소는 커밋 작성자가 팀 멤버여야 배포된다"는 규칙은
-##   **Git 연동 경로에만** 걸린다. 그 규칙 때문에 팀원 커밋이 두 번 막혔고,
-##   좌석을 사면 1인당 월 $20다(팀 방침: 추가 비용 0).
-##   CLI 토큰 배포는 Vercel이 GitHub을 거치지 않으므로 작성자 검사가 없다.
-##   → Hobby(무료)에서도 동작하고, 누가 커밋했든 배포된다.
+## 🔴 **2026-08-26 이전 이 자리에 «왜 Git 연동이 아닌가» 가 적혀 있었다. 걷어냈다.**
 ##
-## 필요한 Secret 3개 (Settings → Secrets and variables → Actions)
+##   그 설명의 근거는 둘이었고 **둘 다 사라졌다**::
+##
+##       Hobby 라 좌석을 못 산다(1인당 월 $20)     ->  Pro 재활성화 (2026-08-26)
+##       비공개 저장소 커밋 작성자 검사에 걸린다      ->  팀 초대 수락으로 통과
+##
+##   지금은 `marginguard-web`·`marginguard-ingest` 둘 다 저장소에 붙어 있고 main
+##   푸시마다 Vercel 이 배포한다. **이 워크플로는 `workflow_dispatch` 로만 돈다**
+##   (`on:` 참조). 남겨 두는 이유는 Git 연동이 다시 막히는 날 손으로 돌릴 길이
+##   있어야 해서다 — Pro 도 커밋 작성자가 팀 멤버일 것을 요구하고, 실제로 팀원이
+##   초대를 수락하기 전 커밋이 `Blocked` 났다.
+##
+##   ⚠ **근거가 사라진 지시를 남겨 두지 마라.** 이 파일 아래쪽 인제스트 절이 정확히
+##     그 상태였고, 그 지시를 따르던 사람이 `uv lock`(#85)·`Blocked`(#69)로 두 번
+##     멈췄다. 되돌리려면 **Vercel 쪽 연동을 먼저 끊어라** — 순서가 반대면 같은
+##     커밋을 두 번 배포한다.
+##
+## 필요한 Secret 3개 (이 백업 경로를 손으로 쓸 때만)
 ##   VERCEL_TOKEN       Vercel → Account Settings → Tokens
-##   VERCEL_ORG_ID      apps/web/.vercel/project.json 의 orgId      (비밀 아님, 식별자)
-##   VERCEL_PROJECT_ID  apps/web/.vercel/project.json 의 projectId  (기존 marginguard-web
-##                      프로젝트여야 URL이 유지된다 — 새로 만들면 제출 URL이 바뀐다)
+##   VERCEL_ORG_ID      Vercel 팀 Settings → General 의 Team ID
+##   VERCEL_PROJECT_ID  marginguard-web 프로젝트 Settings → General 의 Project ID
+##                      (기존 프로젝트여야 URL이 유지된다 — 새로 만들면 제출 URL이 바뀐다)
 ##
 ## Secret이 아직 없으면 조용히 건너뛴다. 배포 설정 전에 머지해도 CI가 빨개지지 않는다.
 ##

@@ -391,12 +391,12 @@ L=5,500,000  samsung-h15-partial · samsung-h20-full     ← 정수 스케일 �
 | 랜딩(역산 슬라이더) + 계기판 | 스냅숏 + 클라이언트 엔진 | ✅ `GET /` 200 | **0** |
 | 조건 카드 조회 | 사전 계산·커밋된 카드(7사+) | ⚠ **카드 3장**(한국투자·메리츠·하한가형 예시) = **실제 2사** | **0** |
 | 약관 풀 선택 데모 | 미등록 증권사 풀에서 선택 | ❌ **없다.** 그런 화면이 저장소에 없다(grep 0건) | — |
-| 임의 약관 업로드 | 심사위원이 올린 그 순간만 | ❌ **`/api/ingest` 404**(GET·POST 둘 다) | **0** |
+| 임의 약관 업로드 | 심사위원이 올린 그 순간만 | 🟡 **라우트는 있고 미연결** — GET `405` · POST `503` (2026-08-26 실측) | **0** |
 
 ```bash
-# 재현
-curl -s -o /dev/null -w "%{http_code}
-" -X POST https://marginguard-web.vercel.app/api/ingest   # 404
+# 재현 (2026-08-26 실측)
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://marginguard-web.vercel.app/api/ingest   # 503  상류 미연결
+curl -s -o /dev/null -w "%{http_code}\n"         https://marginguard-web.vercel.app/api/ingest   # 405  라우트는 있다
 ```
 
 **"7사+"는 원문 보유량과 카드를 뒤섞은 것이다.** 갈라 적으면 이렇다:
@@ -422,13 +422,26 @@ deploy.yml 의 deploy-ingest 잡    있다 — 다만 지금은 백업 경로다
 ### 현재 상태 — 배포는 **웹만** 붙어 있다
 
 ```
-marginguard-web     ✅ Git 연동 · main = e3b3865 · 함수 전부 200
-marginguard-ingest  🟡 Git 연동 작업 중(2026-08-26)
-                       ANTHROPIC_API_KEY · INGEST_BASE_URL 미설정
+marginguard-web     ✅ Git 연동 · main 과 일치
+marginguard-ingest  ✅ Git 연동 · /health 200 · /docs 200
+                       ANTHROPIC_API_KEY 미설정 → /ingest 는 아직 500
+                       INGEST_BASE_URL 미설정   → 웹 프록시가 503
 
-POST /api/ingest → 503
-  "INGEST_BASE_URL 미설정 — 사전 계산된 조건카드로 계속 사용할 수 있습니다"
+2026-08-26 실측
+  200  /  · /api/build · /api/readiness · /api/ingest/health
+  405  GET  /api/ingest        메서드가 아니다 — 라우트는 있다
+  503  POST /api/ingest        "INGEST_BASE_URL 미설정 — 사전 계산된 …"
+  400  GET  /api/kis/quote     KIS 는 미연동이고 이 응답이 그 사실이다
 ```
+
+⚠ **«함수 전부 200» 이라고 적지 마라.** 위처럼 **200 이 아닌 것이 정상인 자리**가 셋이다.
+   200 만 세면 `405`·`503`·`400` 을 «고장» 으로 읽게 되고, 반대로 «전부 200» 을 목표로
+   삼으면 KIS 미연동을 숨기게 된다.
+
+⚠ **배포 SHA 를 이 문서에 적지 않는다.** `/api/build` 가 살아서 답하고 `/api/readiness`
+   도 `build.sha` 를 함께 싣는다. 여기 베껴 적으면 **베낀 순간부터 진실이 둘**이 되고,
+   실제로 그렇게 적은 리터럴이 **22분 만에** 틀려졌다(#97 을 머지하는 행위 자체로
+   `main` 이 옮겨갔다 — A 발견).
 
 **503 은 «업로드가 이 배포본에 연결돼 있지 않다»를 말하는 정상 응답이다** — 500 과
 다르다. 화면은 그 상태에서도 사전 계산된 카드로 끝까지 동작한다.
@@ -440,7 +453,8 @@ POST /api/ingest → 503
 ### 비용 — 붙는 순간 0회가 아니게 된다
 
 업로드가 연결되기 전까지 **심사 기간 중 런타임 API 호출은 0회**다. 붙으면 달라진다:
-1건당 311~416원(§8 위쪽 표), 앱 쿼터 IP 3회/시간·전역 12회/시간, Console 상한 $20.
+1건당 311~416원(아래 «spend limit 근거» 블록), 앱 쿼터 IP 3회/시간·전역 12회/시간,
+Console 상한 $20.
 **상한을 넘기는 경로는 Console 쪽뿐이고 자동 충전은 꺼져 있다**(B 확인, 2026-08-25).
 
 ### 자택 서버 + Claude Code CLI 백엔드를 쓰지 않는 이유
@@ -456,12 +470,17 @@ POST /api/ingest → 503
 
 | 가드 | 상태 | 근거 |
 |---|---|---|
-| Console spend limit | 🟡 **3만원으로 결정**(2026-08-24, 팀장) — C 가 Console 에 설정 | 아래 산정 |
-| 업로드 레이트 리밋 | ❌ **지킬 라우트가 없다** | `/api/ingest` 404 |
+| Console spend limit | ✅ **설정 완료 — Console 값은 `$20`** (B 확인, 2026-08-25). 자동 충전 OFF · 누적 $3.75 | 아래 산정 |
+| 업로드 레이트 리밋 | 🟡 **라우트는 있으나 상류 미연결** | POST `/api/ingest` → `503`(2026-08-26 실측) |
 | 잔액 확인·충전 | 🟡 런북 항목으로만 존재 | `apps/web/app/api/README.md` §5 ④ |
 | 프롬프트 캐싱 | ✅ 코드에 있으나 **미배포 서비스 안** | `services/ingest/app/two_pass.py:1147` `cache_control: ephemeral 5m` |
 
 #### spend limit 을 3만원으로 정한 근거
+
+⚠ **Console 에 들어간 값은 `$20` 이다.** 우리가 정한 것은 «3만원» 이고, Vercel/Anthropic
+   Console 은 달러로 받는다 — `krw_per_usd = 1500` 으로 환산한 같은 금액이다. 문서가 한
+   자리에서 두 값을 말하면 다음 사람이 «어느 쪽이 실제 설정인가» 를 못 정한다. **실제
+   설정값은 `$20`, 우리 결정은 3만원**이고 아래 계산은 원화로 한다.
 
 ```
 업로드 1건    311~416원      한투 **실행** 2건, 표준 정가 환산
