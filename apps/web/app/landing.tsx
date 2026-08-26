@@ -561,7 +561,21 @@ export default function Landing({ build }: { build: BuildInfo }) {
 
         {breached && quantOk && liq && paths && (
           <section id="liqBox" aria-label="반대매매 산정">
-            <h2>이대로면 — 약관 산정 방식의 재현값</h2>
+            {/*
+              * ⚠ **여기가 화면에서 제일 무거운 숫자다.** 상단 배너(#cardBanner)는 95줄 위라
+              *   여기까지 스크롤해 내려온 사람은 미검수 카드인 줄 모른 채 처분 수량만 본다.
+              *   `options-compare.tsx` 가 같은 이유로 자기 태그를 달았는데(그 파일 주석),
+              *   정작 **해소 4경로보다 무거운 이 숫자**에는 안 걸려 있었다(#64 P0-3).
+              *
+              *   실측으로 카드가 틀리면 195주 ↔ 583주만큼 벌어진다. draft 는 사람이 원문과
+              *   대조하기 **전**이라는 뜻이므로, 그 사실이 숫자 옆에 있어야 한다.
+              */}
+            <h2>
+              이대로면 — 약관 산정 방식의 재현값
+              {preset.card.status === "draft" && (
+                <span className="draftTag">참고 모드 · 미검수 카드</span>
+              )}
+            </h2>
             <span id="liqQty" className="tnum">
               {liq.mode === "FULL" ? `전량 ${liq.qty.toLocaleString()}주` : `${liq.qty.toLocaleString()}주`}
             </span>
