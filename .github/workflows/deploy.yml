@@ -290,18 +290,14 @@ jobs:
         working-directory: services/ingest
         run: |
           vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-          vercel deploy --prod --token="$VERCEL_TOKEN" \
-            --build-env VERCEL_GIT_COMMIT_SHA="$VERCEL_GIT_COMMIT_SHA" \
-            --build-env VERCEL_GIT_COMMIT_REF="$VERCEL_GIT_COMMIT_REF"
+          vercel deploy --prod --token="$VERCEL_TOKEN"
 
       - name: 프리뷰 배포
         if: steps.pre.outputs.ready == 'true' && github.ref != 'refs/heads/main'
         working-directory: services/ingest
         run: |
           vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
-          URL=$(vercel deploy --token="$VERCEL_TOKEN" \
-            --build-env VERCEL_GIT_COMMIT_SHA="$VERCEL_GIT_COMMIT_SHA" \
-            --build-env VERCEL_GIT_COMMIT_REF="$VERCEL_GIT_COMMIT_REF")
+          URL=$(vercel deploy --token="$VERCEL_TOKEN")
           echo "### 인제스트 프리뷰" >> "$GITHUB_STEP_SUMMARY"
           echo "$URL" >> "$GITHUB_STEP_SUMMARY"
 

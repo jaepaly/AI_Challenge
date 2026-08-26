@@ -479,38 +479,113 @@ class DeployUploadsSourceTest(unittest.TestCase):
             + "\n".join(offenders),
         )
 
-    def test_every_deploy_passes_the_build_identity(self) -> None:
-        """빌드가 Vercel 에서 돌므로 러너 환경변수가 **안 닿는다.**
+    # ── 잡 단위로 본다 ────────────────────────────────────────────────
+    #
+    # 파일 전체를 평평하게 훑으면 **잡 사이의 경계가 안 보인다.** `$GITHUB_ENV` 로 넣은
+    # 값은 잡을 넘지 않는데, 평평한 검사는 "어딘가에 정의가 있으니 됐다" 로 읽는다.
+    # 2026-08-26 에 실제로 그 구멍으로 인제스트 잡이 **빈 값**을 넘기고 있었다(A 발견).
 
-        `--build-env` 로 넘기지 않으면 `/api/build` 가 `local` 을 주고, 그러면 같은
-        워크플로의 「신선도 검증」이 대조할 SHA 자체가 없다. 2026-08-24 C 의 수동
-        배포에서 실제로 푸터가 `local · dev` 로 떴다.
-
-        ⚠ 줄바꿈(`\`)으로 이어진 명령이라 **다음 줄까지 이어 붙여** 본다. 한 줄만 보면
-          `--build-env` 가 다음 줄에 있어서 못 찾는다.
-        """
-        joined: list[str] = []
-        buf = ""
-        for line in self.commands:
-            buf += " " + line.strip()
-            if line.rstrip().endswith("\\"):
+    def _jobs(self) -> dict[str, list[str]]:
+        """`jobs:` 아래 2칸 들여쓰기 이름으로 구간을 나눈다."""
+        lines = self.text.splitlines()
+        start = next(i for i, l in enumerate(lines) if l.rstrip() == "jobs:")
+        blocks: dict[str, list[str]] = {}
+        name: str | None = None
+        for line in lines[start + 1 :]:
+            stripped = line.strip()
+            if (
+                line.startswith("  ")
+                and not line.startswith("   ")
+                and stripped.endswith(":")
+                and not stripped.startswith("#")
+            ):
+                name = stripped[:-1]
+                blocks[name] = []
                 continue
-            joined.append(buf.replace("\\", " "))
+            if name is not None:
+                blocks[name].append(line)
+        self.assertTrue(blocks, "deploy.yml 에서 잡을 하나도 못 찾았다")
+        return blocks
+
+    @staticmethod
+    def _commands(block: list[str]) -> list[str]:
+        """주석을 빼고, 줄바꿈(역슬래시)으로 이어진 명령을 한 줄로 잇는다."""
+        BS = chr(92)
+        out: list[str] = []
+        buf = ""
+        for line in block:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            buf += " " + stripped
+            if stripped.endswith(BS):
+                continue
+            out.append(buf.replace(BS, " "))
             buf = ""
         if buf:
-            joined.append(buf.replace("\\", " "))
+            out.append(buf.replace(BS, " "))
+        return out
 
-        deploys = [cmd for cmd in joined if "vercel deploy" in cmd]
-        self.assertTrue(deploys, "이어 붙인 명령에서 `vercel deploy` 를 못 찾았다")
-        for cmd in deploys:
-            with self.subTest(cmd=cmd.strip()[:70]):
+    def test_build_env_variables_are_defined_in_the_same_job(self) -> None:
+        """`--build-env VAR` 로 넘기는 값은 **그 잡 안에서** 정의돼 있어야 한다.
+
+        2026-08-24 에 난 사고는 플래그가 빠진 것이 아니라 **값이 비어 있던 것**이다
+        (푸터가 `local · dev` 로 떴다). 그런데 플래그 존재만 보는 검사는 그 사고를
+        못 잡는다 — 실제로 인제스트 잡이 정의도 없이 `--build-env` 를 넘기고 있었고
+        검사는 초록이었다(A, `#89` 리뷰).
+
+        `$GITHUB_ENV` 로 넣은 값은 **잡을 넘지 않는다.** 그래서 잡 단위로 본다.
+        """
+        for name, block in self._jobs().items():
+            body = "\n".join(block)
+            for command in self._commands(block):
+                for var in re.findall(r"--build-env\s+([A-Z_][A-Z0-9_]*)=", command):
+                    with self.subTest(job=name, var=var):
+                        defined = (
+                            f"{var}=" in body and "GITHUB_ENV" in body
+                        ) or re.search(rf"^\s+{var}:", body, re.M) is not None
+                        self.assertTrue(
+                            defined,
+                            f"잡 `{name}` 이 `--build-env {var}` 를 넘기는데 그 잡 안에"
+                            f" 정의가 없다 — 빈 값이 넘어간다.\n"
+                            f"  고치는 길: 이 잡에 「빌드 신원 주입」 단계를 넣거나,"
+                            f" 읽는 코드가 없으면 `--build-env` 를 빼라.",
+                        )
+
+    def test_the_job_that_verifies_api_build_passes_the_identity(self) -> None:
+        """`/api/build` 의 sha 를 `$GITHUB_SHA` 와 대조하는 잡은 **신원을 넘겨야** 한다.
+
+        이 둘은 한 쌍이다. 넘기지 않으면 `/api/build` 가 `local` 을 주고, 같은 잡의
+        「신선도 검증」이 대조할 값 자체가 없어진다 — 그 단계가 통째로 무의미해진다.
+
+        ⚠ 잡 **이름**으로 찾지 않는다. 이름은 바뀌어도 이 논리는 안 바뀐다. 찾는 것은
+          *"`/api/build` 를 `GITHUB_SHA` 와 맞대 보는 잡"* 이고, 그런 잡만 신원이 필요하다.
+          인제스트 잡은 그 대조를 하지 않으므로 이 검사의 대상이 아니다.
+        """
+        checked = 0
+        for name, block in self._jobs().items():
+            body = "\n".join(block)
+            if "/api/build" not in body or "GITHUB_SHA" not in body:
+                continue
+            checked += 1
+            # ⚠ **명령 단위로 본다.** 잡 안의 명령을 전부 이어 붙여 보면, 프로덕션 배포에서
+            #   한 줄이 빠져도 **프리뷰 배포가 대신 만족시킨다**(직접 뮤테이션으로 확인,
+            #   2026-08-26). 배포는 단계마다 따로 도는 것이라 단계마다 갖춰야 한다.
+            deploys = [c for c in self._commands(block) if "vercel deploy" in c]
+            self.assertTrue(deploys, f"잡 `{name}` 에 `vercel deploy` 가 없다")
+            for command in deploys:
                 for var in ("VERCEL_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_REF"):
-                    self.assertIn(
-                        f"--build-env {var}",
-                        cmd,
-                        f"배포 명령이 `--build-env {var}` 를 안 넘긴다 —"
-                        " 배포 신원을 잃고 신선도 검증이 무의미해진다.",
-                    )
+                    with self.subTest(job=name, var=var, cmd=command.strip()[:60]):
+                        self.assertIn(
+                            f"--build-env {var}",
+                            command,
+                            f"잡 `{name}` 이 `/api/build` 를 `$GITHUB_SHA` 와 대조하면서"
+                            f" 이 배포 명령에 `--build-env {var}` 를 안 넘긴다 —"
+                            f" 대조할 값이 없어진다.\n  {command.strip()[:140]}",
+                        )
+        self.assertGreater(
+            checked, 0, "`/api/build` 를 대조하는 잡이 하나도 없다 — 신선도 검증이 사라졌다"
+        )
 
 
 if __name__ == "__main__":
