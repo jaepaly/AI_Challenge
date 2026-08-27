@@ -52,6 +52,9 @@ class PathResult:
     note: str
 
 
+# ⚠ **보존본(_20260707)을 본다 — 현행본으로 옮기지 마라.**
+#   이 비교는 «표 구분자가 있는 HTML 을 평탄화해도 고정 사실이 살아남나» 를 재고,
+#   2026-08-25 개정본에는 그 구분자가 없다(탭 0개). 자세한 것은 tests/test_parsing.py 머리말.
 HTML_FACTS = (
     ReproductionFact(
         "kis-ratio-140",
