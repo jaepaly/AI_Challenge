@@ -31,7 +31,7 @@ interface CardPreset {
   source: string;
 }
 const CARDS: CardPreset[] = [
-  { key: "hantoo", broker: "한국투자", h: 0.15, status: "verified", source: "신용거래설명서 심사필 제2026-0265호 · 골든 195주" },
+  { key: "hantoo", broker: "한국투자", h: 0.15, status: "verified", source: "신용거래설명서 심사필 제2026-0323호 · 골든 195주" },
   { key: "meritz", broker: "메리츠", h: 0.2, status: "verified", source: "신용거래설명서 심의필 제25-125호 · 교차검증 309주" },
   { key: "lower", broker: "하한가형(예시)", h: 0.3, status: "draft", source: "실측 카드 미확보 — k=−0.02 전량 폴백 시연용" },
 ];

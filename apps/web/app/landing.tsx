@@ -504,7 +504,7 @@ export default function Landing({ build }: { build: BuildInfo }) {
           {ratio.banner && <div id="ratioBanner">{ratio.banner}</div>}
         </section>
 
-        {/* 바로 위 #cardSource가 "심사필 제2026-0265호" 같은 출처 주장을 산문으로
+        {/* 바로 위 #cardSource가 "심사필 제2026-0323호" 같은 출처 주장을 산문으로
             하고 있고, 사용자가 확인할 방법이 없었다. 그 문장 바로 아래에 좌표를 놓는다.
             결론 블록(#liqBox)에 붙이지 않은 이유: 기본 가격 10,000원 > 임계가 8,400원이라
             첫 페인트에서 breached=false이고 #liqBox는 DOM에 없다 — 슬라이더를 끌지 않은

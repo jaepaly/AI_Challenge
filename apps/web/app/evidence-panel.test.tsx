@@ -86,7 +86,7 @@ describe("좌표·해시가 화면 출력에 실제로 들어간다", () => {
         expect(row.locator.kind).toBe("char");
         if (row.locator.kind !== "char") continue;
 
-        expect(html).toContain(row.locator.label); // 예: 5252–5272
+        expect(html).toContain(row.locator.label); // 예: 5427–5447
         expect(html).toContain(row.locator.shaShort); // 축약 표시
         expect(html).toContain(row.locator.flattenedSha256); // 전체는 title 속성으로
         expect(html).toContain(row.sourceFormat); // html / text / pdf
@@ -106,7 +106,7 @@ describe("좌표·해시가 화면 출력에 실제로 들어간다", () => {
       html.slice(html.indexOf("<summary"), html.indexOf("</summary>"));
 
     const summary = first(render(hantoo));
-    expect(summary).toContain("5252–5272");
+    expect(summary).toContain("5427–5447");
     expect(summary).toContain("20자"); // 규모를 접힌 상태에서 가늠할 수 있다
 
     // 인용문이 원문에 두 번 나오는 쪽이 이 규약의 실제 이유다
@@ -196,7 +196,7 @@ describe("day_counting에는 검증·좌표 배지가 붙지 않는다", () => {
     expect(block).not.toContain("evFull"); // 인용 상자
     expect(block).not.toContain("evQuote"); // 접기 트리거
     expect(block).not.toContain("sha256");
-    expect(block).not.toContain("5252–5444"); // execution 스팬 좌표
+    expect(block).not.toContain("5427–5619"); // execution 스팬 좌표
     expect(block).not.toMatch(/\d+–\d+/); // 어떤 좌표도 새어들지 않는다
   });
 
@@ -372,7 +372,7 @@ describe("인용 구간이 옆 수치 하나보다 넓을 때 — 화면이 침�
   });
 
   /**
-   * 한투 ratio [5252:5272]는 execution [5252:5444]의 진부분 접두사다. 두 행을 나란히
+   * 한투 ratio [5427:5447]는 execution [5427:5619]의 진부분 접두사다. 두 행을 나란히
    * 그리면서 아무 말도 안 하면 서로 독립적인 근거 둘로 읽히는데, 실제로는 한쪽이
    * 다른 쪽에 통째로 들어 있다 — 근거의 독립성이 없다.
    */
@@ -380,7 +380,7 @@ describe("인용 구간이 옆 수치 하나보다 넓을 때 — 화면이 침�
     const exec = collapsed(row(render(hantoo), "발동 임계 담보비율(threshold_ratio)"));
 
     expect(exec).toContain("담보유지비율 조항");
-    expect(exec).toContain("5252–5272에서 겹칩니다");
+    expect(exec).toContain("5427–5447에서 겹칩니다");
     expect(exec).toContain("서로 독립적이지 않습니다");
     // 겹침은 "같다"가 아니다 — 인용 상자는 두 행 모두 그대로 그린다
     expect(exec).not.toContain("같은 문장입니다");
@@ -456,8 +456,13 @@ describe("접힌 상태가 펼친 내용보다 단정적이면 안 된다", () =
 
   /**
    * 유진 3행은 공백이 단일 스페이스뿐이고 90자 미만이라 접을 것이 하나도 없다.
-   * (한투는 반대다 — '주요내용 요약' 표 행이라 탭·개행이 들어 있어 라벨이 붙는다.
-   *  그 대비를 아래 두 단언이 함께 본다.)
+   * (한투 execution은 반대다 — 192자라 90자에서 잘려 라벨이 붙는다. 그 대비를 아래 두
+   *  단언이 함께 본다.)
+   *
+   * ⚠ 예전에는 이 대비를 **ratio 행**으로 잡았다. 2026-08-25 개정본이 `pdf2htmlEX`
+   *   산출물이라 탭·개행이 하나도 없어져 20자짜리 ratio는 **접을 것이 없어졌다** —
+   *   길이로도 안 걸린다. 그래서 «실제로 접히는 행» 자리를 execution으로 옮겼다.
+   *   대비 자체는 그대로다.
    */
   it("접을 것이 없으면 라벨도 없다 — 있지도 않은 가공을 표시하지 않는다", () => {
     const html = render(lower);
@@ -465,7 +470,7 @@ describe("접힌 상태가 펼친 내용보다 단정적이면 안 된다", () =
     expect(html).not.toContain("줄바꿈·탭을 공백으로 접고");
 
     // 실제로 접힌 행에는 붙는다 — 라벨이 죽은 코드가 아님을 같은 자리에서 확인한다
-    expect(collapsed(row(render(hantoo), "유지비율(ratio)"))).toContain("미리보기");
+    expect(collapsed(row(render(hantoo), "발동 임계 담보비율(threshold_ratio)"))).toContain("미리보기");
   });
 });
 
@@ -498,7 +503,7 @@ describe("신선도 만료 — 근거를 가리지는 않되 자격은 붙인다
     expect(html).toContain("검증일로부터 31일 경과(허용 30일)");
     expect(html).toContain("위 검수 표시는 만료됐습니다");
     // 근거 자체는 그대로 보인다 — blocked는 "왜 계산을 못 하나"를 묻는 화면이다
-    expect(html).toContain("5252–5272");
+    expect(html).toContain("5427–5447");
     expect(html).toContain(hantoo.ratio_rules[0]!.evidence.quote);
   });
 
