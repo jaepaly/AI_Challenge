@@ -38,7 +38,8 @@ PRESERVED_READERS = {
 
 #: 훑는 대상 — 문서(.md)는 옛 판본을 **이야기할** 수 있어야 하므로 뺀다.
 CODE_GLOBS = ("services/ingest/**/*.py", "apps/web/**/*.ts", "apps/web/**/*.tsx")
-SKIP_PARTS = {"node_modules", ".next", "__pycache__", ".pytest_cache", "dist"}
+SKIP_PARTS = {"node_modules", ".next", "__pycache__", ".pytest_cache", "dist",
+              ".venv", "venv", "site-packages"}
 
 
 def _editions() -> dict[str, str]:
