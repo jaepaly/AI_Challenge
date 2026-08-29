@@ -584,5 +584,80 @@ class PlanCitesTheSameDocumentsTest(unittest.TestCase):
         )
 
 
+PASTE_DIR = REPO_ROOT / "submission" / "paste"
+TAB = chr(9)
+
+
+class PasteCopyStaysPasteableTest(unittest.TestCase):
+    """붙여넣기 원고가 «붙여넣을 수 있는» 상태로 남는가.
+
+    최종 제출물은 `.hwpx` 양식을 채운 PDF 다. 초안은 마크다운이라 그대로 붙이면
+    `**굵게**` · `| 표 |` · 코드펜스가 **기호 그대로** 나온다. 그걸 9/7 아침에
+    손으로 지우게 되면 그때가 제일 틀리기 쉬운 시점이다.
+
+    ⚠ 이 검사는 **문체를 보지 않는다.** 한글에 붙였을 때 깨지는 것만 본다.
+    """
+
+    #: 한글에 그대로 붙으면 기호가 글자로 나오는 것들.
+    MARKDOWN = (
+        ("**", "굵게 표시"),
+        ("```", "코드펜스"),
+        ("~~", "취소선"),
+    )
+
+    def _paste_files(self) -> list[Path]:
+        return sorted(PASTE_DIR.glob("*.txt"))
+
+    def test_every_required_section_has_a_paste_file(self) -> None:
+        """양식의 절마다 붙여넣을 원고가 하나씩 있어야 한다.
+
+        절이 늘거나(주최측이 양식을 고치면) 원고가 빠지면 여기서 걸린다.
+        """
+        have = {p.stem for p in self._paste_files()}
+        want = {"첨부1-{0}".format(i) for i in range(1, len(PLAN_SECTIONS) + 1)}
+        want |= {"첨부2-{0}".format(i) for i in range(1, len(SPEC_SECTIONS) + 1)}
+        self.assertTrue(have, "붙여넣기 원고가 하나도 없다 — 이 검사가 무엇도 안 본다")
+        self.assertFalse(
+            sorted(want - have),
+            "양식에 절이 있는데 붙여넣을 원고가 없다:"
+            + INDENT + INDENT.join(sorted(want - have)),
+        )
+
+    def test_no_markdown_survives_into_the_paste_copy(self) -> None:
+        """마크다운 기호가 원고에 남아 있지 않다."""
+        found: list[str] = []
+        for path in self._paste_files():
+            text = path.read_text(encoding="utf-8")
+            for token, label in self.MARKDOWN:
+                if token in text:
+                    found.append("{0}: {1} ({2})".format(path.name, label, token))
+            for line in text.splitlines():
+                if line.startswith("|"):
+                    found.append("{0}: 표를 파이프로 그렸다".format(path.name))
+                    break
+        self.assertFalse(
+            found, "한글에 붙이면 기호가 글자로 나온다:" + INDENT + INDENT.join(found)
+        )
+
+    def test_every_table_marker_is_followed_by_tabs(self) -> None:
+        """`[표]` 다음 줄은 **탭으로 나뉜** 데이터여야 한다.
+
+        한글의 «표로 변환»이 탭을 기준으로 자른다. 표시만 있고 탭이 없으면
+        심사 전날 표가 한 덩어리 문단으로 들어간다.
+        """
+        broken: list[str] = []
+        for path in self._paste_files():
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for i, line in enumerate(lines):
+                if not line.startswith("[표]"):
+                    continue
+                nxt = lines[i + 1] if i + 1 < len(lines) else ""
+                if TAB not in nxt:
+                    broken.append("{0}:{1} 다음 줄에 탭이 없다".format(path.name, i + 1))
+        self.assertFalse(
+            broken, "[표] 표시가 탭 데이터를 안 데리고 있다:" + INDENT + INDENT.join(broken)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
