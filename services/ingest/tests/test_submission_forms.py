@@ -485,5 +485,104 @@ class SpecDraftCoversTheFormTest(unittest.TestCase):
     # 지키는 것은 검사가 아니라 **위 실측**이고, 배포가 다시 깨지면 검사가 아니라
     # `/api/ingest` 가 먼저 말한다(§5 ①의 심사 절차가 그것을 두드린다).
 
+TERMS_README = REPO_ROOT / "data" / "terms" / "README.md"
+PLAN = REPO_ROOT / "submission" / "attachment1-plan.md"
+
+NEWLINE = chr(10)
+INDENT = NEWLINE + "  "
+
+
+def _table_rows(text: str, after: str) -> list[list[str]]:
+    """`after` 뒤 첫 표의 **데이터 행만** 낸다.
+
+    ⚠ 구분선(`|---|`) **뒤**부터 모은다. 머리행을 «파일명» 으로 세면 검사가 자기가
+    읽은 제목을 데이터로 착각한다 — 실제로 처음에 `파일 = 판본` 을 한 건으로 셌다.
+    """
+    if after not in text:
+        return []
+    rows: list[list[str]] = []
+    seen_separator = False
+    for line in text.split(after, 1)[1].splitlines():
+        line = line.strip()
+        if not line.startswith("|"):
+            if seen_separator:
+                break
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if cells and cells[0] and set(cells[0]) <= set("-:"):
+            seen_separator = True
+            continue
+        if seen_separator and cells and cells[0]:
+            rows.append(cells)
+    return rows
+
+
+class PlanCitesTheSameDocumentsTest(unittest.TestCase):
+    """제출문(첨부1 §5-1)이 정본(`data/terms/README.md`)과 같은 판본을 가리키는가.
+
+    한국투자 원문이 2026-08-25 개정되어 카드를 현행본으로 옮겼는데, 첨부1 §5-1 표는
+    **개정 전 판본만** 적고 있었다. 재추출 PR 이 닫힐 때까지 아무것도 알려주지 않았다 —
+    사람이 눈으로 옮겨 적은 표라서다.
+
+    `test_current_edition_is_cited` 가 **코드**를 현행본에 묶었고, 이 검사는 **제출문**을
+    같은 정본에 묶는다. 심사자가 읽는 것은 저장소가 아니라 제출문이다.
+    """
+
+    def _canonical(self) -> dict[str, str]:
+        rows = _table_rows(TERMS_README.read_text(encoding="utf-8"), "| 파일 |")
+        out: dict[str, str] = {}
+        for cells in rows:
+            name = cells[0].strip("`").strip()
+            if "." not in name:
+                continue
+            out[name.rsplit(".", 1)[0]] = cells[1].strip("*").strip()
+        return out
+
+    def _plan(self) -> dict[str, str]:
+        rows = _table_rows(PLAN.read_text(encoding="utf-8"), "### 5-1.")
+        return {
+            cells[0].strip("`").strip(): cells[1].strip("*").strip()
+            for cells in rows
+            if len(cells) >= 2
+        }
+
+    def test_the_plan_lists_every_document_we_keep(self) -> None:
+        """정본에 있는 문서는 제출문 표에도 있어야 한다."""
+        canonical, plan = self._canonical(), self._plan()
+        self.assertTrue(canonical, "정본 표를 읽지 못했다 — 이 검사가 무엇도 안 보고 있다")
+        self.assertTrue(plan, "첨부1 §5-1 표를 읽지 못했다 — 이 검사가 무엇도 안 보고 있다")
+        missing = sorted(set(canonical) - set(plan))
+        self.assertFalse(
+            missing,
+            "정본(`data/terms/README.md`)에 있는데 첨부1 §5-1 표에 없다:"
+            + INDENT + INDENT.join(missing),
+        )
+
+    def test_the_plan_does_not_invent_documents(self) -> None:
+        """제출문이 정본에 없는 문서를 적지 않는다."""
+        canonical, plan = self._canonical(), self._plan()
+        extra = sorted(k for k in plan if k not in canonical)
+        self.assertFalse(
+            extra,
+            "첨부1 §5-1 표에는 있는데 정본에 없다:" + INDENT + INDENT.join(extra),
+        )
+
+    def test_the_current_edition_is_marked_current_in_both(self) -> None:
+        """정본이 **현행**이라 한 것을 제출문도 **현행**이라 해야 한다.
+
+        목록에 들어 있는 것만으로는 부족하다 — 보존본을 현행으로 적으면 심사자가
+        없어진 판본을 받아적는다.
+        """
+        canonical, plan = self._canonical(), self._plan()
+        wrong = [
+            "{0}: 정본={1} / 첨부1={2}".format(k, v, plan[k])
+            for k, v in canonical.items()
+            if k in plan and ("현행" in v) != ("현행" in plan[k])
+        ]
+        self.assertFalse(
+            wrong, "판본 표시가 정본과 어긋난다:" + INDENT + INDENT.join(wrong)
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
