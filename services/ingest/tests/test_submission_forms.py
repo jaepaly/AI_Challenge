@@ -724,5 +724,77 @@ class DocsMatchWhatTheCodeDoesTest(unittest.TestCase):
             "보존본 번호를 «현행»이라 적은 표 행:" + INDENT + INDENT.join(wrong),
         )
 
+FILLED_DIR = REPO_ROOT / "submission" / "filled"
+
+#: 첨부1 §1 에 들어가는 첫 줄. 원본에 이게 있으면 원본을 채운 것이다.
+FILLED_MARK = "마진가드 (MarginGuard) - 내 계좌의 반대매매 한계선 사전 진단"
+
+
+def _paragraphs_at(path: Path) -> list[str]:
+    """`_paragraphs` 와 같은데 `data/forms/` 밖의 파일도 읽는다."""
+    with zipfile.ZipFile(path) as archive:
+        section = archive.read("Contents/section0.xml")
+    lines: list[str] = []
+    for para in ET.fromstring(section).iter(f"{{{HWPML_PARAGRAPH}}}p"):
+        text = "".join(
+            run.text or "" for run in para.iter(f"{{{HWPML_PARAGRAPH}}}t")
+        ).strip()
+        if text:
+            lines.append(text)
+    return lines
+
+
+class FilledFormIsSubmittableTest(unittest.TestCase):
+    """채운 양식이 그대로 PDF 로 나가도 되는가.
+
+    `data/forms/` 는 **주최측 배포 원본**이다(`data/terms/` 의 약관과 같은 취급).
+    한글로 열어 채우면 그 자리에서 덮어써지는데, 그러면 둘을 한꺼번에 잃는다.
+
+        ① 주최측이 양식을 고쳤는지 대조할 기준
+        ② `SubmissionFormTest` 가 보는 절 구조 — §7 은 자유 제목이라 채우면 깨진다
+
+    2026-08-29 드라이런에서 실제로 그렇게 됐다(②가 빨간불이 됐다). 채운 것은
+    `submission/filled/` 에 두고 원본은 되돌린다.
+    """
+
+    def test_the_pristine_forms_are_never_the_working_copy(self) -> None:
+        """`data/forms/` 원본에 우리 본문이 들어가 있지 않다."""
+        for name in (PLAN_FORM, SPEC_FORM):
+            with self.subTest(form=name):
+                self.assertNotIn(
+                    FILLED_MARK,
+                    _paragraphs(name),
+                    "{0} 이 채워졌다 — 원본은 `git checkout` 으로 되돌리고 "
+                    "채운 것은 submission/filled/ 에서 작업하라".format(name),
+                )
+
+    def test_no_paste_instruction_survives_into_the_filled_form(self) -> None:
+        """`[표] …` 안내 줄이 남아 있으면 그대로 PDF 에 인쇄된다.
+
+        원고(`submission/paste/`)에 일부러 넣은 표시라 한글이 지워 주지 않는다.
+        표로 변환한 **뒤에** 사람이 지워야 하고, 안 지우면 심사자가 우리 작업
+        지시를 읽는다.
+
+        ⚠ **채운 양식은 저장소에 없다** — 한글로 편집 중인 이진 파일이라 커밋하면
+          매 저장마다 갈아엎힌다. 그래서 파일이 없으면 이 검사는 **건너뛴다.**
+          «통과» 로 세지 않는 이유는, 검사가 아무것도 안 보고 있을 때 그 사실이
+          보여야 하기 때문이다.
+        """
+        forms = sorted(FILLED_DIR.glob("*.hwpx")) if FILLED_DIR.exists() else []
+        if not forms:
+            self.skipTest("submission/filled/ 에 채운 양식이 없다 — 한글 작업 전이다")
+
+        left: list[str] = []
+        for path in forms:
+            for no, text in enumerate(_paragraphs_at(path), 1):
+                if text.startswith("[표]"):
+                    left.append("{0}  문단 {1}".format(path.name, no))
+        self.assertFalse(
+            left,
+            "채운 양식에 붙여넣기 안내가 남아 있다 — 표로 변환한 뒤 지워라:"
+            + INDENT + INDENT.join(left),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

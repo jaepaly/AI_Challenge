@@ -179,22 +179,24 @@ cache read 토큰이 0이면 절감이 발생했다고 보고하지 않는다.
 - [x] `h=0.15`가 정확히 잡히는지 `data/golden/golden_cases.json` 대조
 - [x] **60초 마일스톤 실측** — 68.14초로 미충족
 - [ ] 60초 미충족에 따라 1패스 근거 선표시 후 2패스 카드를 채우는 분기 결정
-- [ ] 세 경로 중 ⓒ(PDF 원본) 결과는 [#43](https://github.com/jaepaly/AI_Challenge/pull/43)의 8,192토큰 정본을 반영해 닫는다
+- [x] 세 경로 중 ⓒ(PDF 원본) 결과는 [#43](https://github.com/jaepaly/AI_Challenge/pull/43)의 8,192토큰 정본을 반영해 닫는다
 
 > ⚠ **8/17이 '재는 날'인지 '처음 써보는 날'인지가 이 게이트의 실제 리스크다.** §6-3이 *"프롬프트 개발·반복은 CLI로, 작업량의 90%"* 라고 잡아둔 이유가 이것이다. CLI 작업물은 거칠어도 커밋할 것 — repo에 있으면 골든 대조를 미리 붙일 수 있다.
 > 미달 시 축소 경로: **임의 업로드 대신 사전 수집 미등록 5~10사 풀에서 선택.** 정적 DB가 아니라는 증명은 유지된다.
 
 ### 5-A. 김재현 — 엔진/도메인
 
-- [ ] **[#33](https://github.com/jaepaly/AI_Challenge/pull/33) RiskResult 조립** — 변경 요청 1건 반영 후 머지. `liquidation: null`의 사유가 세 갈래(`D<=0` / 카드 미신선 / `h` 부재)인데 하나의 null로 접혀 있어, 계기판이 판정을 다시 하게 된다. `liquidationSkipped?` 선택 필드 1개면 닫힌다(#21의 `voluntarySellReason`과 같은 처방)
-- [ ] D의 PR 3건 리뷰 — [#35](https://github.com/jaepaly/AI_Challenge/pull/35) blocked 4경로 · [#36](https://github.com/jaepaly/AI_Challenge/pull/36) README · [#37](https://github.com/jaepaly/AI_Challenge/pull/37) 다종목 λ
+- [x] **[#33](https://github.com/jaepaly/AI_Challenge/pull/33) RiskResult 조립** — 변경 요청 1건 반영 후 머지. `liquidation: null`의 사유가 세 갈래(`D<=0` / 카드 미신선 / `h` 부재)인데 하나의 null로 접혀 있어, 계기판이 판정을 다시 하게 된다. `liquidationSkipped?` 선택 필드 1개면 닫힌다(#21의 `voluntarySellReason`과 같은 처방)
+- [x] D의 PR 3건 리뷰 — [#35](https://github.com/jaepaly/AI_Challenge/pull/35) blocked 4경로 · [#36](https://github.com/jaepaly/AI_Challenge/pull/36) README · [#37](https://github.com/jaepaly/AI_Challenge/pull/37) 다종목 λ
 - [ ] 9/7 직전 **전 카드 재검증** (D와 공동) — 스냅숏 카드가 **9/9부터 STALE**이라 심사 마지막 사흘이 blocked가 된다(#32)
+  > 🟢 **놓치면 기계가 말한다.** 예약 작업 `marginguard-card-freshness` 가 **9/4·5·6·7 오전 9시**에 `verified_at` 을 직접 읽어 심사 5일이 덤이는지 재고 카카오톡으로 알린다. 리마인드가 아니라 **측정**이다 — 끝나면 `[이상 없음]` 이 온다.
 
 ### 5-C. 이예찬 — 플랫폼/연동
 
 - [ ] **[#31](https://github.com/jaepaly/AI_Challenge/issues/31) P1 2건** — `/balance`·`/buyable` 무인증 공개 + 응답 무필터 통과 / 외부 `fetch` 타임아웃 부재. **배포본이 (b)로 가더라도 P1-a는 고친다** — 자격증명이 들어가는 순간 그대로 열린다
 - [ ] **W5 무중단 헬스체크 설계** — `/api/build` 기준(§6-5). ⚠ `/api/ingest/health`를 무인 폴링 대상으로 삼지 말 것 — 매 히트가 Anthropic 요청 1회다
-- [ ] **Vercel Pro 해지 + 환불 문의** — 착오 결제. 배포는 이미 Actions 경로라 해지해도 죽지 않는다
+- [ ] ~~**Vercel Pro 해지 + 환불 문의** — 착오 결제. 배포는 이미 Actions 경로라 해지해도 죽지 않는다~~
+  > 🔴 **2026-09-01 기준 이 문장은 거짓이고, 그대로 실행하면 심사 중 배포가 죽을 수 있다.** Pro 는 8/26 에 **일부러 살린 것**이다(Hobby + private + 커밋 작성자 여럿 → Blocked). 그리고 **배포는 Actions 경로가 아니다** — `deploy.yml` 은 `workflow_dispatch` 전용이고 `/api/build` 가 `source: vercel` 을 낸다(Git 연동). **심사(9/11) 이후에 다시 본다.**
 - [ ] 웹소켓(KIS는 ws만 지원 → HTTPS에서 Mixed Content 차단 → 서버 중계 필요)은 **이번 게이트 범위 밖**
 
 ### 5-D. 박재현 — 프로덕트/검증/제출물 (팀장)
@@ -202,7 +204,11 @@ cache read 토큰이 0이면 절감이 발생했다고 보고하지 않는다.
 - [ ] **B가 만든 카드가 랜딩에 실제로 들어가 동작** — Phase 2 본체이자 게이트 3번. B의 산출물이 나오는 즉시 결선
 - [ ] **다종목 실데이터 스냅숏** — 지금 재생은 전 종목 균등 시나리오다(#37). 종목별 실데이터가 들어와야 *"함께 움직였다"* 가 참이 된다. **8/24 전**
 - [ ] `OptionsCompare` 사유 문구 일원화 — #35·#37이 둘 다 머지된 뒤
-- [ ] hwpx 열림 확인 (1분) · `git config user.email` 점검(전원 공통)
+- [x] hwpx 열림 확인 — **8/29 드라이런까지 끝났다.** 첨부1 을 한글로 열어 `submission/paste/` 원고를 붙였고 **탭 → 표 변환이 실제로 먹었다**(47KB → 76KB)
+  > ⚠ **채운 곳이 `data/forms/` 원본이었다.** 거긴 주최측 배포본이라 `data/terms/` 와 같은 취급이다 — 덮어쓰면 주최측이 양식을 고쳤는지 대조할 기준을 잃고, §7 은 자유 제목이라 `SubmissionFormTest` 가 실제로 깨졌다. **작업은 `submission/filled/` 에서 한다.**
+- [ ] `git config user.email` 점검(전원 공통)
+- [ ] 채운 양식에서 `[표] …` 안내 줄 지우기 — 표로 변환한 **뒤에** 사람이 지워야 하고, 안 지우면 그대로 PDF 에 인쇄된다. `FilledFormIsSubmittableTest` 가 본다
+- [ ] 첨부2 채우기 — `submission/paste/첨부2-1 ~ 2-5.txt`
 
 > **제출물 본문은 지금 쓰지 않는다 — W5(8/25~)다.** 첨부2 §1이 *"미구현 또는 향후 구현 예정 기능은 제외"*, §2가 *"실제 동작하는 기능을"* 이라고 못 박고 기능마다 **구현 상태** 칸까지 요구한다. **비전이 아니라 실물을 적는 문서다.** 8월에 쓰면 9월에 다시 쓴다.
 > 단 **초안의 사실 오류는 발견 즉시 고친다** — 틀린 문장을 물고 다니면 9월에 그대로 옮겨 적게 된다.
