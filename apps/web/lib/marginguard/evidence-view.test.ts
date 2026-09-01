@@ -41,12 +41,12 @@ describe("좌표 표기 — EvidenceSpan 판별 유니온 좁히기", () => {
     const loc = locate(span);
 
     expect(loc.kind).toBe("char");
-    expect(loc.label).toBe("5252–5272"); // 천단위 구분 없음 — 좌표는 기계 주소다
+    expect(loc.label).toBe("5427–5447"); // 천단위 구분 없음 — 좌표는 기계 주소다
     expect(loc.width).toBe(20);
     expect(loc.flattenedSha256).toBe(
-      "f454551cba8762c6bddd546050d2b1f1fdab444cc348308e37f0a358cbb8fde5",
+      "8131fb2287c530eea62d19f684d170d69e5163d67ea994683f4424228268977f",
     );
-    expect(loc.shaShort).toBe("f454551cba87…"); // 64자 hex는 줄바꿈되지 않아 축약한다
+    expect(loc.shaShort).toBe("8131fb2287c5…"); // 64자 hex는 줄바꿈되지 않아 축약한다
   });
 
   /**
@@ -106,8 +106,8 @@ describe("문서 판본 식별자", () => {
     expect(docIdentity(hantoo.doc_version)).toEqual({
       kind: "review_no",
       label: "심사필·심의필 번호",
-      value: "2026-0265",
-      short: "2026-0265",
+      value: "2026-0323",
+      short: "2026-0323",
     });
 
     const byHash = docIdentity(lower.doc_version);
@@ -343,10 +343,13 @@ describe("접힌 줄이 원문인지 아닌지", () => {
    * previewFolded는 **preview가 원문과 다른가**만 뜻한다. 있지도 않은 가공을 표시하지도,
    * 실제 가공을 숨기지도 않아야 한다.
    *
-   * 조항으로 교체한 뒤 한투 3행이 전부 접힌다 — ratio·execution은 '주요내용 요약' 표
-   * 행이라 탭·개행을 담고, disposal은 114자로 90자를 넘는다. 메리츠·유진 6행은 공백이
-   * 단일 스페이스뿐이고 90자 미만이라 그대로다. 접힌 줄이 원문처럼 보이면 안 되므로
-   * 이 구분이 화면 라벨의 근거다.
+   * ⚠ **2026-08-25 개정본으로 옮기면서 한투 ratio가 이 목록에서 빠졌다.** 옛 판본에서는
+   *   ratio·execution이 '주요내용 요약' 표 행이라 **탭·개행을 담아** 접혔는데, 현행본은
+   *   `pdf2htmlEX` 산출물이라 문서 전체에 탭도 개행도 하나도 없다(옛 228·246개).
+   *   ratio는 20자라 길이로도 안 걸려 **접을 것이 정말 없어졌다** — 라벨이 사라지는 것이
+   *   맞다. disposal(114자)·execution(192자)은 90자를 넘어 그대로 접힌다.
+   *   메리츠·유진 6행은 공백이 단일 스페이스뿐이고 90자 미만이라 그대로다.
+   *   접힌 줄이 원문처럼 보이면 안 되므로 이 구분이 화면 라벨의 근거다.
    */
   it("가공했을 때만 true다 — preview와 원문의 차이가 곧 이 값이다", () => {
     const folded: string[] = [];
@@ -356,7 +359,7 @@ describe("접힌 줄이 원문인지 아닌지", () => {
         if (row.previewFolded) folded.push(`${preset.key}.${row.role}`);
       }
     }
-    expect(folded).toEqual(["hantoo.ratio", "hantoo.disposal", "hantoo.execution"]);
+    expect(folded).toEqual(["hantoo.disposal", "hantoo.execution"]);
   });
 });
 
@@ -553,7 +556,7 @@ describe("인용문이 옆 수치 말고 다른 값도 담고 있을 때", () =>
 
 describe("근거끼리 겹칠 때 — 완전 일치가 아니라 부분 겹침", () => {
   /**
-   * 스냅숏 한투가 이 경우다. ratio [5252:5272]는 execution [5252:5444]의 **진부분
+   * 스냅숏 한투가 이 경우다. ratio [5427:5447]는 execution [5427:5619]의 **진부분
    * 접두사**라 같은 20자가 근거 상자 두 개에 통째로 중복 렌더된다. sameSpanAs는
    * 완전 일치만 보므로 둘 다 null이고, 아무 말도 안 하면 두 행이 서로 독립적인
    * 근거처럼 보인다 — 실제로는 한쪽이 다른 쪽에 통째로 들어 있다.
@@ -564,11 +567,11 @@ describe("근거끼리 겹칠 때 — 완전 일치가 아니라 부분 겹침",
     expect(rows[2]!.sameSpanAs).toBeNull(); // 같은 스팬은 아니다
     expect(rows[2]!.overlapsSpanOf).toEqual({
       title: "담보유지비율 조항",
-      label: "5252–5272", // 겹치는 구간 자체의 좌표
+      label: "5427–5447", // 겹치는 구간 자체의 좌표
     });
     // 먼저 그려진 행에는 붙지 않는다 — 뒤에 올 것을 앞에서 알 수 없다
     expect(rows[0]!.overlapsSpanOf).toBeNull();
-    // 같은 문서 안이라도 안 겹치는 행에는 붙지 않는다(disposal은 3342–3456)
+    // 같은 문서 안이라도 안 겹치는 행에는 붙지 않는다(disposal은 3481–3595)
     expect(rows[1]!.overlapsSpanOf).toBeNull();
   });
 

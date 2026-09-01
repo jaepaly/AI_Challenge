@@ -485,5 +485,244 @@ class SpecDraftCoversTheFormTest(unittest.TestCase):
     # 지키는 것은 검사가 아니라 **위 실측**이고, 배포가 다시 깨지면 검사가 아니라
     # `/api/ingest` 가 먼저 말한다(§5 ①의 심사 절차가 그것을 두드린다).
 
+TERMS_README = REPO_ROOT / "data" / "terms" / "README.md"
+PLAN = REPO_ROOT / "submission" / "attachment1-plan.md"
+
+NEWLINE = chr(10)
+INDENT = NEWLINE + "  "
+
+
+def _table_rows(text: str, after: str) -> list[list[str]]:
+    """`after` 뒤 첫 표의 **데이터 행만** 낸다.
+
+    ⚠ 구분선(`|---|`) **뒤**부터 모은다. 머리행을 «파일명» 으로 세면 검사가 자기가
+    읽은 제목을 데이터로 착각한다 — 실제로 처음에 `파일 = 판본` 을 한 건으로 셌다.
+    """
+    if after not in text:
+        return []
+    rows: list[list[str]] = []
+    seen_separator = False
+    for line in text.split(after, 1)[1].splitlines():
+        line = line.strip()
+        if not line.startswith("|"):
+            if seen_separator:
+                break
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if cells and cells[0] and set(cells[0]) <= set("-:"):
+            seen_separator = True
+            continue
+        if seen_separator and cells and cells[0]:
+            rows.append(cells)
+    return rows
+
+
+class PlanCitesTheSameDocumentsTest(unittest.TestCase):
+    """제출문(첨부1 §5-1)이 정본(`data/terms/README.md`)과 같은 판본을 가리키는가.
+
+    한국투자 원문이 2026-08-25 개정되어 카드를 현행본으로 옮겼는데, 첨부1 §5-1 표는
+    **개정 전 판본만** 적고 있었다. 재추출 PR 이 닫힐 때까지 아무것도 알려주지 않았다 —
+    사람이 눈으로 옮겨 적은 표라서다.
+
+    `test_current_edition_is_cited` 가 **코드**를 현행본에 묶었고, 이 검사는 **제출문**을
+    같은 정본에 묶는다. 심사자가 읽는 것은 저장소가 아니라 제출문이다.
+    """
+
+    def _canonical(self) -> dict[str, str]:
+        rows = _table_rows(TERMS_README.read_text(encoding="utf-8"), "| 파일 |")
+        out: dict[str, str] = {}
+        for cells in rows:
+            name = cells[0].strip("`").strip()
+            if "." not in name:
+                continue
+            out[name.rsplit(".", 1)[0]] = cells[1].strip("*").strip()
+        return out
+
+    def _plan(self) -> dict[str, str]:
+        rows = _table_rows(PLAN.read_text(encoding="utf-8"), "### 5-1.")
+        return {
+            cells[0].strip("`").strip(): cells[1].strip("*").strip()
+            for cells in rows
+            if len(cells) >= 2
+        }
+
+    def test_the_plan_lists_every_document_we_keep(self) -> None:
+        """정본에 있는 문서는 제출문 표에도 있어야 한다."""
+        canonical, plan = self._canonical(), self._plan()
+        self.assertTrue(canonical, "정본 표를 읽지 못했다 — 이 검사가 무엇도 안 보고 있다")
+        self.assertTrue(plan, "첨부1 §5-1 표를 읽지 못했다 — 이 검사가 무엇도 안 보고 있다")
+        missing = sorted(set(canonical) - set(plan))
+        self.assertFalse(
+            missing,
+            "정본(`data/terms/README.md`)에 있는데 첨부1 §5-1 표에 없다:"
+            + INDENT + INDENT.join(missing),
+        )
+
+    def test_the_plan_does_not_invent_documents(self) -> None:
+        """제출문이 정본에 없는 문서를 적지 않는다."""
+        canonical, plan = self._canonical(), self._plan()
+        extra = sorted(k for k in plan if k not in canonical)
+        self.assertFalse(
+            extra,
+            "첨부1 §5-1 표에는 있는데 정본에 없다:" + INDENT + INDENT.join(extra),
+        )
+
+    def test_the_current_edition_is_marked_current_in_both(self) -> None:
+        """정본이 **현행**이라 한 것을 제출문도 **현행**이라 해야 한다.
+
+        목록에 들어 있는 것만으로는 부족하다 — 보존본을 현행으로 적으면 심사자가
+        없어진 판본을 받아적는다.
+        """
+        canonical, plan = self._canonical(), self._plan()
+        wrong = [
+            "{0}: 정본={1} / 첨부1={2}".format(k, v, plan[k])
+            for k, v in canonical.items()
+            if k in plan and ("현행" in v) != ("현행" in plan[k])
+        ]
+        self.assertFalse(
+            wrong, "판본 표시가 정본과 어긋난다:" + INDENT + INDENT.join(wrong)
+        )
+
+
+PASTE_DIR = REPO_ROOT / "submission" / "paste"
+TAB = chr(9)
+
+
+class PasteCopyStaysPasteableTest(unittest.TestCase):
+    """붙여넣기 원고가 «붙여넣을 수 있는» 상태로 남는가.
+
+    최종 제출물은 `.hwpx` 양식을 채운 PDF 다. 초안은 마크다운이라 그대로 붙이면
+    `**굵게**` · `| 표 |` · 코드펜스가 **기호 그대로** 나온다. 그걸 9/7 아침에
+    손으로 지우게 되면 그때가 제일 틀리기 쉬운 시점이다.
+
+    ⚠ 이 검사는 **문체를 보지 않는다.** 한글에 붙였을 때 깨지는 것만 본다.
+    """
+
+    #: 한글에 그대로 붙으면 기호가 글자로 나오는 것들.
+    MARKDOWN = (
+        ("**", "굵게 표시"),
+        ("```", "코드펜스"),
+        ("~~", "취소선"),
+    )
+
+    def _paste_files(self) -> list[Path]:
+        return sorted(PASTE_DIR.glob("*.txt"))
+
+    def test_every_required_section_has_a_paste_file(self) -> None:
+        """양식의 절마다 붙여넣을 원고가 하나씩 있어야 한다.
+
+        절이 늘거나(주최측이 양식을 고치면) 원고가 빠지면 여기서 걸린다.
+        """
+        have = {p.stem for p in self._paste_files()}
+        want = {"첨부1-{0}".format(i) for i in range(1, len(PLAN_SECTIONS) + 1)}
+        want |= {"첨부2-{0}".format(i) for i in range(1, len(SPEC_SECTIONS) + 1)}
+        self.assertTrue(have, "붙여넣기 원고가 하나도 없다 — 이 검사가 무엇도 안 본다")
+        self.assertFalse(
+            sorted(want - have),
+            "양식에 절이 있는데 붙여넣을 원고가 없다:"
+            + INDENT + INDENT.join(sorted(want - have)),
+        )
+
+    def test_no_markdown_survives_into_the_paste_copy(self) -> None:
+        """마크다운 기호가 원고에 남아 있지 않다."""
+        found: list[str] = []
+        for path in self._paste_files():
+            text = path.read_text(encoding="utf-8")
+            for token, label in self.MARKDOWN:
+                if token in text:
+                    found.append("{0}: {1} ({2})".format(path.name, label, token))
+            for line in text.splitlines():
+                if line.startswith("|"):
+                    found.append("{0}: 표를 파이프로 그렸다".format(path.name))
+                    break
+        self.assertFalse(
+            found, "한글에 붙이면 기호가 글자로 나온다:" + INDENT + INDENT.join(found)
+        )
+
+    def test_every_table_marker_is_followed_by_tabs(self) -> None:
+        """`[표]` 다음 줄은 **탭으로 나뉜** 데이터여야 한다.
+
+        한글의 «표로 변환»이 탭을 기준으로 자른다. 표시만 있고 탭이 없으면
+        심사 전날 표가 한 덩어리 문단으로 들어간다.
+        """
+        broken: list[str] = []
+        for path in self._paste_files():
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for i, line in enumerate(lines):
+                if not line.startswith("[표]"):
+                    continue
+                nxt = lines[i + 1] if i + 1 < len(lines) else ""
+                if TAB not in nxt:
+                    broken.append("{0}:{1} 다음 줄에 탭이 없다".format(path.name, i + 1))
+        self.assertFalse(
+            broken, "[표] 표시가 탭 데이터를 안 데리고 있다:" + INDENT + INDENT.join(broken)
+        )
+
+
+INGEST_ROUTE = REPO_ROOT / "apps" / "web" / "app" / "api" / "ingest" / "route.ts"
+SPEC_S5 = REPO_ROOT / "submission" / "attachment2-s5-verification.md"
+PASTE_S5 = PASTE_DIR / "첨부2-5.txt"
+
+
+class DocsMatchWhatTheCodeDoesTest(unittest.TestCase):
+    """제출문이 적은 사실이 코드·정본과 어긋나지 않는가.
+
+    아래 둘은 C 가 `#102` 리뷰에서 **손으로** 찾아낸 것들이다. 둘 다 기계가 볼 수
+    있는 종류였는데 아무 검사도 안 보고 있었다.
+
+        문서 "우리 상한을 넘으면 400"      코드 `route.ts` 는 413 을 낸다
+        정본 "한국투자 현행본(2026-0265호)"  0265 는 **보존본** 번호다
+
+    ⚠ 두 번째는 `PlanCitesTheSameDocumentsTest` 가 못 잡았다 — 그 검사는 정본의
+    **첫 표**만 읽고, 이 오류는 같은 파일 **아래쪽 표**에 있었다. 검사가 어디까지
+    보는지를 검사 자신이 말해 주지 않는다는 것을 여기 적어 둔다.
+    """
+
+    #: `심사필 제2026-0265호` · `심의필 제25-125호` 에서 숫자 토큰만.
+    EDITION_TOKEN = re.compile(r"[0-9]{2,4}-[0-9]{3,5}")
+
+    def test_the_docs_quote_the_status_the_code_returns(self) -> None:
+        """상한 초과 응답 코드를 문서가 코드에서 베껴 적는다."""
+        source = INGEST_ROUTE.read_text(encoding="utf-8")
+        head = source.split("file.size > MAX_UPLOAD_BYTES", 1)
+        self.assertEqual(len(head), 2, "route.ts 에서 상한 검사를 못 찾았다")
+        found = re.search(r"status:\s*(\d{3})", head[1])
+        self.assertIsNotNone(found, "상한 검사 뒤에서 status 를 못 찾았다")
+        status = found.group(1)
+
+        wrong: list[str] = []
+        for path in (SPEC_S5, PASTE_S5):
+            for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if "우리 상한을 넘으면" in line and status not in line:
+                    wrong.append("{0}:{1}  코드는 {2}".format(path.name, no, status))
+        self.assertFalse(
+            wrong,
+            "상한 초과 응답 코드가 코드와 다르게 적혀 있다:" + INDENT + INDENT.join(wrong),
+        )
+
+    def test_no_table_row_calls_a_preserved_edition_current(self) -> None:
+        """정본의 어느 표에서도 **보존본**을 «현행»이라 부르지 않는다.
+
+        ⚠ 표 행(`|` 로 시작)만 본다. 산문은 옛 판본을 **이야기할** 수 있어야 한다.
+        """
+        text = TERMS_README.read_text(encoding="utf-8")
+        preserved: set[str] = set()
+        for cells in _table_rows(text, "| 파일 |"):
+            if len(cells) >= 3 and "보존" in cells[1]:
+                preserved |= set(self.EDITION_TOKEN.findall(cells[2]))
+        self.assertTrue(preserved, "보존본 판본 번호를 못 읽었다 — 이 검사가 무엇도 안 본다")
+
+        wrong = [
+            "{0}행: {1}".format(no, token)
+            for no, line in enumerate(text.splitlines(), 1)
+            if line.startswith("|") and "현행" in line
+            for token in preserved
+            if token in line
+        ]
+        self.assertFalse(
+            wrong,
+            "보존본 번호를 «현행»이라 적은 표 행:" + INDENT + INDENT.join(wrong),
+        )
+
 if __name__ == "__main__":
     unittest.main()

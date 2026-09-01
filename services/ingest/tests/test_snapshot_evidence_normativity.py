@@ -53,9 +53,17 @@ EXAMPLE_REGIONS: dict[str, tuple[tuple[str, str], ...]] = {
     "hantoo": (
         # 마커가 지배 대상을 스스로 '(1), (2)'라고 밝힌다. 끝은 다음 □ 섹션 헤딩.
         # #46의 한투 3개가 전부 이 안에 있었다.
-        ("*투자사례 (1), (2)는", "□ 투자위험등급"),
+        # ⚠ 경계가 «□ 투자위험등급» 이었는데 현행본은 그 불릿이 «▷» 로 바뀌었고,
+        #   조판 순서까지 달라져 그 제목이 **예시 본문보다 앞**에 온다(@1493 < 140% @2012).
+        #   그대로 두면 구간이 [1365,1493) 로 쪼그라들어 정작 예시 숫자를 안 덮는다 —
+        #   «찾았다» 고 통과하면서 지키는 것이 없어지는 쪽이라 더 나쁘다.
+        #   두 판본 다 예시 본문 **뒤**에 있는 «유의사항» 을 경계로 쓴다(옛 @2906 · 새 @3043).
+        ("*투자사례 (1), (2)는", "유의사항"),
         # '신용이자율' 표 행 안의 괄호 예시. 그 행의 끝(다음 개행)까지가 지배 범위다.
-        ("(예시: 골드등급", "\n"),
+        # 옛 판본에서는 경계가 그 행의 끝(개행)이었다. 현행본은 pdf2htmlEX 산출물이라
+        # **개행이 하나도 없어** 행 끝이라는 것이 없다 — 두 판본에 다 있는 다음 행
+        # 머리말을 경계로 쓴다.
+        ("(예시: 골드등급", "KOSPI200종목"),
         ("④ 신용융자이자 계산사례", "<예시-신용거래대주>"),
         ("<예시-신용거래대주>", "(9) 만기 연장"),
         # ⚠ 이 구간은 개행이 없는 초장문 한 줄 안에 있다. 열거 마커(가./나. → 다.)가
@@ -118,14 +126,37 @@ INSIDE_EXAMPLES_46 = {
 }
 
 
+def _find_loose(text: str, needle: str, start: int = 0) -> tuple[int, int]:
+    """마커를 **공백 배치에 관대하게** 찾는다. 못 찾으면 (-1, -1).
+
+    ⚠ 왜 완전 일치가 아닌가 — 2026-08-25 개정본은 같은 문장을 `pdf2htmlEX` 로 다시
+      조판했고 **공백만 달라진** 마커가 둘 있었다.
+
+          *투자사례 (1), (2)는     ->  * 투자사례 (1), (2)는
+          ※ 투자사례(가,나)는       ->  ※ 투자사례(가, 나)는
+
+      완전 일치로 두면 판본이 바뀔 때마다 이 가드가 **조용히 앵커를 잃는다** — 실제로
+      그렇게 5건이 한 번에 넘어갔다(#64 G-3). 예시 구간을 못 찾으면 «스팬이 예시
+      밖인가» 를 아무도 안 보게 되므로, 여기서는 **띄어쓰기를 무시하고 글자 순서만**
+      본다. 마커들이 충분히 특이해서 이 완화로 다른 자리에 걸릴 여지는 없다.
+    """
+
+    idx = text.find(needle, start)
+    if idx >= 0:
+        return idx, idx + len(needle)
+    pattern = r"\s*".join(re.escape(ch) for ch in needle if not ch.isspace())
+    match = re.compile(pattern).search(text, start)
+    return (match.start(), match.end()) if match else (-1, -1)
+
+
 def _regions(key: str) -> list[tuple[int, int]]:
     """예시 구간을 원문에서 다시 만든다 — 좌표를 적어 두지 않고 매번 찾는다."""
     text, _ = _flattened(SOURCE_FILE[key])
     regions = []
     for marker, boundary in EXAMPLE_REGIONS[key]:
-        start = text.find(marker)
+        start, marker_end = _find_loose(text, marker)
         assert start >= 0, f"{key}: 예시 마커를 찾지 못했다 — {marker!r}"
-        end = text.find(boundary, start + len(marker))
+        end, _ = _find_loose(text, boundary, marker_end)
         assert end > start, f"{key}: {marker!r}의 경계 {boundary!r}를 찾지 못했다"
         regions.append((start, end))
     return regions

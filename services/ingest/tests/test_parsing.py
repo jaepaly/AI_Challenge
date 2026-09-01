@@ -12,6 +12,15 @@ from app.parsing import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+# ⚠ **보존본이다 — 현행본(_20260825)으로 옮기지 마라.**
+#
+#   2026-08-25 개정본은 pdf2htmlEX 산출물이라 **탭·개행이 하나도 없다**(옛 228·246개).
+#   여기 검사들이 재는 것은 «한투 현행본이 어떻게 생겼나» 가 아니라 «표 구분자가 있는
+#   문서를 우리 파서·인제스트가 어떻게 다루나» 이고, 그 재료는 이 판본에만 있다.
+#   현행본으로 옮기면 검사는 다시 쓸 수 있어도 **재던 성질이 사라진다.**
+#
+#   카드가 인용하는 판본은 현행본이다(apps/web/lib/marginguard/snapshot.ts).
+#   구분자 없는 렌더에서 무엇이 달라지는지는 test_flat_render_narrowing.py 가 고정한다.
 HANKOOK_TERMS = REPO_ROOT / "data/terms/한국투자_신용거래설명서_20260707.htm"
 MERITZ_TERMS = REPO_ROOT / "data/terms/메리츠_신용거래설명서_20250421.pdf"
 
