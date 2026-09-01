@@ -111,7 +111,7 @@
     우리 상한       4,194,304 bytes
     Vercel 플랫폼   4,718,592 bytes   함수 요청 본문 한도(4.5MB)
 
-우리 상한을 넘으면 400 과 함께 우리 문구가 나간다. 그런데 플랫폼 한도를 넘으면 우리 코드가 아예 안 돈다 - 실측했다.
+우리 상한을 넘으면 413 과 함께 우리 문구가 나간다. 그런데 플랫폼 한도를 넘으면 우리 코드가 아예 안 돈다 - 실측했다.
 
     POST /api/ingest · 5,888,539 bytes  →  413 · 0.6초
        Request Entity Too Large / FUNCTION_PAYLOAD_TOO_LARGE

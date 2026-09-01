@@ -659,5 +659,70 @@ class PasteCopyStaysPasteableTest(unittest.TestCase):
         )
 
 
+INGEST_ROUTE = REPO_ROOT / "apps" / "web" / "app" / "api" / "ingest" / "route.ts"
+SPEC_S5 = REPO_ROOT / "submission" / "attachment2-s5-verification.md"
+PASTE_S5 = PASTE_DIR / "첨부2-5.txt"
+
+
+class DocsMatchWhatTheCodeDoesTest(unittest.TestCase):
+    """제출문이 적은 사실이 코드·정본과 어긋나지 않는가.
+
+    아래 둘은 C 가 `#102` 리뷰에서 **손으로** 찾아낸 것들이다. 둘 다 기계가 볼 수
+    있는 종류였는데 아무 검사도 안 보고 있었다.
+
+        문서 "우리 상한을 넘으면 400"      코드 `route.ts` 는 413 을 낸다
+        정본 "한국투자 현행본(2026-0265호)"  0265 는 **보존본** 번호다
+
+    ⚠ 두 번째는 `PlanCitesTheSameDocumentsTest` 가 못 잡았다 — 그 검사는 정본의
+    **첫 표**만 읽고, 이 오류는 같은 파일 **아래쪽 표**에 있었다. 검사가 어디까지
+    보는지를 검사 자신이 말해 주지 않는다는 것을 여기 적어 둔다.
+    """
+
+    #: `심사필 제2026-0265호` · `심의필 제25-125호` 에서 숫자 토큰만.
+    EDITION_TOKEN = re.compile(r"[0-9]{2,4}-[0-9]{3,5}")
+
+    def test_the_docs_quote_the_status_the_code_returns(self) -> None:
+        """상한 초과 응답 코드를 문서가 코드에서 베껴 적는다."""
+        source = INGEST_ROUTE.read_text(encoding="utf-8")
+        head = source.split("file.size > MAX_UPLOAD_BYTES", 1)
+        self.assertEqual(len(head), 2, "route.ts 에서 상한 검사를 못 찾았다")
+        found = re.search(r"status:\s*(\d{3})", head[1])
+        self.assertIsNotNone(found, "상한 검사 뒤에서 status 를 못 찾았다")
+        status = found.group(1)
+
+        wrong: list[str] = []
+        for path in (SPEC_S5, PASTE_S5):
+            for no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if "우리 상한을 넘으면" in line and status not in line:
+                    wrong.append("{0}:{1}  코드는 {2}".format(path.name, no, status))
+        self.assertFalse(
+            wrong,
+            "상한 초과 응답 코드가 코드와 다르게 적혀 있다:" + INDENT + INDENT.join(wrong),
+        )
+
+    def test_no_table_row_calls_a_preserved_edition_current(self) -> None:
+        """정본의 어느 표에서도 **보존본**을 «현행»이라 부르지 않는다.
+
+        ⚠ 표 행(`|` 로 시작)만 본다. 산문은 옛 판본을 **이야기할** 수 있어야 한다.
+        """
+        text = TERMS_README.read_text(encoding="utf-8")
+        preserved: set[str] = set()
+        for cells in _table_rows(text, "| 파일 |"):
+            if len(cells) >= 3 and "보존" in cells[1]:
+                preserved |= set(self.EDITION_TOKEN.findall(cells[2]))
+        self.assertTrue(preserved, "보존본 판본 번호를 못 읽었다 — 이 검사가 무엇도 안 본다")
+
+        wrong = [
+            "{0}행: {1}".format(no, token)
+            for no, line in enumerate(text.splitlines(), 1)
+            if line.startswith("|") and "현행" in line
+            for token in preserved
+            if token in line
+        ]
+        self.assertFalse(
+            wrong,
+            "보존본 번호를 «현행»이라 적은 표 행:" + INDENT + INDENT.join(wrong),
+        )
+
 if __name__ == "__main__":
     unittest.main()
