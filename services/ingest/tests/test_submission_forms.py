@@ -700,6 +700,43 @@ class DocsMatchWhatTheCodeDoesTest(unittest.TestCase):
             "상한 초과 응답 코드가 코드와 다르게 적혀 있다:" + INDENT + INDENT.join(wrong),
         )
 
+    def test_the_procedure_does_not_still_say_the_upload_route_is_gone(self) -> None:
+        """`/api/ingest` 가 있으면, 9/6 절차서가 «없다»고 적고 있으면 안 된다.
+
+        그 문단은 스스로 *"업로드 라우트가 생기면 이 문단을 함께 고친다"* 고 예고해
+        두었는데, 라우트는 2026-08-26 에 생겼고 문단은 **9/2 까지 안 고쳐졌다.**
+        예고를 사람이 지키게 두면 그 자리에서 조용히 낡는다.
+
+        걸리는 대가가 크다 — A 가 9/6 에 *"크레딧이 0이어도 심사 URL 은 안 죽는다"*
+        를 읽고 충전을 건너뛰면, 심사자가 업로드를 눌렀을 때 실패한다.
+
+        ⚠ **코드펜스 안은 안 본다.** 고친 문단이 옛 주장을 **인용**으로 남기고 있어서,
+          문자열만 찾으면 검사가 자기가 고친 문서에 속는다.
+        """
+        if not INGEST_ROUTE.exists():
+            self.skipTest("업로드 라우트가 없다 — 옛 서술이 다시 참이다")
+
+        doc = REPO_ROOT / "apps" / "web" / "app" / "api" / "README.md"
+        prose, fenced = [], False
+        for line in doc.read_text(encoding="utf-8").splitlines():
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+                continue
+            if not fenced:
+                prose.append(line)
+
+        stale = [
+            line.strip()
+            for line in prose
+            if "런타임 API를 한 번도 호출하지 않는다" in line
+            or "크레딧이 0이어도 안 죽는다" in line
+        ]
+        self.assertFalse(
+            stale,
+            "업로드 라우트가 사는데 절차서가 아직 «안 죽는다»고 적는다:"
+            + INDENT + INDENT.join(stale),
+        )
+
     def test_no_table_row_calls_a_preserved_edition_current(self) -> None:
         """정본의 어느 표에서도 **보존본**을 «현행»이라 부르지 않는다.
 
