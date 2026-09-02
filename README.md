@@ -196,7 +196,8 @@ cache read 토큰이 0이면 절감이 발생했다고 보고하지 않는다.
 - [ ] **[#31](https://github.com/jaepaly/AI_Challenge/issues/31) P1 2건** — `/balance`·`/buyable` 무인증 공개 + 응답 무필터 통과 / 외부 `fetch` 타임아웃 부재. **배포본이 (b)로 가더라도 P1-a는 고친다** — 자격증명이 들어가는 순간 그대로 열린다
 - [ ] **W5 무중단 헬스체크 설계** — `/api/build` 기준(§6-5). ⚠ `/api/ingest/health`를 무인 폴링 대상으로 삼지 말 것 — 매 히트가 Anthropic 요청 1회다
 - [ ] ~~**Vercel Pro 해지 + 환불 문의** — 착오 결제. 배포는 이미 Actions 경로라 해지해도 죽지 않는다~~
-  > 🔴 **2026-09-01 기준 이 문장은 거짓이고, 그대로 실행하면 심사 중 배포가 죽을 수 있다.** Pro 는 8/26 에 **일부러 살린 것**이다(Hobby + private + 커밋 작성자 여럿 → Blocked). 그리고 **배포는 Actions 경로가 아니다** — `deploy.yml` 은 `workflow_dispatch` 전용이고 `/api/build` 가 `source: vercel` 을 낸다(Git 연동). **심사(9/11) 이후에 다시 본다.**
+  > 🔴 **2026-09-01 기준 이 문장은 거짓이고, 그대로 실행하면 심사 중 배포가 죽을 수 있다.** Pro 는 8/26 에 **일부러 살린 것**이다(Hobby + private + 커밋 작성자 여럿 → Blocked). 그리고 **배포는 Actions 경로가 아니다** — `deploy.yml` 이 `workflow_dispatch` 전용이라 **자동으로는 안 돌고**, PR 마다 `Vercel – marginguard-web` · `– ingest` 커밋 상태가 붙는다(그건 Vercel GitHub 앱이 붙이는 것이라 **Git 연동에서만** 나온다).
+  > ⚠ `/api/build` 의 `source: vercel` 은 **근거가 안 된다.** 그 값은 `VERCEL_GIT_COMMIT_SHA` 가 있는지만 보는데, `deploy.yml` 백업 경로도 `--build-env` 로 그걸 넘긴다(`deploy.yml:191`). A 가 `#104` 에서 짚었다. **심사(9/11) 이후에 다시 본다.**
 - [ ] 웹소켓(KIS는 ws만 지원 → HTTPS에서 Mixed Content 차단 → 서버 중계 필요)은 **이번 게이트 범위 밖**
 
 ### 5-D. 박재현 — 프로덕트/검증/제출물 (팀장)

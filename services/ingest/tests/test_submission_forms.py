@@ -726,8 +726,11 @@ class DocsMatchWhatTheCodeDoesTest(unittest.TestCase):
 
 FILLED_DIR = REPO_ROOT / "submission" / "filled"
 
-#: 첨부1 §1 에 들어가는 첫 줄. 원본에 이게 있으면 원본을 채운 것이다.
-FILLED_MARK = "마진가드 (MarginGuard) - 내 계좌의 반대매매 한계선 사전 진단"
+#: 붙여넣기 원고와 양식의 짝. 원고의 문장이 양식 안에 있으면 원본을 채운 것이다.
+PASTE_PREFIX = {PLAN_FORM: "첨부1-", SPEC_FORM: "첨부2-"}
+
+#: 이 길이 아래는 대조에 쓰지 않는다 — "한 줄" 같은 짧은 머리말이 우연히 겹친다.
+DISTINCTIVE = 30
 
 
 def _paragraphs_at(path: Path) -> list[str]:
@@ -757,15 +760,50 @@ class FilledFormIsSubmittableTest(unittest.TestCase):
     `submission/filled/` 에 두고 원본은 되돌린다.
     """
 
-    def test_the_pristine_forms_are_never_the_working_copy(self) -> None:
-        """`data/forms/` 원본에 우리 본문이 들어가 있지 않다."""
-        for name in (PLAN_FORM, SPEC_FORM):
-            with self.subTest(form=name):
-                self.assertNotIn(
-                    FILLED_MARK,
-                    _paragraphs(name),
-                    "{0} 이 채워졌다 — 원본은 `git checkout` 으로 되돌리고 "
-                    "채운 것은 submission/filled/ 에서 작업하라".format(name),
+    def test_the_pristine_forms_are_byte_identical_to_git(self) -> None:
+        """`data/forms/` 는 **바이트 그대로**여야 한다 — 어떤 편집이든 잡는다.
+
+        ⚠ **이것은 로컬 가드다.** CI 는 항상 깨끗한 체크아웃이라 여기서 안 걸린다.
+          한글로 원본을 여는 것은 사람의 기계에서 일어나므로 그 자리에서 잡는다.
+        """
+        changed = subprocess.run(
+            ["git", "-c", "core.quotepath=false", "status", "--porcelain", "--", "data/forms"],
+            cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+        self.assertFalse(
+            changed,
+            "data/forms/ 원본이 바뀌었다 — 주최측 배포본이라 손대지 않는다."
+            + NEWLINE + "`git checkout -- data/forms/` 로 되돌리고 "
+            "채운 것은 submission/filled/ 에서 작업하라." + NEWLINE + changed,
+        )
+
+    def test_no_form_contains_its_own_paste_copy(self) -> None:
+        """양식마다 **자기 붙여넣기 원고**의 문장이 들어가 있지 않다.
+
+        ⚠ 처음엔 첨부1 §1 의 한 문장만 들고 **두 양식 다** 에 대고 있었다. 그러면
+          첨부2 를 채워도 통과한다 — A 가 `#104` 리뷰에서 인메모리 탐침으로 잡았다.
+          `SubmissionFormTest` 도 못 받친다: 첨부2 원고에는 `숫자.` 로 시작하는 줄이
+          하나도 없어서 절 구조가 그대로 남는다.
+
+        그래서 짝을 맞춰 본다 — 첨부1 은 `첨부1-*.txt`, 첨부2 는 `첨부2-*.txt`.
+        커밋된 양식까지 보므로 CI 에서도 돈다(위 git 검사와 역할이 다르다).
+        """
+        for form, prefix in PASTE_PREFIX.items():
+            with self.subTest(form=form):
+                wanted = {
+                    line.strip()
+                    for path in PASTE_DIR.glob(prefix + "*.txt")
+                    for line in path.read_text(encoding="utf-8").splitlines()
+                    if len(line.strip()) >= DISTINCTIVE
+                }
+                self.assertTrue(
+                    wanted, "{0} 짝 원고에서 대조할 문장을 못 골랐다".format(prefix)
+                )
+                found = sorted(wanted & set(_paragraphs(form)))
+                self.assertFalse(
+                    found,
+                    "{0} 에 {1} 원고 문장이 들어 있다 — 원본을 채웠다:".format(form, prefix)
+                    + INDENT + INDENT.join(found[:3]),
                 )
 
     def test_no_paste_instruction_survives_into_the_filled_form(self) -> None:
