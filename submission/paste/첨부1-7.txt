@@ -12,12 +12,13 @@
 화면	브라우저 자동화(Chromium · Firefox · 375px)로 실제 렌더 확인
 의존성	상류 릴리스가 결과를 바꾸면 검사가 빨간불 - 실제로 두 번 작동했다
 
-※ 위 검사들이 지금 CI 에서 자동으로 돌지 않는다. 계정의 GitHub Actions 예산이 $0(Stop usage)로 걸려 2026-08-24 이후 잡이 열리지 않는다 - 실패가 아니라 시작되지 않는 것이다(steps 없음, 러너 미배정). 위 결과는 팀원 각자의 로컬 측정이다.
+※ 위 검사들은 2026-08-24 부터 여드레 동안 CI 에서 자동으로 돌지 않았다. 계정의 GitHub Actions 예산이 $0(Stop usage)로 걸려 잡이 열리지 않았다 - 실패가 아니라 시작되지 않는 것이었다(steps 없음, 러너 미배정). 9월 포함 분이 초기화된 2026-09-01 에 복구됐고, 지금은 PR 마다 다섯 잡이 자동으로 돌아 초록이다.
 
     npm test                  engine 121 + web 289 = 410 passed
-    pytest services/ingest    220 passed / 261 subtests
+    pytest services/ingest    228 passed / 1 skipped / 262 subtests
+    (2026-09-02 CI 실측 · 깨끗한 체크아웃)
 
-빌드만은 예외로 외부에서 검증된다 - Vercel 이 PR 마다 두 프로젝트를 빌드하고, 이 브랜치 네 커밋 모두 success 다.
+빌드는 CI 밖에서도 검증된다 - Vercel 이 PR 마다 두 프로젝트(웹 · 인제스트)를 빌드한다.
 
 
 지금 못 하는 것 - 숨기지 않는다
