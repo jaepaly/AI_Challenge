@@ -40,6 +40,15 @@ LOCAL_TEST_MODULES = {
     path.stem for path in (INGEST_ROOT / "tests").glob("*.py")
 }
 
+# 저장소 안의 다른 폴더에 있는 우리 모듈. 검사가 이걸 «선언 안 된 외부 의존» 으로
+# 읽으면 안 된다 — 실제로 `submission/build_hwpx.py` 를 그렇게 읽었다(2026-09-04).
+# ⚠ **파일이 실재하는지 확인해서 넣는다.** 이름만 적어 두면 그 파일이 사라진 뒤에도
+#   허용 목록이 조용히 남아, 같은 이름의 외부 패키지를 통과시킨다.
+LOCAL_REPO_MODULES = {
+    path.stem
+    for path in (INGEST_ROOT.parents[1] / "submission").glob("*.py")
+}
+
 
 def _declared_distributions() -> set[str]:
     declared: set[str] = set()
@@ -77,6 +86,7 @@ def _third_party_imports() -> dict[str, set[str]]:
                     name in stdlib
                     or name in LOCAL_PACKAGES
                     or name in LOCAL_TEST_MODULES
+                    or name in LOCAL_REPO_MODULES
                     or name.startswith("_")
                 ):
                     continue
