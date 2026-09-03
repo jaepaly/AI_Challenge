@@ -700,6 +700,43 @@ class DocsMatchWhatTheCodeDoesTest(unittest.TestCase):
             "상한 초과 응답 코드가 코드와 다르게 적혀 있다:" + INDENT + INDENT.join(wrong),
         )
 
+    def test_the_procedure_does_not_still_say_the_upload_route_is_gone(self) -> None:
+        """`/api/ingest` 가 있으면, 9/6 절차서가 «없다»고 적고 있으면 안 된다.
+
+        그 문단은 스스로 *"업로드 라우트가 생기면 이 문단을 함께 고친다"* 고 예고해
+        두었는데, 라우트는 2026-08-26 에 생겼고 문단은 **9/2 까지 안 고쳐졌다.**
+        예고를 사람이 지키게 두면 그 자리에서 조용히 낡는다.
+
+        걸리는 대가가 크다 — A 가 9/6 에 *"크레딧이 0이어도 심사 URL 은 안 죽는다"*
+        를 읽고 충전을 건너뛰면, 심사자가 업로드를 눌렀을 때 실패한다.
+
+        ⚠ **코드펜스 안은 안 본다.** 고친 문단이 옛 주장을 **인용**으로 남기고 있어서,
+          문자열만 찾으면 검사가 자기가 고친 문서에 속는다.
+        """
+        if not INGEST_ROUTE.exists():
+            self.skipTest("업로드 라우트가 없다 — 옛 서술이 다시 참이다")
+
+        doc = REPO_ROOT / "apps" / "web" / "app" / "api" / "README.md"
+        prose, fenced = [], False
+        for line in doc.read_text(encoding="utf-8").splitlines():
+            if line.lstrip().startswith("```"):
+                fenced = not fenced
+                continue
+            if not fenced:
+                prose.append(line)
+
+        stale = [
+            line.strip()
+            for line in prose
+            if "런타임 API를 한 번도 호출하지 않는다" in line
+            or "크레딧이 0이어도 안 죽는다" in line
+        ]
+        self.assertFalse(
+            stale,
+            "업로드 라우트가 사는데 절차서가 아직 «안 죽는다»고 적는다:"
+            + INDENT + INDENT.join(stale),
+        )
+
     def test_no_table_row_calls_a_preserved_edition_current(self) -> None:
         """정본의 어느 표에서도 **보존본**을 «현행»이라 부르지 않는다.
 
@@ -723,6 +760,116 @@ class DocsMatchWhatTheCodeDoesTest(unittest.TestCase):
             wrong,
             "보존본 번호를 «현행»이라 적은 표 행:" + INDENT + INDENT.join(wrong),
         )
+
+FILLED_DIR = REPO_ROOT / "submission" / "filled"
+
+#: 붙여넣기 원고와 양식의 짝. 원고의 문장이 양식 안에 있으면 원본을 채운 것이다.
+PASTE_PREFIX = {PLAN_FORM: "첨부1-", SPEC_FORM: "첨부2-"}
+
+#: 이 길이 아래는 대조에 쓰지 않는다 — "한 줄" 같은 짧은 머리말이 우연히 겹친다.
+DISTINCTIVE = 30
+
+
+def _paragraphs_at(path: Path) -> list[str]:
+    """`_paragraphs` 와 같은데 `data/forms/` 밖의 파일도 읽는다."""
+    with zipfile.ZipFile(path) as archive:
+        section = archive.read("Contents/section0.xml")
+    lines: list[str] = []
+    for para in ET.fromstring(section).iter(f"{{{HWPML_PARAGRAPH}}}p"):
+        text = "".join(
+            run.text or "" for run in para.iter(f"{{{HWPML_PARAGRAPH}}}t")
+        ).strip()
+        if text:
+            lines.append(text)
+    return lines
+
+
+class FilledFormIsSubmittableTest(unittest.TestCase):
+    """채운 양식이 그대로 PDF 로 나가도 되는가.
+
+    `data/forms/` 는 **주최측 배포 원본**이다(`data/terms/` 의 약관과 같은 취급).
+    한글로 열어 채우면 그 자리에서 덮어써지는데, 그러면 둘을 한꺼번에 잃는다.
+
+        ① 주최측이 양식을 고쳤는지 대조할 기준
+        ② `SubmissionFormTest` 가 보는 절 구조 — §7 은 자유 제목이라 채우면 깨진다
+
+    2026-08-29 드라이런에서 실제로 그렇게 됐다(②가 빨간불이 됐다). 채운 것은
+    `submission/filled/` 에 두고 원본은 되돌린다.
+    """
+
+    def test_the_pristine_forms_are_byte_identical_to_git(self) -> None:
+        """`data/forms/` 는 **바이트 그대로**여야 한다 — 어떤 편집이든 잡는다.
+
+        ⚠ **이것은 로컬 가드다.** CI 는 항상 깨끗한 체크아웃이라 여기서 안 걸린다.
+          한글로 원본을 여는 것은 사람의 기계에서 일어나므로 그 자리에서 잡는다.
+        """
+        changed = subprocess.run(
+            ["git", "-c", "core.quotepath=false", "status", "--porcelain", "--", "data/forms"],
+            cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8", check=True,
+        ).stdout.strip()
+        self.assertFalse(
+            changed,
+            "data/forms/ 원본이 바뀌었다 — 주최측 배포본이라 손대지 않는다."
+            + NEWLINE + "`git checkout -- data/forms/` 로 되돌리고 "
+            "채운 것은 submission/filled/ 에서 작업하라." + NEWLINE + changed,
+        )
+
+    def test_no_form_contains_its_own_paste_copy(self) -> None:
+        """양식마다 **자기 붙여넣기 원고**의 문장이 들어가 있지 않다.
+
+        ⚠ 처음엔 첨부1 §1 의 한 문장만 들고 **두 양식 다** 에 대고 있었다. 그러면
+          첨부2 를 채워도 통과한다 — A 가 `#104` 리뷰에서 인메모리 탐침으로 잡았다.
+          `SubmissionFormTest` 도 못 받친다: 첨부2 원고에는 `숫자.` 로 시작하는 줄이
+          하나도 없어서 절 구조가 그대로 남는다.
+
+        그래서 짝을 맞춰 본다 — 첨부1 은 `첨부1-*.txt`, 첨부2 는 `첨부2-*.txt`.
+        커밋된 양식까지 보므로 CI 에서도 돈다(위 git 검사와 역할이 다르다).
+        """
+        for form, prefix in PASTE_PREFIX.items():
+            with self.subTest(form=form):
+                wanted = {
+                    line.strip()
+                    for path in PASTE_DIR.glob(prefix + "*.txt")
+                    for line in path.read_text(encoding="utf-8").splitlines()
+                    if len(line.strip()) >= DISTINCTIVE
+                }
+                self.assertTrue(
+                    wanted, "{0} 짝 원고에서 대조할 문장을 못 골랐다".format(prefix)
+                )
+                found = sorted(wanted & set(_paragraphs(form)))
+                self.assertFalse(
+                    found,
+                    "{0} 에 {1} 원고 문장이 들어 있다 — 원본을 채웠다:".format(form, prefix)
+                    + INDENT + INDENT.join(found[:3]),
+                )
+
+    def test_no_paste_instruction_survives_into_the_filled_form(self) -> None:
+        """`[표] …` 안내 줄이 남아 있으면 그대로 PDF 에 인쇄된다.
+
+        원고(`submission/paste/`)에 일부러 넣은 표시라 한글이 지워 주지 않는다.
+        표로 변환한 **뒤에** 사람이 지워야 하고, 안 지우면 심사자가 우리 작업
+        지시를 읽는다.
+
+        ⚠ **채운 양식은 저장소에 없다** — 한글로 편집 중인 이진 파일이라 커밋하면
+          매 저장마다 갈아엎힌다. 그래서 파일이 없으면 이 검사는 **건너뛴다.**
+          «통과» 로 세지 않는 이유는, 검사가 아무것도 안 보고 있을 때 그 사실이
+          보여야 하기 때문이다.
+        """
+        forms = sorted(FILLED_DIR.glob("*.hwpx")) if FILLED_DIR.exists() else []
+        if not forms:
+            self.skipTest("submission/filled/ 에 채운 양식이 없다 — 한글 작업 전이다")
+
+        left: list[str] = []
+        for path in forms:
+            for no, text in enumerate(_paragraphs_at(path), 1):
+                if text.startswith("[표]"):
+                    left.append("{0}  문단 {1}".format(path.name, no))
+        self.assertFalse(
+            left,
+            "채운 양식에 붙여넣기 안내가 남아 있다 — 표로 변환한 뒤 지워라:"
+            + INDENT + INDENT.join(left),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

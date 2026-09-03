@@ -29,3 +29,6 @@ test-results/
 playwright-report/
 blob-report/
 .playwright/
+
+# 채운 양식은 한글 편집 중 이진 파일이라 추적하지 않는다 — submission/filled/README.md 참조
+submission/filled/*.hwpx
