@@ -10,7 +10,17 @@
 ⚠ linesegarray 는 넣지 않는다 — 레이아웃 캐시라 한글이 열 때 다시 계산한다.
   넣었다가 절마다 vertpos 를 1600 부터 다시 매겨 문단이 겹쳤다(2026-09-02).
 """
-import zipfile, io, os, html
+import zipfile, io, os, re, html
+
+NEWLINE = chr(10)
+
+
+class FormChanged(RuntimeError):
+    """양식이 우리가 잡아 둔 모양과 다르다 — **생성을 멈춘다.**
+
+    조용히 다른 칸에 쓰느니 안 만드는 쪽이 낫다. 제출물이라 «만들어졌다» 와
+    «맞게 만들어졌다» 를 사람이 눈으로 가리기 어렵다.
+    """
 
 TAB, WIDTH = chr(9), 43768
 HEAD_FILL, BODY_FILL, ROW_H, CHAR = 3, 6, 1200, 16
@@ -114,11 +124,30 @@ def build(form, anchors, out_path, tid0=1500000000):
     for info, data in items:
         if info.filename == 'Contents/section0.xml':
             x = data.decode('utf-8')
-            # 앵커는 **문단 번호**다. 텍스트로 찾다가 «·» 같은 글자 차이로 두 번 헛짚었다.
-            spans = [(m.start(), m.end()) for m in
-                     __import__('re').finditer(r'<hp:p\b.*?</hp:p>', x, __import__('re').S)]
-            for anchor, src in reversed(anchors):
-                assert isinstance(anchor, int) and anchor < len(spans), (form, anchor)
+            # 앵커는 **문단 번호 + 그 문단의 텍스트**다.
+            #
+            # 번호만 쓰면 fail-open 이다 — 양식에 문단이 하나 늘어도 번호가 범위 안이면
+            # 생성이 **성공하고** 원고가 앞 칸으로 밀린다. 그때 모든 검사(XML·표·[표]·
+            # §7·들여쓰기)가 그대로 통과한다. A 가 `#105` 에서 탐침으로 증명했다.
+            #
+            # 텍스트만 쓰면 «·» 같은 글자 차이로 못 찾는다(실제로 두 번 헛짚었다).
+            # 그래서 **번호로 찾고 텍스트로 확인**하고, 어긋나면 **멈춘다.**
+            spans = [(m.start(), m.end(), m.group(0)) for m in
+                     re.finditer(r'<hp:p\b.*?</hp:p>', x, re.S)]
+            for anchor, src, expect in reversed(anchors):
+                if anchor >= len(spans):
+                    raise FormChanged(
+                        '%s: 문단 %d 이 없다(전체 %d). 양식이 바뀌었다 — '
+                        '앵커를 다시 잡아라.' % (form, anchor, len(spans)))
+                got = re.sub(
+                    r'<[^>]+>', '',
+                    ''.join(re.findall(r'<hp:t>(.*?)</hp:t>', spans[anchor][2], re.S)),
+                ).strip()
+                if got != expect:
+                    raise FormChanged(
+                        '%s: 문단 %d 이 기대와 다르다. 양식이 바뀌었다 — 앵커를 다시 '
+                        '잡고 본문도 함께 봐라.%s  기대  %r%s  실제  %r'
+                        % (form, anchor, NEWLINE, expect, NEWLINE, got))
                 end = spans[anchor][1]
                 lines = [l for l in io.open('submission/paste/' + src, encoding='utf-8')
                          .read().splitlines() if not l.startswith('[표]')]
@@ -149,11 +178,25 @@ def build(form, anchors, out_path, tid0=1500000000):
     return tables
 
 
-A1 = [(9, '첨부1-1.txt'), (11, '첨부1-2.txt'), (15, '첨부1-3.txt'),
-      (17, '첨부1-4.txt'), (20, '첨부1-5.txt'), (25, '첨부1-6.txt'), (29, '첨부1-7.txt')]
+A1 = [
+    (9,  '첨부1-1.txt', '- 제안하는 AI 금융 서비스의 직관적인 명칭 기재'),
+    (11, '첨부1-2.txt', '전체 기획의 핵심 내용을 요약하여 개조식으로 간략히 작성'),
+    (15, '첨부1-3.txt', '특정 금융 고객(예: 사회 초년생, 카드 이용 고객 등) 및 채널(모바일 앱, '
+                        '오프라인 영업점 등)을 선택한 배경과 이유 설명'),
+    (17, '첨부1-4.txt', '- 서비스의 핵심 컨셉과 기존 금융 앱 대비 확실한 독창성·차별성 기술'),
+    (20, '첨부1-5.txt', '- 생성형 AI 모델을 서비스 내에서 어떻게 활용했고, 어떤 역할을 '
+                        '수행하는지 구체적으로 제시'),
+    (25, '첨부1-6.txt', '- 금융 서비스 외 타 영역으로 확장 가능한 응용 가능성 등 명시'),
+    (29, '첨부1-7.txt', '- 출품작에 대한 기타 추가 내용이 있을 경우 해당 란을 활용하여 작성'),
+]
 
-A2 = [(10, '첨부2-1.txt'), (13, '첨부2-2.txt'), (16, '첨부2-3.txt'),
-      (20, '첨부2-4.txt'), (25, '첨부2-5.txt')]
+A2 = [
+    (10, '첨부2-1.txt', '- 미구현 또는 향후 구현 예정 기능은 제외'),
+    (13, '첨부2-2.txt', '기능명, 기능 설명, 관련 화면, 구현 상태 작성'),
+    (16, '첨부2-3.txt', '사용자가 배포 URL 접속 후 주요 기능을 사용하는 순서 작성'),
+    (20, '첨부2-4.txt', '- (필요시) 개인정보 또는 민감정보 처리 여부 작성'),
+    (25, '첨부2-5.txt', '- MVP 단계의 제한사항 작성'),
+]
 
 FORMS = (('첨부1', A1), ('첨부2', A2))
 

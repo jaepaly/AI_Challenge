@@ -129,6 +129,72 @@ class HwpxBuilderTest(unittest.TestCase):
         heads = re.findall(r"<hp:t>(7\. [^<]*)</hp:t>", body)
         self.assertEqual(len(heads), 1, "«7.» 로 시작하는 제목이 둘 이상이다: {0}".format(heads))
 
+    def test_one_extra_paragraph_in_the_form_stops_the_build(self) -> None:
+        """양식에 문단이 **하나** 늘면 생성이 **멈춰야** 한다.
+
+        🔴 처음엔 번호만 보고 «범위 안이면 통과» 였다. 그래서 양식에 문단이 늘어도
+           생성이 **성공하고** 원고가 앞 칸으로 밀렸다 — 그러고도 XML·표·`[표]`·§7·
+           들여쓰기 검사가 **전부 통과했다.** A 가 `#105` 에서 탐침으로 증명했다.
+
+        *"양식이 갱신되면 이 검사가 깨진다"* 고 적어 놓고 **fail-open** 이었다.
+        조용히 잘못된 제출물을 만드는 경로였고, 그게 제일 나쁜 종류다.
+
+        이제 앵커가 **가리키는 문단의 텍스트까지** 확인하고 어긋나면 `FormChanged` 로
+        멈춘다. 이 검사가 그 멈춤을 지킨다.
+        """
+        import os
+        import shutil
+
+        import build_hwpx
+
+        for tag, anchors in build_hwpx.FORMS:
+            with self.subTest(form=tag):
+                name = [
+                    n for n in os.listdir("data/forms") if n.startswith("(%s)" % tag)
+                ][0]
+                work = tempfile.mkdtemp(prefix="hwpx-drift-")
+                try:
+                    hurt = Path(work) / name
+                    src = Path("data/forms") / name
+                    with zipfile.ZipFile(src) as zin:
+                        items = [(i, zin.read(i.filename)) for i in zin.infolist()]
+                    with zipfile.ZipFile(hurt, "w") as z:
+                        for info, data in items:
+                            if info.filename == "Contents/section0.xml":
+                                body = data.decode("utf-8")
+                                # 첫 앵커보다 **앞**에 문단 하나를 끼운다
+                                first = anchors[0][0]
+                                spans = [
+                                    m.end()
+                                    for m in re.finditer(
+                                        r"<hp:p\b.*?</hp:p>", body, re.S
+                                    )
+                                ]
+                                cut = spans[first - 1]
+                                body = (
+                                    body[:cut]
+                                    + '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" '
+                                    'pageBreak="0" columnBreak="0" merged="0">'
+                                    '<hp:run charPrIDRef="16"><hp:t>주최측이 끼운 '
+                                    "안내 한 줄</hp:t></hp:run></hp:p>"
+                                    + body[cut:]
+                                )
+                                data = body.encode("utf-8")
+                            zi = zipfile.ZipInfo(info.filename, date_time=info.date_time)
+                            zi.compress_type = info.compress_type
+                            z.writestr(zi, data)
+
+                    with self.assertRaises(
+                        build_hwpx.FormChanged,
+                        msg="양식에 문단이 늘었는데 생성이 성공했다 — "
+                        "원고가 앞 칸으로 조용히 밀린다",
+                    ):
+                        build_hwpx.build(
+                            str(hurt), anchors, str(Path(work) / "out.hwpx")
+                        )
+                finally:
+                    shutil.rmtree(work, ignore_errors=True)
+
     def test_indentation_is_a_paragraph_property(self) -> None:
         """들여쓰기가 **선행 공백**이 아니라 문단 속성으로 들어가야 한다.
 
