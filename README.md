@@ -188,7 +188,7 @@ cache read 토큰이 0이면 절감이 발생했다고 보고하지 않는다.
 
 - [x] **[#33](https://github.com/jaepaly/AI_Challenge/pull/33) RiskResult 조립** — 변경 요청 1건 반영 후 머지. `liquidation: null`의 사유가 세 갈래(`D<=0` / 카드 미신선 / `h` 부재)인데 하나의 null로 접혀 있어, 계기판이 판정을 다시 하게 된다. `liquidationSkipped?` 선택 필드 1개면 닫힌다(#21의 `voluntarySellReason`과 같은 처방)
 - [x] D의 PR 3건 리뷰 — [#35](https://github.com/jaepaly/AI_Challenge/pull/35) blocked 4경로 · [#36](https://github.com/jaepaly/AI_Challenge/pull/36) README · [#37](https://github.com/jaepaly/AI_Challenge/pull/37) 다종목 λ
-- [ ] 9/7 직전 **전 카드 재검증** (D와 공동) — 스냅숏 카드가 **9/9부터 STALE**이라 심사 마지막 사흘이 blocked가 된다(#32)
+- [x] 9/7 직전 **전 카드 재검증** — **2026-09-06 D 가 실행**(A 부재). 원문 sha256 재대조 개정 없음 · `verified_at` 09-06 · 심사 5일 전부 초록. 절차서 §5 실행 기록 참조 — 스냅숏 카드가 **9/9부터 STALE**이라 심사 마지막 사흘이 blocked가 된다(#32)
   > 🟢 **놓치면 기계가 말한다.** 예약 작업 `marginguard-card-freshness` 가 **9/4·5·6·7 오전 9시**에 `verified_at` 을 직접 읽어 심사 5일이 덤이는지 재고 카카오톡으로 알린다. 리마인드가 아니라 **측정**이다 — 끝나면 `[이상 없음]` 이 온다.
 
 ### 5-C. 이예찬 — 플랫폼/연동

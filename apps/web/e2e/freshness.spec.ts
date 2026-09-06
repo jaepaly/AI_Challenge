@@ -15,7 +15,7 @@ import { CARDS } from "../lib/marginguard/snapshot";
  *     카드          9/7      9/8      9/9      9/10     9/11
  *     한국투자      195주    195주    null     null     null
  *
- * 카드 `verified_at` 은 2026-08-09 이고 `MAX_FRESH_AGE_DAYS` 는 30 이라, 재검증
+ * 재검증 전 카드 `verified_at` 은 2026-08-09 였고 `MAX_FRESH_AGE_DAYS` 는 30 이라, 재검증
  * 없이 심사 기간에 들어가면 **9/9 부터 사흘간 이 화면**이 된다. 아래 검사가 그
  * 화면을 고정한다 — 9/6 재검증(A-2)이 끝나면 심사 기간에는 안 나오지만, **나올 때
  * 어떻게 나와야 하는지**는 계속 지켜야 한다.
