@@ -124,7 +124,7 @@ describe("좌표·해시가 화면 출력에 실제로 들어간다", () => {
   });
 
   it("인용이 어느 시점 판본 기준인지 붙는다 — 신선도 강등 화면에서 필요하다", () => {
-    expect(render(hantoo)).toContain("검증일 2026-08-09 판본 기준");
+    expect(render(hantoo)).toContain(`검증일 ${hantoo.verified_at} 판본 기준`);
     expect(render(lower)).toContain("검증일 없음"); // draft, verified_at 없음
   });
 });
@@ -494,7 +494,11 @@ describe("원시 토큰을 라벨 없이 내보내지 않는다", () => {
 });
 
 describe("신선도 만료 — 근거를 가리지는 않되 자격은 붙인다", () => {
-  const stale = (): FreshnessView => freshnessView(hantoo, "2026-09-09");
+  // 날짜를 카드에서 파생한다 — 2026-09-06 재검증에서 "2026-09-09"(31일째) 가 신선한 날이
+  // 되고 "2026-08-18"(신선한 날) 이 «미래 검증일» 이 되어 둘 다 뒤집혔다.
+  const dayAfter = (n: number) =>
+    new Date(Date.parse(hantoo.verified_at!) + n * 86_400_000).toISOString().slice(0, 10);
+  const stale = (): FreshnessView => freshnessView(hantoo, dayAfter(31));
 
   it("blocked에서 검수 표시가 만료됐음을 같은 섹션에 적는다", () => {
     expect(stale().mode).toBe("blocked");
@@ -508,7 +512,7 @@ describe("신선도 만료 — 근거를 가리지는 않되 자격은 붙인다
   });
 
   it("calculated에서는 그 문장이 없다 — blocked와 같은 문자열을 내지 않는다", () => {
-    const fine = freshnessView(hantoo, "2026-08-18");
+    const fine = freshnessView(hantoo, hantoo.verified_at!); // 검증일 당일
     expect(fine.mode).toBe("calculated");
     const html = render(hantoo, fine);
 

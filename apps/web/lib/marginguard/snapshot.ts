@@ -437,7 +437,7 @@ export const CARDS: CardPreset[] = [
       discount_rate: 0.15,
       review_no: "2026-0323",
       status: "verified",
-      verified_at: "2026-08-09",
+      verified_at: "2026-09-06",
     }),
   },
   {
@@ -453,7 +453,7 @@ export const CARDS: CardPreset[] = [
       discount_rate: 0.2,
       review_no: "25-125",
       status: "verified",
-      verified_at: "2026-08-09",
+      verified_at: "2026-09-06",
       // 문서가 군을 가른다 — 짝이 **인용 스팬 안에 글자로** 있다(#91 D 실측):
       //   t[7718:7774] "…신용거래융자기본형∙투자형A∙B군 140% C∙D군 150%신용거래대주A∙B군 120%"
       // 추론이 들어가지 않으므로 B-2 컷(인제스트 자동 추출)과 다른 층이다.

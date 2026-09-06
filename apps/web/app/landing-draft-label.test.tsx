@@ -41,7 +41,8 @@ const BUILD: BuildInfo = {
 };
 
 /** verified 카드가 신선한 날 — draft 만 참고 모드가 되게 한다. */
-const FRESH_DAY = "2026-08-23";
+/** 검증일 당일 — 재검증으로 날짜가 바뀌어도 따라온다(2026-09-06 에 실제로 바뀌었다) */
+const FRESH_DAY = CARDS.find((c) => c.card.status === "verified")!.card.verified_at!;
 
 const draftPreset = CARDS.find((c) => c.card.status === "draft");
 const verifiedPreset = CARDS.find((c) => c.card.status === "verified");
