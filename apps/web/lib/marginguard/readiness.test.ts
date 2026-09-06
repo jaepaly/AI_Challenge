@@ -93,10 +93,12 @@ describe("예보 — 지금 초록이어도 언제 뒤집히는지 말한다", (
     expect(r.daysUntilBlocked).toBe(31);
   });
 
-  it("심사 시작 하루 전(9/6)의 예보가 심사 창 너머를 가리킨다 — #54 의 반대 상태", () => {
+  it("심사 첫날(9/7)의 예보가 심사 창 너머를 가리킨다 — #54 의 반대 상태", () => {
     // 재검증 전엔 이 자리의 답이 "2026-09-09 / 3일" 이었다. 그 예보가 있었으면 #54 를
     // 사람이 찾을 필요가 없었고, 지금은 같은 예보가 «창은 덮였다» 를 말한다.
-    const r = readiness(kstMidnight("2026-09-06"));
+    // 조회일은 창 안(9/7)이다 — 9/6 으로 두면 09-07 재검증에서 «미래 검증일» 이 되어
+    // 층 ① 검사가 뮤테이션에 헛되이 걸린다(실제로 걸렸다).
+    const r = readiness(kstMidnight("2026-09-07"));
     expect(r.ok).toBe(true);
     expect(Date.parse(r.nextBlockedAt!)).toBeGreaterThan(Date.parse("2026-09-11"));
   });
