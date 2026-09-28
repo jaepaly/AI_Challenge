@@ -182,14 +182,13 @@ Playwright E2E            17 케이스 × Chromium · Firefox · 375px
 - **인제스트 헬스 가드** — 키 유효성만 확인하고 키와 오류 본문은 내보내지 않는 `/api/ingest/health`. 크레딧을 쓰지 않고 강등 경로를 리허설하는 장애 주입 훅 ([#29](https://github.com/jaepaly/AI_Challenge/pull/29))
 - **배포 운영** — Vercel 배포 계정을 운영했고, 빌더 동작을 실측해 배포 방식 결정의 근거를 댔다 ([#85](https://github.com/jaepaly/AI_Challenge/pull/85), [#89](https://github.com/jaepaly/AI_Challenge/pull/89)). 11개 PR 을 플랫폼 · 보안 관점으로 리뷰했다
 
-## 내가 한 일 — 박재현 (팀장 · 프로덕트/검증)
+### D · 박재현 (팀장) — 프로덕트/검증
 
-- **엔진 골격** — 첫날 모노레포와 결정론 엔진의 핵심 산식(부족액 · 처분 수량 · 해소 4경로 · 한계선)을 세우고 골든 테스트 10건을 green 으로 시작했다. 네 트랙은 그 위에서 갈라졌다
-- **팀 운영** — 트랙 분리와 경계 계약, 게이트 일정, «PR 리뷰 1인 이상» 규약. 대회 기간 머지된 PR 84개 중 82개를 최종 머지하며 규약을 운영했다
-- **UI** — 가격 슬라이더와 판정 카드, 근거 패널, 해소 4경로 비교, 신선도·참고 모드 배너, 업로드 패널. «안전 여유를 먼저, 임계점을 나중에» 같은 표시 규약을 정했다
-- **검증** — Playwright E2E(Chromium · Firefox · 375px), 제출 문서가 코드·원문과 어긋나지 않는지 보는 가드, 가드를 뮤테이션으로 검증하는 관행
-- **제출 문서** — 기획서 · 기능명세서 원고 작성. 공식 `.hwpx` 양식을 원고에서 생성하는 파이프라인을 만들어 손으로 채우며 생기던 오류(겹친 문단, 남은 작업 지시문)를 없앴다
-- **장애 대응** — 배포 차단(호스팅 플랜 정책) · CI 8일 정지(«실패»가 아니라 «시작되지 않음») 진단, 심사 전날 조건카드 재검증
+- **엔진 골격** — 첫날 모노레포와 결정론 엔진의 핵심 산식(부족액 · 처분 수량 · 해소 4경로 · 한계선)을 세우고 골든 테스트 10건을 green 으로 시작했다. 네 트랙은 그 위에서 갈라졌다 ([8eeddf3](https://github.com/jaepaly/AI_Challenge/commit/8eeddf3)). 다종목 한계선 분해 ([#37](https://github.com/jaepaly/AI_Challenge/pull/37))와 카드 · 원장의 유지비율이 어긋나면 처분 수량만 막는 정합 게이트 ([#55](https://github.com/jaepaly/AI_Challenge/pull/55))
+- **UI** — 가격 슬라이더와 판정 카드 ([#2](https://github.com/jaepaly/AI_Challenge/pull/2), [#10](https://github.com/jaepaly/AI_Challenge/pull/10)), 해소 4경로 비교 ([#14](https://github.com/jaepaly/AI_Challenge/pull/14)), 신선도 · 참고 모드 배너 ([#30](https://github.com/jaepaly/AI_Challenge/pull/30)), 근거 패널 ([#52](https://github.com/jaepaly/AI_Challenge/pull/52)), 업로드 패널 ([#80](https://github.com/jaepaly/AI_Challenge/pull/80)). «안전 여유를 먼저, 임계점을 나중에» 같은 표시 규약을 정했다
+- **검증** — Playwright E2E(Chromium · Firefox · 375px) ([#75](https://github.com/jaepaly/AI_Challenge/pull/75), [#91](https://github.com/jaepaly/AI_Challenge/pull/91)), 제출 문서가 코드 · 원문과 어긋나지 않는지 보는 가드 ([#57](https://github.com/jaepaly/AI_Challenge/pull/57), [#66](https://github.com/jaepaly/AI_Challenge/pull/66)), 배포본이 실제로 답을 내는지 보는 무중단 폴링 ([#56](https://github.com/jaepaly/AI_Challenge/pull/56)). 가드를 뮤테이션으로 검증하는 관행을 들였다
+- **제출 문서 원고** — 기획서 · 기능명세서 원고 ([#77](https://github.com/jaepaly/AI_Challenge/pull/77), [#88](https://github.com/jaepaly/AI_Challenge/pull/88)). 공식 `.hwpx` 양식을 원고에서 생성하는 파이프라인을 만들어 손으로 채우며 생기던 오류(겹친 문단, 남은 작업 지시문)를 없앴다 ([#105](https://github.com/jaepaly/AI_Challenge/pull/105))
+- **팀 운영과 장애 대응** — 트랙 분리와 경계 계약, 게이트 일정, «PR 리뷰 1인 이상» 규약. 대회 기간 머지된 PR 84개 중 82개를 최종 머지했다. 상류 릴리스가 깬 main 복구 ([#61](https://github.com/jaepaly/AI_Challenge/pull/61), [#76](https://github.com/jaepaly/AI_Challenge/pull/76)), 호스팅 플랜 정책에 따른 배포 차단 진단 ([#104](https://github.com/jaepaly/AI_Challenge/pull/104)), CI 8일 정지(«실패»가 아니라 «시작되지 않음») 진단, 심사 전날 조건카드 재검증 ([#106](https://github.com/jaepaly/AI_Challenge/pull/106))
 
 ## 한계 — 숨기지 않은 것
 
