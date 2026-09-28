@@ -39,7 +39,7 @@ export function todayISO(now: Date): string {
  *                 ① types.ts:143 — "draft면 UI는 참고 모드 배너 필수". 그것도
  *                    RiskResult.cardStatus에 붙어 있다. draft가 값을 못 낸다면
  *                    엔진 출력 타입이 그 필드를 가질 이유가 없다
- *                 ② 인제스트 출력의 status는 **무조건 draft**다(README §5-B).
+ *                 ② 인제스트 출력의 status는 **무조건 draft**다(docs/team-handbook.md §5-B).
  *                    draft에서 수량을 막으면 라이브 인제스트 데모의 출력 화면이
  *                    "산정 불가"가 된다 — "AI가 어디 있나"에 답하는 그 화면이다
  *                 ③ 참고(參考)는 보여줘야 참고가 된다

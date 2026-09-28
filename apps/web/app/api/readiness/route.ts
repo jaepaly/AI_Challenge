@@ -17,7 +17,7 @@ import { readiness } from "@/lib/marginguard/readiness";
  *
  * **Anthropic API를 호출하지 않는다.** 신선도 판정은 순수 계산이다. 그래서
  * 무인 폴링 대상으로 삼아도 비용이 0이다 — `/api/ingest/health`는 히트마다
- * 상류로 나가므로 폴링하면 안 된다(README §5-C).
+ * 상류로 나가므로 폴링하면 안 된다(docs/team-handbook.md §5-C).
  *
  * 리허설이 이 검사가 실제로 발화하는지 확인할 때는 `?at=` 로 미래 시점을 준다:
  *

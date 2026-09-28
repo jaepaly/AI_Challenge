@@ -3,7 +3,7 @@ import { checkAnthropicModelsHealth } from "@/lib/ingest/anthropic-health";
 import { readIngestUploadFaultInjection } from "@/lib/ingest/upload-fault";
 
 /**
- * 상류(Anthropic) 도달 확인. **무인 폴링 대상이 아니다** — README §5-C.
+ * 상류(Anthropic) 도달 확인. **무인 폴링 대상이 아니다** — docs/team-handbook.md §5-C.
  *
  * 폴링은 `/api/build`(어느 커밋인가)와 `/api/readiness`(답을 내는가) 둘로 한다.
  * 이 엔드포인트는 사람이 손으로 확인할 때만 쓴다.

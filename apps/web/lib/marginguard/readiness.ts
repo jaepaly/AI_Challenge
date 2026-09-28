@@ -36,7 +36,7 @@
  * 정본은 엔진이고 여기는 관측자다.
  *
  * API 호출은 0회다. 신선도 판정은 순수 계산이라 폴링해도 비용이 없다 —
- * `/api/ingest/health`를 무인 폴링 대상으로 삼지 말라는 README §5-C 경고가
+ * `/api/ingest/health`를 무인 폴링 대상으로 삼지 말라는 docs/team-handbook.md §5-C 경고가
  * 여기에는 걸리지 않는다.
  */
 
