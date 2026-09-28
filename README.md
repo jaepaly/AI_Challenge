@@ -151,19 +151,44 @@ Playwright E2E            17 케이스 × Chromium · Firefox · 375px
 
 | 역할 | 이름 | 맡은 것 |
 |---|---|---|
-| **A · 엔진/도메인** | 김재현 [@dsaedsae](https://github.com/dsaedsae) | 결정론 리스크 엔진, 골든 테스트, 처분 수량 산식, 신선도 게이트 |
-| **B · AI 파이프라인** | 서승기 [@HUI4537](https://github.com/HUI4537) | 약관 인제스트(2패스), 근거 좌표, 4중 방어 |
-| **C · 플랫폼/연동** | 이예찬 [@securitychan](https://github.com/securitychan) | Next.js BFF, KIS 연동 경로, 배포 · 무중단 운영 |
-| **D · 프로덕트/검증** | **박재현 (팀장)** [@jaepaly](https://github.com/jaepaly) | UI, E2E · 가드 검사, 제출 문서, 팀 운영 |
+| **A · 엔진/도메인** | 김재현 [@dsaedsae](https://github.com/dsaedsae) | 경로 재생, 다종목 배분, 신선도 게이트, 카드 → 계산 배선, 코드 리뷰 |
+| **B · AI 파이프라인** | 서승기 [@HUI4537](https://github.com/HUI4537) | 약관 인제스트(2패스), 근거 좌표 계약, 4중 방어 |
+| **C · 플랫폼/연동** | 이예찬 [@securitychan](https://github.com/securitychan) | Next.js 앱 골격, KIS 프록시 보안, 인제스트 헬스 가드, 배포 계정 |
+| **D · 프로덕트/검증** | **박재현 (팀장)** [@jaepaly](https://github.com/jaepaly) | 엔진 골격, UI, E2E · 가드 검사, 제출 문서 원고, 팀 운영 |
 
-네 트랙은 `packages/engine/src/types.ts` 의 **경계 타입**(`ConditionCard` · `RiskResult` · `Position`)으로 격리해 목(mock)으로 병렬 개발했고, 경계 타입 변경은 PR + 전원 승인으로 묶었습니다.
+역할은 첫날(2026-08-05) 추첨으로 정했습니다. 네 트랙은 `packages/engine/src/types.ts` 의 **경계 타입**(`ConditionCard` · `RiskResult` · `Position`)으로 격리해 목(mock)으로 병렬 개발했고, 경계 타입 변경은 PR + 전원 승인으로 묶었습니다.
+
+아래 기여는 저장소의 PR · 리뷰 기록에서 뽑았습니다. 링크가 그 PR 입니다.
+
+### A · 김재현 — 엔진/도메인
+
+- **경로 재생** — 가격 갱신 → 종가 판정 → D+1 통지 → D+2 집행을 날짜 순서대로 밟는 `replay()`. 화면의 «7월 연쇄 재현»이 이 함수로 돈다 ([#8](https://github.com/jaepaly/AI_Challenge/pull/8))
+- **신선도 게이트** — 검토일이 30일을 넘거나 없으면 처분 수량을 막는 규칙 ([#8](https://github.com/jaepaly/AI_Challenge/pull/8)). 화면 배너가 허용 한도를 손으로 적지 않고 엔진 상수를 쓰게 했다 ([#58](https://github.com/jaepaly/AI_Challenge/pull/58))
+- **다종목과 카드 배선** — 종목번호 순 정수 배분 ([#23](https://github.com/jaepaly/AI_Challenge/pull/23)), 계기판 입력의 단일 진입점 `assembleRiskResult` ([#33](https://github.com/jaepaly/AI_Challenge/pull/33)), 카드가 읽은 유지비율이 실제 계산을 구동하게 한 `policyRatio` ([#83](https://github.com/jaepaly/AI_Challenge/pull/83)), 메리츠 카드의 종목군별 분리 ([#95](https://github.com/jaepaly/AI_Challenge/pull/95))
+- **의존성 · 기록 가드** — 직접 의존의 검증 범위를 기계로 지키는 검사 ([#65](https://github.com/jaepaly/AI_Challenge/pull/65), [#78](https://github.com/jaepaly/AI_Challenge/pull/78)), 유료 재실행이 이전 성공 기록을 덮지 못하게 하는 보호 ([#82](https://github.com/jaepaly/AI_Challenge/pull/82))
+- **리뷰와 제출 최종본** — 54개 PR 을 리뷰했고 그중 15개에 변경을 요청했다. 탐침을 돌려 결함을 증명하는 리뷰였다(예: 제출 문서 생성기의 fail-open, [#105](https://github.com/jaepaly/AI_Challenge/pull/105)). 제출한 기획서 · 기능명세서는 A 가 한글에서 문장을 다시 짜 최종본으로 만들었다
+
+### B · 서승기 — AI 파이프라인
+
+- **2패스 인제스트** — `POST /ingest`. 1패스가 citations 로 근거를 모으고, 서버가 조항 구간을 확정한 뒤, 2패스 structured output 이 그 후보 안에서만 카드를 만든다. 4중 방어를 통과해야 draft 카드가 나온다 ([#47](https://github.com/jaepaly/AI_Challenge/pull/47))
+- **근거 좌표 계약** — PDF 페이지 좌표와 HTML 문자 좌표를 가르는 `EvidenceSpan`, 평탄화 원문의 SHA-256, TS · JSON Schema · Pydantic 세 미러 동기화. HTML 표의 행 · 셀 경계를 복원하는 파서와 비율 인용문의 수치 검증 ([#26](https://github.com/jaepaly/AI_Challenge/pull/26))
+- **실측으로 경로 결정** — PDF 5건을 Message Batches 로 돌려 비용 상한을 걸고, 출력이 잘린 실행은 결론에서 분리했다 ([#43](https://github.com/jaepaly/AI_Challenge/pull/43))
+- **종단 성공과 비용 원장** — 최신 프롬프트로 유료 실행 1회, 한투 약관에서 draft 카드까지 43.8초로 60초 기준을 통과했다 ([#92](https://github.com/jaepaly/AI_Challenge/pull/92)). 실청구액 원장 ([#94](https://github.com/jaepaly/AI_Challenge/pull/94))과 유진 약관의 상품 결속 회귀 복구 ([#60](https://github.com/jaepaly/AI_Challenge/pull/60))
+
+### C · 이예찬 — 플랫폼/연동
+
+- **앱 골격과 KIS 연동** — `apps/web` Next.js 앱을 세우고, KIS 거래 ID 를 용도별 레지스트리로 관리하는 가드를 만들었다. 등록되지 않은 ID 는 모든 환경에서, 실전 환경의 거래성 호출은 전부 차단한다. BFF 라우트 4종, 토큰 캐시, 요청 큐와 백오프 ([#5](https://github.com/jaepaly/AI_Challenge/pull/5))
+- **프록시 보안** — 계좌 라우트 인증, 응답 allowlist 필터, 외부 호출 5초 타임아웃 ([#39](https://github.com/jaepaly/AI_Challenge/pull/39))
+- **인제스트 헬스 가드** — 키 유효성만 확인하고 키와 오류 본문은 내보내지 않는 `/api/ingest/health`. 크레딧을 쓰지 않고 강등 경로를 리허설하는 장애 주입 훅 ([#29](https://github.com/jaepaly/AI_Challenge/pull/29))
+- **배포 운영** — Vercel 배포 계정을 운영했고, 빌더 동작을 실측해 배포 방식 결정의 근거를 댔다 ([#85](https://github.com/jaepaly/AI_Challenge/pull/85), [#89](https://github.com/jaepaly/AI_Challenge/pull/89)). 11개 PR 을 플랫폼 · 보안 관점으로 리뷰했다
 
 ## 내가 한 일 — 박재현 (팀장 · 프로덕트/검증)
 
-- **팀 운영** — 트랙 분리와 경계 계약, 게이트 일정, «PR 리뷰 1인 이상» 규약. 머지된 PR 84개 중 82개를 최종 머지하며 규약을 운영했다
+- **엔진 골격** — 첫날 모노레포와 결정론 엔진의 핵심 산식(부족액 · 처분 수량 · 해소 4경로 · 한계선)을 세우고 골든 테스트 10건을 green 으로 시작했다. 네 트랙은 그 위에서 갈라졌다
+- **팀 운영** — 트랙 분리와 경계 계약, 게이트 일정, «PR 리뷰 1인 이상» 규약. 대회 기간 머지된 PR 84개 중 82개를 최종 머지하며 규약을 운영했다
 - **UI** — 가격 슬라이더와 판정 카드, 근거 패널, 해소 4경로 비교, 신선도·참고 모드 배너, 업로드 패널. «안전 여유를 먼저, 임계점을 나중에» 같은 표시 규약을 정했다
 - **검증** — Playwright E2E(Chromium · Firefox · 375px), 제출 문서가 코드·원문과 어긋나지 않는지 보는 가드, 가드를 뮤테이션으로 검증하는 관행
-- **제출 문서** — 기획서 · 기능명세서 작성. 공식 `.hwpx` 양식을 원고에서 생성하는 파이프라인을 만들어 손으로 채우며 생기던 오류(겹친 문단, 남은 작업 지시문)를 없앴다
+- **제출 문서** — 기획서 · 기능명세서 원고 작성. 공식 `.hwpx` 양식을 원고에서 생성하는 파이프라인을 만들어 손으로 채우며 생기던 오류(겹친 문단, 남은 작업 지시문)를 없앴다
 - **장애 대응** — 배포 차단(호스팅 플랜 정책) · CI 8일 정지(«실패»가 아니라 «시작되지 않음») 진단, 심사 전날 조건카드 재검증
 
 ## 한계 — 숨기지 않은 것
