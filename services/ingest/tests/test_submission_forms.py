@@ -1,6 +1,6 @@
 """공모전 공식 양식의 절 구조를 고정한다.
 
-README §5-D: **작년 유일한 부적격 사유가 "양식 미작성"** 이다. 그런데 절 제목·순서는
+docs/team-handbook.md §5-D: **작년 유일한 부적격 사유가 "양식 미작성"** 이다. 그런데 절 제목·순서는
 주최측 파일 안에만 있고, 우리는 그걸 사람 눈으로 옮겨 적어 왔다. 옮겨 적은 것이
 원본과 어긋나도 아무것도 알려주지 않는다 — `data/terms/README.md`의 한투 sha 가
 여덟 달 넘게 틀린 값으로 있던 것과 같은 종류다(#49).
@@ -804,7 +804,9 @@ class FilledFormIsSubmittableTest(unittest.TestCase):
           한글로 원본을 여는 것은 사람의 기계에서 일어나므로 그 자리에서 잡는다.
         """
         changed = subprocess.run(
-            ["git", "-c", "core.quotepath=false", "status", "--porcelain", "--", "data/forms"],
+            # 원본은 `.hwpx` 둘뿐이다. 같은 폴더의 README.md 는 **우리가 쓴 설명서**라 고칠 수 있어야
+            # 한다 — 처음엔 폴더 전체를 봐서 README 를 고치자 이 가드가 섰다(2026-09-28).
+            ["git", "-c", "core.quotepath=false", "status", "--porcelain", "--", "data/forms/*.hwpx"],
             cwd=REPO_ROOT, capture_output=True, text=True, encoding="utf-8", check=True,
         ).stdout.strip()
         self.assertFalse(

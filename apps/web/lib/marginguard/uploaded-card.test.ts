@@ -4,7 +4,7 @@ import { toUploadedPreset, displayFilename, UPLOADED_KEY } from "./uploaded-card
 /**
  * 업로드 카드 변환 — **라벨이 검수를 주장하지 않는가**가 이 파일의 본체다.
  *
- * 인제스트 출력의 `status` 는 무조건 draft 이고(README §5-B), 화면은 그것을 참고 모드
+ * 인제스트 출력의 `status` 는 무조건 draft 이고(docs/team-handbook.md §5-B), 화면은 그것을 참고 모드
  * 배너로 말한다. 여기서 문구가 한 발짝 세지면 같은 화면이 두 말을 하게 된다 — `#63`
  * 에서 실제로 그랬고(배너가 "쓰지 않는다"고 적으면서 그 카드로 계산하고 있었다),
  * `#66` 이 그 문구의 사본을 저장소 전체에서 막았다.

@@ -54,7 +54,7 @@ describe("신선도 게이트 — 화면 규약", () => {
    * DRAFT는 blocked가 아니다 — #30 리뷰에서 갈라진 지점.
    * ① types.ts:143이 RiskResult.cardStatus에 "draft면 배너 필수"를 적어뒀다.
    *    draft가 값을 못 낸다면 엔진 출력 타입이 그 필드를 가질 이유가 없다
-   * ② 인제스트 출력의 status는 무조건 draft다(README §5-B) — 여기서 수량을 막으면
+   * ② 인제스트 출력의 status는 무조건 draft다(docs/team-handbook.md §5-B) — 여기서 수량을 막으면
    *    라이브 인제스트 데모의 출력 화면이 "산정 불가"가 된다
    */
   it("draft는 차단이 아니라 참고 표시 — 값은 내고 배너를 붙인다", () => {

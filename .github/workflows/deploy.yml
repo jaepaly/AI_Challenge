@@ -270,7 +270,7 @@ jobs:
   #                                                  정상 응답이다 — 500 과 다르다)
   #
   #   ⚠ `ANTHROPIC_INGEST_MODEL` 은 넣지 않는다. 기본값 `claude-sonnet-5` 가 우리가
-  #     실측한 모델이고(README §6-2), 바꾸면 비용 상한 실행기의 정가와도 갈린다.
+  #     실측한 모델이고(docs/team-handbook.md §6-2), 바꾸면 비용 상한 실행기의 정가와도 갈린다.
   #
   # ## 이 백업 경로를 손으로 쓰려면 — Secret 1개
   #

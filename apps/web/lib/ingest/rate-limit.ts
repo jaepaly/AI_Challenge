@@ -17,7 +17,7 @@
  *   따로라 카운터가 공유되지 않고, 인스턴스가 새로 뜨면 0 부터 시작한다. N 개면
  *   실질 한도가 N 배다(`/api/ingest/health` 의 60초 메모이제이션과 같은 한계).
  *
- *   **절대 상한은 Anthropic Console 의 spend limit 이다**(README §8 하드 가드 ①).
+ *   **절대 상한은 Anthropic Console 의 spend limit 이다**(docs/team-handbook.md §8 하드 가드 ①).
  *   그게 걸리면 상류가 거절하고 `upload-fault.ts` 의 강등 경로가 받는다. 여기 있는
  *   것은 *"심사위원이 버튼을 연타했을 때"* 를 막는 것이고, 그 이상을 주장하지 않는다.
  *

@@ -10,7 +10,7 @@ import type { CardPreset } from "./snapshot";
  * JSON 이고, 그 사실을 무시하지 않는다.
  *
  * ⚠ **라벨이 검수를 주장하면 안 된다.** 인제스트 출력의 `status` 는 무조건 `draft`
- *   이고(README §5-B), 화면은 그걸 참고 모드 배너로 말한다. 여기서 `source` 에
+ *   이고(docs/team-handbook.md §5-B), 화면은 그걸 참고 모드 배너로 말한다. 여기서 `source` 에
  *   *"교차검증"* 같은 문구를 붙이면 그 배너와 같은 화면에서 두 말을 하게 된다.
  *   스냅숏 프리셋의 `source` 문구를 흉내 내지 마라 — 그것들은 사람이 대조한 것이다.
  */
